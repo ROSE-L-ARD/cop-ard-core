@@ -39,7 +39,8 @@ requires-python = ">=3.11"
 # Users are encouraged to fix the EOPF CPM version to make sure to
 # have a stable build environment.
 dependencies = [
-    "s1-ard-core==1.0.0",
+    "s1-ard-core@git+https://gitlab.eopf.copernicus.eu/S1/s1-ard-core.git@29-quality-tools",
+    "xarray-spatial"
 ]
 license = { file = "LICENSE" }
 

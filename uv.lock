@@ -783,6 +783,15 @@ wheels = [
 ]
 
 [[package]]
+name = "colorcet"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/c3/ae78e10b7139d6b7ce080d2e81d822715763336aa4229720f49cb3b3e15b/colorcet-3.1.0.tar.gz", hash = "sha256:2921b3cd81a2288aaf2d63dbc0ce3c26dcd882e8c389cc505d6886bf7aa9a4eb", size = 2183107, upload-time = "2024-02-29T19:15:42.976Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/c6/9963d588cc3d75d766c819e0377a168ef83cf3316a92769971527a1ad1de/colorcet-3.1.0-py3-none-any.whl", hash = "sha256:2a7d59cc8d0f7938eeedd08aad3152b5319b4ba3bcb7a612398cc17a384cb296", size = 260286, upload-time = "2024-02-29T19:15:40.494Z" },
+]
+
+[[package]]
 name = "comm"
 version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -887,6 +896,7 @@ name = "cop-ard-core"
 source = { editable = "." }
 dependencies = [
     { name = "s1-ard-core" },
+    { name = "xarray-spatial" },
 ]
 
 [package.optional-dependencies]
@@ -942,10 +952,11 @@ requires-dist = [
     { name = "eopf", extras = ["security"], marker = "extra == 'security'", specifier = ">=2.5.8" },
     { name = "eopf", extras = ["tests"], marker = "extra == 'tests'", specifier = ">=2.5.8" },
     { name = "eopf", extras = ["typing"], marker = "extra == 'typing'", specifier = ">=2.5.8" },
-    { name = "s1-ard-core", specifier = "==1.0.0" },
+    { name = "s1-ard-core", git = "https://gitlab.eopf.copernicus.eu/S1/s1-ard-core.git?rev=29-quality-tools" },
     { name = "sphinx-test-reports", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-plantuml", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-spelling", marker = "extra == 'doc'" },
+    { name = "xarray-spatial" },
 ]
 provides-extras = ["cluster-plugin", "complexity", "dev", "doc", "doc-cov", "formatter", "linter", "notebook", "security", "tests", "typing"]
 
@@ -1212,6 +1223,29 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/32/2a/751bb5ba28533476b1c667eac158e5aa1840c416fd61d425328ef48a894a/dask_jobqueue-0.9.0.tar.gz", hash = "sha256:494ef64b7bb3848c7d72ed334c288030caca6a09dca54cfaa3f395f4ba7f5c47", size = 56475, upload-time = "2024-08-22T09:25:21.56Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/57/77/606f138bf70b14865842b3ec9a58dc1ba97153f466e5876fe4ced980f91f/dask_jobqueue-0.9.0-py2.py3-none-any.whl", hash = "sha256:253dfc4f0b8722201a08e05b841859dfeea1f6698ff21eff0d9370e5aa8ae20f", size = 52037, upload-time = "2024-08-22T09:25:20.106Z" },
+]
+
+[[package]]
+name = "datashader"
+version = "0.18.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorcet" },
+    { name = "multipledispatch" },
+    { name = "numba" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "param" },
+    { name = "pyct" },
+    { name = "requests" },
+    { name = "scipy" },
+    { name = "toolz" },
+    { name = "xarray" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/5d/3f8db3f4fa141c577eb8953323670d91e6c18bd135bf2346fb02ae0b1768/datashader-0.18.2.tar.gz", hash = "sha256:53ef0bc35b9ba1034bdf290a2e28babf0fa2b075a3e5a822c79dcde12183d1ff", size = 18195212, upload-time = "2025-08-05T10:04:37.793Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/0e/b11ad5fd77e3dd0baad9cac3184315be7654ae401e3b0b0c324503f23d96/datashader-0.18.2-py3-none-any.whl", hash = "sha256:2aa90e867a46b1e75248f32a47c5b14bb5dc869524152f88c0af8369d47359e7", size = 18330272, upload-time = "2025-08-05T10:04:35.288Z" },
 ]
 
 [[package]]
@@ -1678,23 +1712,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9b/af/fbfe3c4b5a657d79e5c47a2827a362f9e1b763336a52f926126aa6dc7123/flake8-7.3.0.tar.gz", hash = "sha256:fe044858146b9fc69b551a4b490d69cf960fcb78ad1edcb84e7fbb1b4a8e3872", size = 48326, upload-time = "2025-06-20T19:31:35.838Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9f/56/13ab06b4f93ca7cac71078fbe37fcea175d3216f31f85c3168a6bbd0bb9a/flake8-7.3.0-py2.py3-none-any.whl", hash = "sha256:b9696257b9ce8beb888cdbe31cf885c90d31928fe202be0889a7cdafad32f01e", size = 57922, upload-time = "2025-06-20T19:31:34.425Z" },
-]
-
-[[package]]
-name = "flox"
-version = "0.10.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "numpy-groupies" },
-    { name = "packaging" },
-    { name = "pandas" },
-    { name = "scipy" },
-    { name = "toolz" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/4d/93cbe6588aa434173ba5204e3a8b70587a46be10daff0a393c89a1770c34/flox-0.10.8.tar.gz", hash = "sha256:bb3e7a249dcb4b45bdd8320f9130a1117dc58b9ce6a1e8140b4a20961d2eab03", size = 925040, upload-time = "2025-12-15T17:38:57.421Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/ec/2eff1f7617979121a38841b9c5b4fe0eaa64dc1d976cf4c85328a288ba8c/flox-0.10.8-py3-none-any.whl", hash = "sha256:9c5e6dc45717aab74d8a79b64e7c4224ea7fa40fbdefe37290bd6be1171dc581", size = 89002, upload-time = "2025-12-15T17:38:56.384Z" },
 ]
 
 [[package]]
@@ -3048,15 +3065,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mock"
-version = "5.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/07/8c/14c2ae915e5f9dca5a22edd68b35be94400719ccfa068a03e0fb63d0f6f6/mock-5.2.0.tar.gz", hash = "sha256:4e460e818629b4b173f32d08bf30d3af8123afbb8e04bb5707a1fd4799e503f0", size = 92796, upload-time = "2025-03-03T12:31:42.911Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/d9/617e6af809bf3a1d468e0d58c3997b1dc219a9a9202e650d30c2fc85d481/mock-5.2.0-py3-none-any.whl", hash = "sha256:7ba87f72ca0e915175596069dbbcc7c75af7b5e9b9bc107ad6349ede0819982f", size = 31617, upload-time = "2025-03-03T12:31:41.518Z" },
-]
-
-[[package]]
 name = "morecantile"
 version = "6.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3238,6 +3246,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/8f/0a60e501584145588be1af5cc829265701ba3c35a64aec8e07cbb71d39bb/multidict-6.7.0-cp314-cp314t-win_amd64.whl", hash = "sha256:09929cab6fcb68122776d575e03c6cc64ee0b8fca48d17e135474b042ce515cd", size = 53507, upload-time = "2025-10-06T14:51:53.672Z" },
     { url = "https://files.pythonhosted.org/packages/7f/ae/3148b988a9c6239903e786eac19c889fab607c31d6efa7fb2147e5680f23/multidict-6.7.0-cp314-cp314t-win_arm64.whl", hash = "sha256:cc41db090ed742f32bd2d2c721861725e6109681eddf835d0a82bd3a5c382827", size = 44804, upload-time = "2025-10-06T14:51:55.415Z" },
     { url = "https://files.pythonhosted.org/packages/b7/da/7d22601b625e241d4f23ef1ebff8acfc60da633c9e7e7922e24d10f592b3/multidict-6.7.0-py3-none-any.whl", hash = "sha256:394fc5c42a333c9ffc3e421a4c85e08580d990e08b99f6bf35b4132114c5dcb3", size = 12317, upload-time = "2025-10-06T14:52:29.272Z" },
+]
+
+[[package]]
+name = "multipledispatch"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/3e/a62c3b824c7dec33c4a1578bcc842e6c30300051033a4e5975ed86cc2536/multipledispatch-1.0.0.tar.gz", hash = "sha256:5c839915465c68206c3e9c473357908216c28383b425361e5d144594bf85a7e0", size = 12385, upload-time = "2023-06-27T16:45:11.074Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/c0/00c9809d8b9346eb238a6bbd5f83e846a4ce4503da94a4c08cb7284c325b/multipledispatch-1.0.0-py3-none-any.whl", hash = "sha256:0c53cd8b077546da4e48869f49b13164bebafd0c2a5afceb6bb6a316e7fb46e4", size = 12818, upload-time = "2023-06-27T16:45:09.418Z" },
 ]
 
 [[package]]
@@ -3619,18 +3636,6 @@ wheels = [
 ]
 
 [[package]]
-name = "numpy-groupies"
-version = "0.11.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/ff/0559b586423d9a59feac52c2261501106dcd61e45214862de5fbb03b78cb/numpy_groupies-0.11.3.tar.gz", hash = "sha256:aed4afdad55e856b9e737fe4b4673c77e47c2f887c3663a18baaa200407c23e0", size = 159159, upload-time = "2025-05-22T11:47:58.364Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/e0/760e73c111193db5ca37712a148e4807d1b0c60302ab31e4ada6528ca34d/numpy_groupies-0.11.3-py3-none-any.whl", hash = "sha256:d4065dd5d56fda941ad5a7c80a7f80b49f671ed148aaa3e243a0e4caa71adcb3", size = 40784, upload-time = "2025-05-22T11:47:56.997Z" },
-]
-
-[[package]]
 name = "numpydoc"
 version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3731,6 +3736,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/70/6f/3dd4940bbe001c06a65f88e36bad298bc7a0de5036115639926b0c5c0458/pandocfilters-1.5.1.tar.gz", hash = "sha256:002b4a555ee4ebc03f8b66307e287fa492e4a77b4ea14d3f934328297bb4939e", size = 8454, upload-time = "2024-01-18T20:08:13.726Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/af/4fbc8cab944db5d21b7e2a5b8e9211a03a79852b1157e2c102fcc61ac440/pandocfilters-1.5.1-py2.py3-none-any.whl", hash = "sha256:93be382804a9cdb0a7267585f157e5d1731bbe5545a85b268d6f5fe6232de2bc", size = 8663, upload-time = "2024-01-18T20:08:11.28Z" },
+]
+
+[[package]]
+name = "param"
+version = "2.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/bb/ffd1606c28a957fb6444ed3edefe41373cdd7b3e001630b07e3a53a6bea3/param-2.3.1.tar.gz", hash = "sha256:84e59fc3a9bfb0e4c8100eb92d5be529deea3ec9c1f0881a0068c5caf31f21f3", size = 201772, upload-time = "2025-11-25T15:35:54.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/da/9d476e9aadfa854719f3cb917e3f7a170a657a182d8d1d6e546594a4872b/param-2.3.1-py3-none-any.whl", hash = "sha256:886b19031438719bbecfd15044dcdd9ed3cb9edb199191294f75600c7081d163", size = 139818, upload-time = "2025-11-25T15:35:53.556Z" },
 ]
 
 [[package]]
@@ -4150,6 +4164,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fe/cf/d2d3b9f5699fb1e4615c8e32ff220203e43b248e1dfcc6736ad9057731ca/pycparser-2.23.tar.gz", hash = "sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2", size = 173734, upload-time = "2025-09-09T13:23:47.91Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl", hash = "sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934", size = 118140, upload-time = "2025-09-09T13:23:46.651Z" },
+]
+
+[[package]]
+name = "pyct"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "param" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/c3/78eeacf7cbf478db6bd41de0ee2221cc6769d81e0c10f6c1616c82a25e06/pyct-0.6.0.tar.gz", hash = "sha256:d4e513b2cf35b6165605ae5fce5f2a49985bc67473c579de85134b8c71d374a8", size = 14586, upload-time = "2025-09-26T08:26:19.987Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/b2/23f4032cd1c9744aa8e9ecda43cd4d755fcb209f7f40fae035248f31a679/pyct-0.6.0-py3-none-any.whl", hash = "sha256:cfaded7289fca72ddf6579b81459e3ec8db323a508e61c49aa318ee3cd6ff160", size = 16630, upload-time = "2025-09-26T08:26:19.092Z" },
 ]
 
 [[package]]
@@ -5062,7 +5088,7 @@ wheels = [
 [[package]]
 name = "s1-ard-core"
 version = "1.0.0"
-source = { registry = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/simple" }
+source = { git = "https://gitlab.eopf.copernicus.eu/S1/s1-ard-core.git?rev=29-quality-tools#961ef20a1ce0b7d0b0484ef7337475524a5070be" }
 dependencies = [
     { name = "dask" },
     { name = "defusedxml" },
@@ -5073,16 +5099,13 @@ dependencies = [
     { name = "numpy" },
     { name = "rasterio" },
     { name = "retry" },
+    { name = "rioxarray" },
     { name = "s3fs" },
     { name = "sarpy" },
-    { name = "sarsen" },
     { name = "scipy" },
     { name = "structlog" },
     { name = "xarray" },
     { name = "zarr" },
-]
-wheels = [
-    { url = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/files/39e294165c84a48569468218ba503a0457c59865f82f63c659fec6848c738795/s1_ard_core-1.0.0-py3-none-any.whl", hash = "sha256:39e294165c84a48569468218ba503a0457c59865f82f63c659fec6848c738795" },
 ]
 
 [[package]]
@@ -5162,27 +5185,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/64/317a837c668133c11bf119367621c43fd31b200da9edecc2b02a889c3a02/sarpy-1.3.63.tar.gz", hash = "sha256:9b4624b1ebe0c1fc523616d60c9771009a2cf0fac3579733fdfe0e5bb85ee41e", size = 1290894, upload-time = "2026-01-07T21:00:43.481Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/72/c01eb24b77b91e22d3ca5244bf48ac26d23487ee4c010583875b15b4e228/sarpy-1.3.63-py2.py3-none-any.whl", hash = "sha256:91e3eec8160aea305a827db525a69dadec3cf6832b8ff41f455d2f6753f1b662", size = 1653052, upload-time = "2026-01-07T21:00:41.616Z" },
-]
-
-[[package]]
-name = "sarsen"
-version = "0.9.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "attrs" },
-    { name = "flox" },
-    { name = "mock" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "rasterio" },
-    { name = "rioxarray" },
-    { name = "typer" },
-    { name = "xarray" },
-    { name = "xarray-sentinel" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/84/fb/3023ab536d8419caaea71f7f7f822385d324b761abd3739853c3a4dbc697/sarsen-0.9.4.tar.gz", hash = "sha256:56bbdb382719b506852a8f63c68f0d9f434fcb4dbe9130b8ac0238b3f8ee2eb1", size = 2523990, upload-time = "2024-12-27T11:27:20.641Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/e2/6ca7adeb6a1607b3d5a188f392b5630659a3acf2622ea2ec59e44fc4e032/sarsen-0.9.4-py3-none-any.whl", hash = "sha256:385fa29989992a28a7058cff4a7d99c830a584e31e04c7abb49367972c6376b2", size = 27549, upload-time = "2024-12-27T11:27:19.404Z" },
 ]
 
 [[package]]
@@ -6467,20 +6469,18 @@ wheels = [
 ]
 
 [[package]]
-name = "xarray-sentinel"
-version = "0.9.5"
+name = "xarray-spatial"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec" },
+    { name = "datashader" },
+    { name = "numba" },
     { name = "numpy" },
-    { name = "pandas" },
-    { name = "rioxarray" },
     { name = "xarray" },
-    { name = "xmlschema" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/a4/086b692f93eca852c9c28e27c0bc824c8ea126f8e4601cd58ef7d37b517d/xarray-sentinel-0.9.5.tar.gz", hash = "sha256:5d9d3c8fd8c9856768edfff9568d25a92a06e5840833077660af279d2def0b8a", size = 4908994, upload-time = "2022-11-18T10:55:29.561Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/ec/f9b23eb09bf35e38e6ef3a02874ea1ddf579eb365e2a492d29f78bcab12a/xarray_spatial-0.5.2.tar.gz", hash = "sha256:04ed5992eed25ad4d4a5277c73c1b64a3f677f179863e269fcdb199d26bcc2ea", size = 70254335, upload-time = "2025-12-18T20:09:59.099Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/44/8c3bf2db9606c5e570c73890a8abf28a3401a5b85ff0f6b2076b09c078f2/xarray_sentinel-0.9.5-py3-none-any.whl", hash = "sha256:63ae1524e15b1ba4b34c54977b2586cd9f7434da0acb39e098d9472846659601", size = 64242, upload-time = "2022-11-18T10:55:27.379Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/d2/cb1c6104e6bf7ab77879fce7bc4bc6dcc4ae5a94246ab9c314b5d21022b2/xarray_spatial-0.5.2-py3-none-any.whl", hash = "sha256:9bf4850b7321d633f4178c5caea9cce7f52896b2533f1aa475ce5b187ac9cc4a", size = 2017596, upload-time = "2025-12-18T20:09:57.184Z" },
 ]
 
 [[package]]
