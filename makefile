@@ -1,5 +1,5 @@
 DIR = .
-SOURCES=${DIR}/cop
+SOURCES=${DIR}/cop_ard_core
 TESTS=${DIR}/tests
 
 update:

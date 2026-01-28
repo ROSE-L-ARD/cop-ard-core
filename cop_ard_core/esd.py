@@ -1,13 +1,18 @@
 import datetime
 import warnings
+from typing import cast
 
 import numpy as np
-import xarray as xr
-import xrspatial.convolution as conv
-
 import s1_ard_core.computing.computation
-from s1_ard_core.computing.io import Path, normpath, read, write
+import scipy.optimize
+import xarray as xr
+import xrft
+import xrspatial.convolution as conv
+from numba import njit
+from s1_ard_core.computing.io import Path, read
 from s1_ard_core.computing.logger import logger
+
+import cop_ard_core.utils
 
 
 def to_dataset(X, acquisition_date, poly_degree, t0, r0, s_y, s_x):
@@ -83,10 +88,12 @@ def find_global_shift(
         M = scipy.sparse.coo_matrix((v.flatten(), (row_ids, col_ids)), shape=(n_eq, n_vars))
 
         # removing from A and B the all invalid lines #
-        i_v = ((np.isfinite(c_esd["shift"])) & (c_esd["shift"].acquisition_date != c_esd.reference_date)).values
+        i_v = (
+            (np.isfinite(c_esd["mean_shift"])) & (c_esd["mean_shift"].acquisition_date != c_esd.reference_date)
+        ).values
 
         A = (D - M)[i_v, :]
-        B = (c_esd["shift"].values * c_esd["coherence"].values)[i_v]
+        B = (c_esd["mean_shift"].values * c_esd["coherence"].values)[i_v]
         return (A, B)
 
     A, B = zip(*[create_matrix(esd.sel(stacked=(id, date))) for (id, date) in esd.stacked.values])
@@ -163,32 +170,22 @@ def compute_azimuth_shifts(
             interf01 = (interf0 * interf1.conj() * coherence).mean(dim=["slant_range_time", "azimuth_pixel"])
             mean_phase = xr.apply_ufunc(np.angle, interf01.compute())
             mean_phase = xr.DataArray(
-                data=mean_phase, dims=["acquisition_date"], coords={"acquisition_date": interf01.acquisition_date}
+                data=mean_phase,
+                dims=["acquisition_date"],
+                coords={"acquisition_date": interf01.acquisition_date},
+                name="mean_phase",
             )
 
-            # phase to shift convertion #
-            shifts = (mean_phase / (2.0 * np.pi * f_d * dtaz)).rename("shifts")
-
-            # TODO: check if this version of the formula is right. In the previous
-            #      implementation it was: wrap_cycle = 1.0 / (2 * f_d * dtaz)
-            #      I think it was wrong, the divide by 2 is not required
-            #      wrap cycle to be used to unwrap estimated shifts
-            wrap_cycle = 1.0 / (f_d * dtaz)
-
-            # shifts simple unwrapping attempt #
-            shifts = shifts - wrap_cycle * np.round((shifts - shifts.median()) / wrap_cycle)
-
-            # return the obtained shifts and the corresponding mean coherences #
             coherence = coherence.mean(dim=["azimuth_pixel", "slant_range_time"])
         else:
 
             # if the reference_date is not in the burst nan shift and coherence will be returned #
             coords = burst0.acquisition_date.coords
             data = np.full(burst0.acquisition_date.size, np.nan)
-            shifts = xr.DataArray(name="shifts", data=data, coords=coords)
+            mean_phase = xr.DataArray(name="mean_phase", data=data, coords=coords)
             coherence = xr.DataArray(name="coherence", data=data, coords=coords)
 
-        return (reference_date, shifts.compute(), coherence.rename("coherence").compute())
+        return (reference_date, mean_phase.compute(), coherence.rename("coherence").compute())
 
     # Computation of doppler frequency at the edge of the burst0 #
     annot = burst0.attrs[list(burst0.attrs)[0]]
@@ -196,22 +193,34 @@ def compute_azimuth_shifts(
     sm, am = np.meshgrid(burst0.slant_range_m, burst0.azimuth_m[-1:])
     f_d = np.polynomial.polynomial.polyval2d(sm, am, np.polynomial.polynomial.polyint(coeffs, axis=1))
     f_d = np.mean(f_d * (4.0 / eta))
+
     with warnings.catch_warnings():
         # Silence warning related to divide and multiply
         warnings.filterwarnings("ignore", message=".*invalid value encountered in.*")
         warnings.filterwarnings("ignore", message=".*overflow encountered in multiply.*")
 
         # shifts estimation for each reference_date that is also a date of burst0
-        reference, shift, cohe = zip(*[compute_shift(e, f_d, dtaz) for e in reference_dates])
+        reference, mean_phase, cohe = zip(*[compute_shift(e, f_d, dtaz) for e in reference_dates])
+
+        wrap_cycle = tuple([xr.full_like(s, 1 / (f_d * dtaz)) for s in mean_phase])
 
     # obtained shifts returned as a xr.Dataset #
-    return xr.Dataset(
+    cohe = xr.concat(cohe, dim="reference_date")
+    mean_phase = xr.concat(mean_phase, dim="reference_date")
+    wrap_cycle = xr.concat(wrap_cycle, dim="reference_date")
+    mean_shift = xr.zeros_like(mean_phase)
+
+    esd = xr.Dataset(
         {
             "reference_date": list(reference),
-            "coherence": xr.concat(cohe, dim="reference_date"),
-            "shift": xr.concat(shift, dim="reference_date"),
+            "coherence": cohe,
+            "mean_phase": mean_phase,
+            "mean_shift": mean_shift,
+            "wrap_cycle": wrap_cycle,
         }
     )
+
+    return esd
 
 
 def esd_single_burst(
@@ -221,6 +230,8 @@ def esd_single_burst(
     reference_dates: list[str],
     kernel_shape: list[int] = [3, 3],
     coherence_th: float = 0.7,
+    freq: float | None = None,
+    bandwidth: float | None = None,
     **kwargs,
 ):
     """
@@ -297,12 +308,47 @@ def esd_single_burst(
         # overlap area extraction from current and next bursts #
         next_burst = next_burst.sel({k: sel.coords[k] for k in v_dims}).cstack.sel(polarization=pol)
         current_burst = current_burst.sel({k: sel.coords[k] for k in v_dims}).cstack.sel(polarization=pol)
+        chunks_burst = {k: v[0] for k, v in current_burst.chunksizes.items()}
+
+        if (freq is not None) and (bandwidth is not None):
+            logger.info(f"Selecting frequency {freq}")
+            logger.info(f"Selecting bandwidth {bandwidth}")
+
+            current_frange = xrft.fft(
+                current_burst.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
+                true_amplitude=True,
+                true_phase=True,
+                dim="slant_range_time",
+            )
+            next_frange = xrft.fft(
+                next_burst.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
+                true_amplitude=True,
+                true_phase=True,
+                dim="slant_range_time",
+            )
+
+            current_burst = (
+                cop_ard_core.utils.extract_subband(current_frange, bandwidth, freq)
+                .compute()
+                .chunk(chunks_burst)
+                .assign_coords(current_burst.coords)
+                .assign_attrs(current_burst.attrs)
+            )
+            next_burst = (
+                cop_ard_core.utils.extract_subband(next_frange, bandwidth, freq)
+                .compute()
+                .chunk(chunks_burst)
+                .assign_coords(next_burst.coords)
+                .assign_attrs(next_burst.attrs)
+            )
 
         # returns the estimated azimuth shift and the corresponding quality index #
-        logger.info(f"Computing of azimuth shifts")
+        logger.info("Computing of azimuth shifts")
 
         next_reference = next_burst.sel(acquisition_date=reference_dates)
         current_reference = current_burst.sel(acquisition_date=reference_dates)
+        # new dimension id and corresponding coords added to the shifts #
+        coords = {k: (["id"], [current_burst[k].mean().values]) for k in ["azimuth_time", "slant_range_time"]}
 
         esd = s1_ard_core.computing.computation.map_blocks(
             compute_azimuth_shifts,
@@ -318,9 +364,6 @@ def esd_single_burst(
             chunksizes={"acquisition_date": 1},
             enable_dask=True,
         )
-
-        # new dimension id and corresponding coords added to the shifts #
-        coords = {k: (["id"], [current_burst[k].mean().values]) for k in ["azimuth_time", "slant_range_time"]}
         esd = esd.expand_dims({"id": [burst_id]}).assign_coords(coords)
     else:
         logger.info(f"ESD computation skipped: burst ({next_burst_id}) does not exist")
@@ -334,6 +377,8 @@ def estimate(
     working_directory: str | Path,
     reference_dates: list[str] | str,
     poly_degree: int = 0,
+    freq: float | None = None,
+    bandwidth: float | None = None,
     **kwargs,
 ):
     key = "coregistration_reference_date"
@@ -349,16 +394,112 @@ def estimate(
             "working_directory": working_directory,
             "burst_list": list(slcs.bursts),
             "reference_dates": reference_dates,
+            "freq": freq,
+            "bandwidth": bandwidth,
         },
         combine=False,
         **kwargs,
     )
 
     # Structure re-formatting in order to solve the global problem
-    esd = xr.merge([e for e in esd if e is not None], compat="no_conflicts", combine_attrs="drop", join="outer").stack(
-        stacked=("id", "reference_date")
-    )
+    esd = xr.merge([e for e in esd if e is not None], compat="no_conflicts", combine_attrs="drop", join="outer")
 
+    args = [
+        esd.sel(acquisition_date=d, reference_date=rd)
+        for d in esd.acquisition_date.values
+        for rd in reference_dates
+        if d != rd
+    ]
+
+    esd_opt = cast(
+        list,
+        s1_ard_core.computing.computation.map(
+            optimize_curvature,
+            args=args,
+            kwargs={"poly_degree": poly_degree},
+            combine=False,
+            **kwargs,
+        ),
+    )
+    for e in esd_opt:
+        d, rd = e.acquisition_date.values, e.reference_date.values
+        before = esd["mean_phase"].loc[:, rd, d].copy(True).values
+        esd["mean_phase"].loc[:, rd, d] = e.mean_phase
+        esd["mean_shift"].loc[:, rd, d] = e.mean_shift
+        after = esd["mean_phase"].loc[:, rd, d].values
+        print(after - before)
+
+    esd = esd.stack(stacked=("id", "reference_date")).assign_attrs(
+        {key: list(slcs.bursts.children.values())[0].coreg.measurements.attrs[key]}
+    )
     # Auxiliary data saved as attributes of the dataset
-    esd = esd.assign_attrs({key: list(slcs.bursts.children.values())[0].coreg.measurements.attrs[key]})
     return find_global_shift(esd, poly_degree=poly_degree)
+
+
+def optimize_curvature(esd, poly_degree: int):
+    ind = np.where(np.isfinite(esd["mean_phase"].values))[0]  # * esd.id.str.startswith(swath))[0]
+    y = esd["mean_phase"].values[ind]
+    w = esd["wrap_cycle"].values[ind]
+    az = esd["azimuth_time"].values[ind]
+    t = (az - az.min()).astype(float) / 1e9
+    if poly_degree != 0:
+        A = np.vstack([t**i for i in range(1, poly_degree + 1)]) * 2 * np.pi / w
+        scale = np.ptp(A, axis=1)
+        A = 2 * A / scale[:, None] - 1
+        params = np.array([np.arange(-3 * np.pi, 3 * np.pi, np.pi / 100) for i in range(poly_degree)])
+
+        opt_param = optimize_phase(params, y, A)
+        opt_param = scipy.optimize.minimize(scipy_optimize_phase, opt_param, args=(y, A), method="BFGS").x
+        cost = angle_phase(opt_param, y, A)
+        y_model = opt_param @ A + cost
+    else:
+        y_model = angle_phase(np.zeros(1), y, np.zeros(1))
+
+    phase = cop_ard_core.utils.wrap(y - y_model) + y_model
+
+    esd_opt = esd.copy(deep=True)
+    esd_opt["mean_phase"][ind] = phase
+    esd_opt["mean_shift"][:] = np.nan
+    esd_opt["mean_shift"][ind] = phase / (2 * np.pi) * esd_opt["wrap_cycle"][ind]
+
+    return esd_opt
+
+
+@njit(cache=True)
+def compute_phase(param, y, A):
+    return np.abs(np.mean(np.exp(1j * (y - param @ A))))
+
+
+@njit(cache=True)
+def angle_phase(param, y, A):
+    return np.angle(np.mean(np.exp(1j * (y - param @ A))))
+
+
+@njit(cache=True)
+def optimize_phase(params, y, A):
+    n_rows = params.shape[0]
+    n_cols = params.shape[1]
+    total_combinations = n_cols**n_rows
+    opt_res = 0
+    opt_param = np.zeros(n_rows, dtype=params.dtype)
+    for i in range(total_combinations):
+        index = i
+        param = np.zeros(n_rows, dtype=params.dtype)
+        for row in range(n_rows - 1, -1, -1):
+            col = index % n_cols
+            param[row] = params[row, col]
+            index = index // n_cols
+        res = compute_phase(param, y, A)
+        if res > opt_res:
+            opt_res = res
+            opt_param = param
+
+    return opt_param
+
+
+def scipy_optimize_phase(param, y, A) -> float:
+    """
+    Compute the objective function value for a given parameters x.
+    This function is a wrapper to be used with Scipy optimizers.
+    """
+    return -compute_phase(param, y, A)

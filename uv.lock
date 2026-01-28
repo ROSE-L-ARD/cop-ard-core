@@ -895,8 +895,10 @@ wheels = [
 name = "cop-ard-core"
 source = { editable = "." }
 dependencies = [
+    { name = "bokeh" },
     { name = "s1-ard-core" },
     { name = "xarray-spatial" },
+    { name = "xrft" },
 ]
 
 [package.optional-dependencies]
@@ -940,6 +942,7 @@ typing = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bokeh", specifier = ">=3.4.1" },
     { name = "docxbuilder", marker = "extra == 'doc'" },
     { name = "eopf", extras = ["cluster-plugin"], marker = "extra == 'cluster-plugin'", specifier = ">=2.5.8" },
     { name = "eopf", extras = ["complexity"], marker = "extra == 'complexity'", specifier = ">=2.5.8" },
@@ -957,6 +960,7 @@ requires-dist = [
     { name = "sphinxcontrib-plantuml", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-spelling", marker = "extra == 'doc'" },
     { name = "xarray-spatial" },
+    { name = "xrft", specifier = ">=1.0.1" },
 ]
 provides-extras = ["cluster-plugin", "complexity", "dev", "doc", "doc-cov", "formatter", "linter", "notebook", "security", "tests", "typing"]
 
@@ -6507,6 +6511,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/dd/cb/dc0236ae209c924c1a7f4d3ae9d3371980beda85d1e0b5bd2d4f07372e48/xmlschema-4.1.0.tar.gz", hash = "sha256:88ac771cf94d5fc6bbd1a763db8c157f3d683ad23120b0d0b8c46fe4537f2adf", size = 633811, upload-time = "2025-06-05T21:17:39.32Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/2c/3ba8f8aeb3cb566e88a61ab0b0b767d5398d1e7293a0f7a76df9051e2b08/xmlschema-4.1.0-py3-none-any.whl", hash = "sha256:eabf610f398a58700bc4ac94380ad9ce558297a3f9ca8b7722ed3f7888eb4498", size = 458466, upload-time = "2025-06-05T21:17:35.265Z" },
+]
+
+[[package]]
+name = "xrft"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dask" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scipy" },
+    { name = "xarray" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/2b/774859d185302355ea46cf202add6e3ef37e1a73901d9d6dff3f05cdd162/xrft-1.0.1.tar.gz", hash = "sha256:5e9c4fa33cf458d951d7cc730283aa63665885c76cc029da6b8fd84757506714", size = 636797, upload-time = "2023-02-08T16:15:08.651Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/97/31fa97086ba7cd8deaa22ab469b34dc0c131b7cc26fb03e3d8c2735ea8bd/xrft-1.0.1-py2.py3-none-any.whl", hash = "sha256:8f7ce5b01f7728503344352fc376256c0737a7799b40967d66d51f4304d46db9", size = 32121, upload-time = "2023-02-08T16:15:06.207Z" },
 ]
 
 [[package]]
