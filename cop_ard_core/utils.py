@@ -1,12 +1,11 @@
-from typing import Any
-
-import numpy as np
 import xarray as xr
 import xrft
 from scipy.constants import speed_of_light
+from s1_ardcore.computing.io import write
+import numpy as np
 
 
-def extract_subband(frange, bw, f0):
+def extract_subband(frange: xr.DataArray, bw: float, f0: float) -> xr.DataArray:
 
     mask = (frange.freq_slant_range_time > f0 - bw / 2) * (frange.freq_slant_range_time < f0 + bw / 2)
     sel = frange * mask
@@ -16,33 +15,38 @@ def extract_subband(frange, bw, f0):
     )
 
 
-# def unwrap_phase(ph: xr.DataArray, cohe: xr.DataArray, threshold: float = 1e-3):
+def subband_mapping(burst: str, cslc: xr.DataTree, f_c: float, bw: float, id: str, wdir_path: str):
+    chunks_burst = {k: v[0] for k, v in cslc.chunksizes.items()}
+    if cslc.acquisition_date.size != 2:
+        print(f"Skipping burst {k} with {cslc.acquisition_date.size} acquisitions")
+        return None, None
 
-#     # stack x,y coordinates
-#     x_, y_ = np.meshgrid(np.arange(ph.slant_range_time.size), np.arange(ph.azimuth_time.size))
-#     ph_f_lin = ph.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
-#     cohe_f_lin = cohe.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
+    print(50 * "=")
+    # select area according to the output multilook grid
+    print("Select area ...")
 
-#     # apply coherence threshold
-#     mask = cohe_f_lin > threshold
+    # compute full range spectrum
+    print("Computing full range spectrum...")
+    frange = xrft.fft(
+        cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
+        true_amplitude=True,
+        true_phase=True,
+        dim="slant_range_time",
+    ).persist()
 
-#     # select points to be unwrapped
-#     ph_sel, cohe_sel = ph_f_lin[mask], cohe_f_lin[mask]
-#     x, y = x_.ravel()[mask], y_.ravel()[mask]
+    # extract low and high freq subbands
+    print("Extracting subbands...")
 
-#     # call MCF solver
-#     print(f"call mcf on {x.size} points")
-#     exit_status, total_cost, sol_ = mcf.integ_mcf(x, y, ph_sel, cohe_sel, dict())
-#     print(f"Exit status: {exit_status}, Total cost: {total_cost}")
-
-#     # reconstruct unwrapped phase 2D dataarray
-#     ph_f = ph.copy()
-#     # sol_ = ph_sel
-#     ph_f_lin = ph_f_lin * np.nan
-#     ph_f_lin[mask] = sol_
-#     ph_f[:, :] = ph_f_lin.reshape(ph.shape)
-
-#     return ph_f
+    # extract slc sub band
+    cslc_sub_band = (
+        extract_subband(frange, bw, f_c)
+        .to_dataset(name="cstack")
+        .compute()
+        .chunk(chunks_burst)
+        .assign_coords(cslc.coords)
+        .assign_attrs(cslc.attrs)
+    )
+    write(cslc_sub_band, f"{wdir_path}/{id}/bursts/{burst}/coreg/measurements", mode="w")
 
 
 def get_bounding_box(slcs: xr.DataTree, path: str) -> list:
@@ -151,7 +155,7 @@ def get_carrier_frequency(slcs: xr.DataTree, path: str, pol: str) -> float:
     return np.mean(f0)
 
 
-def get_coeff_demod(annot: dict[str, Any]):
+def get_coeff_demod(annot: dict):
 
     return (2 * np.pi) * np.polynomial.polynomial.polyint(annot["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"], axis=1)
 
@@ -174,66 +178,54 @@ def get_coordinates(coreg, alpha, beta, coord_type: str = "pixels"):
     return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
 
 
-def get_phramp_diff(burst: xr.Dataset, slc: xr.Dataset, y_poly, dd: str):
+def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
+    ph_ramp_diff_list = []
 
-    annot = slc.attrs[list(slc.attrs)[0]]
+    for k, dd in enumerate(burst.acquisition_date.values):
+        slc = orig[f"{dd}/measurements/slc"]
+        annot = slc.attrs[list(slc.attrs)[0]]
 
-    # y_poly = get_poly(poly, 'y_poly', dd)
-    # x_poly = get_poly(burst, 'x_poly', dd)
-    coeff_demod = get_coeff_demod(annot)
+        # extract demodulation coefficients
+        coeff_demod = get_coeff_demod(annot)
 
-    # compute spacing and start times
-    dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
-    # dtrg = 2 * annot["Grid"]["Row"]["SS"] / speed_of_light
+        # compute spacing and start times
+        dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
 
-    # compute azimuth correction
-    # rg = (burst.slant_range_time - y_poly[dd].attrs['offset'][1]) / y_poly[dd].attrs['scale_fact'][1]
-    # az = (burst.azimuth_time - y_poly[dd].attrs['offset'][0]).astype(float) / y_poly[dd].attrs['scale_fact'][0]
+        # compute azimuth correction
+        c1, c2 = get_coordinates(burst, y_poly[dd].offset, y_poly[dd].scale_fact, y_poly.type)
+        daz_corr = np.polynomial.polynomial.polygrid2d(c1, c2, y_poly[dd].values)
 
-    c1, c2 = get_coordinates(burst, y_poly[dd].offset, y_poly[dd].scale_fact, y_poly.type)
-    daz_corr = np.polynomial.polynomial.polygrid2d(c1, c2, y_poly[dd].values)
+        # Corrected slant range and azimuth positions
+        drg = burst.drg.sel(acquisition_date=dd)
+        daz = burst.daz.sel(acquisition_date=dd) + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
 
-    # if y_poly is None:
-    #     daz_corr = np.zeros((burst.daz.shape[1], burst.daz.shape[2]))
-    # else:
-    #     daz_corr = polyval2d(*np.meshgrid(az, rg), y_poly.values).T
+        # centre scene coordinates
+        rg_mid = slc.isel(slant_range_time=annot["ImageData"]["SCPPixel"]["Row"]).slant_range_time.values
+        az_mid = slc.isel(azimuth_time=annot["ImageData"]["SCPPixel"]["Col"]).azimuth_time.values
 
-    # if x_poly is None:
-    # drg_corr = np.zeros((burst.daz.shape[1], burst.daz.shape[2]))
-    # else:
-    #     drg_corr = polyval2d(*np.meshgrid(az, rg), x_poly.values).T
+        # compute the position in the secondary image corresponding to the reference one with and without corrections
+        az_off = (burst.azimuth_time + daz - az_mid).astype(float) / dtaz * annot["Grid"]["Col"]["SS"]
+        az_ori = (
+            (burst.azimuth_time + burst.daz.sel(acquisition_date=dd) - az_mid).astype(float)
+            / dtaz
+            * annot["Grid"]["Col"]["SS"]
+        )
+        rg = (burst.slant_range_time + drg - rg_mid).T * speed_of_light / 2
 
-    # Corrected slant range and azimuth positions
-    drg = burst.drg[1, :, :]  # + drg_corr * dtrg
-    daz = burst.daz[1, :, :] + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
+        ph_ramp_diff = np.polynomial.polynomial.polyval2d(rg, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
+            rg, az_ori, coeff_demod
+        )
+        ph_ramp_diff_list.append(
+            xr.DataArray(
+                ph_ramp_diff,
+                dims=["azimuth_time", "slant_range_time"],
+                coords={"slant_range_time": burst.slant_range_time, "azimuth_time": burst.azimuth_time},
+            )
+        )
 
-    rg_mid = slc.isel(slant_range_time=annot["ImageData"]["SCPPixel"]["Row"]).slant_range_time.values
-    az_mid = slc.isel(azimuth_time=annot["ImageData"]["SCPPixel"]["Col"]).azimuth_time.values
-
-    # compute the position in the secondary image corresponding to the reference one with and without corrections
-    az_off = (burst.azimuth_time + daz - az_mid).astype(float) / dtaz * annot["Grid"]["Col"]["SS"]
-    az_ori = (burst.azimuth_time + burst.daz[1, :, :] - az_mid).astype(float) / dtaz * annot["Grid"]["Col"]["SS"]
-    rg_off = (burst.slant_range_time + drg - rg_mid).T * speed_of_light / 2
-    rg_ori = (burst.slant_range_time + burst.drg[1, :, :] - rg_mid).T * speed_of_light / 2
-
-    ph_ramp_diff = np.polynomial.polynomial.polyval2d(rg_off, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
-        rg_ori, az_ori, coeff_demod
+    return xr.concat(ph_ramp_diff_list, dim="acquisition_date").assign_coords(
+        {"acquisition_date": burst.acquisition_date}
     )
-
-    return xr.DataArray(
-        ph_ramp_diff,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"slant_range_time": burst.slant_range_time, "azimuth_time": burst.azimuth_time},
-    )
-
-
-# def flat_single_burst(crg: xr.DataTree, slc_orig: xr.DataTree, reference: str, dd: str):
-
-#     for k, burst in crg["burst"].items():
-#         # iterate over each burst
-#         slc = slc_orig[f"burst/{k}/orig"][dd].slc
-
-# ph_ramp_diff = get_phramp_diff(burst, slc, dd)
 
 
 def wrap(v: np.ndarray, w: float = 2 * np.pi):
