@@ -5,7 +5,7 @@ from scipy.constants import speed_of_light
 from typing import Any
 
 import numpy as np
-from . import unwrap
+from . import unwrap, utils
 
 
 def get_interf_single_burst(cslc: xr.Dataset, reference: str, multilook: dict, x_off:int=0, y_off:int=0) -> xr.Dataset:
@@ -49,10 +49,10 @@ def extract_interf(burst_id: str, orig: xr.DataTree, coreg: xr.Dataset, y_poly: 
     # extract sub-band
     cslc = coreg.cstack
     if (f0 is not None) and (bw is not None):
-        print("Computing full range spectrum...")
+        print("Computing full range spectrum... qui")
         frange = xrft.fft(cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1), true_amplitude=True, true_phase=True, dim='slant_range_time').persist()
         
-        cslc = extract_subband(frange, bw, f0)
+        cslc = utils.extract_subband(frange, bw, f0)
     
     # correct the cslc phase according to the polynomial offset
     ph_ramp_diff = get_phramp_diff(coreg, orig, y_poly)
