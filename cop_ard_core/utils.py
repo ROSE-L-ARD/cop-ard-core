@@ -1,7 +1,7 @@
 import xarray as xr
 import xrft
 from scipy.constants import speed_of_light
-from s1_ardcore.computing.io import write
+from s1_ard_core.computing.io import write
 import numpy as np
 
 
