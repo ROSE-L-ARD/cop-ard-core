@@ -10,7 +10,7 @@ import xrft
 import xrspatial.convolution as conv
 from numba import njit
 from s1_ard_core.computing.io import Path, read
-from s1_ard_core.computing.logger import logger
+from s1_ard_core.computing.logger import logger, timeit
 
 import cop_ard_core.utils
 
@@ -314,28 +314,15 @@ def esd_single_burst(
             logger.info(f"Selecting frequency {freq}")
             logger.info(f"Selecting bandwidth {bandwidth}")
 
-            current_frange = xrft.fft(
-                current_burst.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
-                true_amplitude=True,
-                true_phase=True,
-                dim="slant_range_time",
-            )
-            next_frange = xrft.fft(
-                next_burst.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
-                true_amplitude=True,
-                true_phase=True,
-                dim="slant_range_time",
-            )
-
             current_burst = (
-                cop_ard_core.utils.extract_subband(current_frange, bandwidth, freq)
+                cop_ard_core.utils.extract_subband(current_burst, bandwidth, freq)
                 .compute()
                 .chunk(chunks_burst)
                 .assign_coords(current_burst.coords)
                 .assign_attrs(current_burst.attrs)
             )
             next_burst = (
-                cop_ard_core.utils.extract_subband(next_frange, bandwidth, freq)
+                cop_ard_core.utils.extract_subband(next_burst, bandwidth, freq)
                 .compute()
                 .chunk(chunks_burst)
                 .assign_coords(next_burst.coords)
@@ -371,7 +358,7 @@ def esd_single_burst(
 
     return esd
 
-
+@timeit
 def estimate(
     slcs: xr.DataTree,
     working_directory: str | Path,
