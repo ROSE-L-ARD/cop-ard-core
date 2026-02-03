@@ -12,13 +12,10 @@ import s1_ard_core.computing.computation
 from s1_ard_core.computing.io import Path, normpath, read, write
 from s1_ard_core.computing.logger import logger, timeit
 
+from . import utils
+
 MAXJUMP = 1_000
 MAXCOST = 1_000
-
-
-def wrap(v: np.ndarray, w: float = 2 * np.pi):
-    w_ = w / 2.0
-    return ((v + w_) % w) - w_
 
 
 def unique(e: np.ndarray, return_index: bool = False) -> np.ndarray:
@@ -314,7 +311,7 @@ def integ_mcf(
     e, es, neigh = get_edges(xx, yy)
 
     # gradients extraction and normalization
-    g = wrap(ph[e[:, 1]] - ph[e[:, 0]]) / (2 * np.pi)
+    g = utils.wrap(ph[e[:, 1]] - ph[e[:, 0]]) / (2 * np.pi)
 
     # weight computation in correspondence of edges
     w = cohe[e[:, 1]] * cohe[e[:, 0]]
