@@ -14,5 +14,6 @@
 """
 cop-ard-core Python module.
 """
+
 # Define the package version string.
 __version__ = "0.0.1"

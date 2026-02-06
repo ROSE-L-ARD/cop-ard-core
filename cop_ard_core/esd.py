@@ -6,7 +6,6 @@ import numpy as np
 import s1_ard_core.computing.computation
 import scipy.optimize
 import xarray as xr
-import xrft
 import xrspatial.convolution as conv
 from numba import njit
 from s1_ard_core.computing.io import Path, read
@@ -16,7 +15,6 @@ import cop_ard_core.utils
 
 
 def to_dataset(X, acquisition_date, poly_degree, t0, r0, s_y, s_x):
-
     def to_polygrid2d(c):
         m = np.zeros((poly_degree + 1, poly_degree + 1), dtype="float64")
         m[:, 0] = np.flip(c)
@@ -66,7 +64,6 @@ def find_global_shift(
         return np.vstack([y**i for i in range(poly_degree, -1, -1)]).T
 
     def create_matrix(c_esd):
-
         # current reference date index #
         (i_m,) = np.where(acquisition_date == c_esd.reference_date)
         # values to be stored into D and M matrices #
@@ -133,13 +130,11 @@ def compute_azimuth_shifts(
     kernel_shape: list[int] = [3, 3],
     coherence_th: float = 0.7,
 ):
-
     def compute_coherence(
         interf: xr.DataArray,
         power_s: xr.DataArray,
         power_m: xr.DataArray,
     ) -> xr.DataArray:
-
         # kernel creation #
         k = np.ones(kernel_shape) / np.prod(kernel_shape)
 
@@ -150,9 +145,7 @@ def compute_azimuth_shifts(
         return (num / den).expand_dims("acquisition_date").compute()
 
     def compute_shift(reference_date: str, f_d: float, dtaz: float) -> tuple[xr.DataArray]:
-
         if all(reference_date in e.acquisition_date for e in [reference0, reference1]):
-
             # interferograms and power computation #
             pow0 = (burst0 * burst0.conj()).real
             interf0 = burst0 * reference0.sel(acquisition_date=reference_date).conj()
@@ -160,7 +153,9 @@ def compute_azimuth_shifts(
 
             # coherence computation #
             coherence = compute_coherence(
-                interf0, pow0, (reference0 * reference0.conj()).real.sel(acquisition_date=reference_date)
+                interf0,
+                pow0,
+                (reference0 * reference0.conj()).real.sel(acquisition_date=reference_date),
             )
 
             # coherence value lower than coherence_th will be ignored  #
@@ -178,14 +173,17 @@ def compute_azimuth_shifts(
 
             coherence = coherence.mean(dim=["azimuth_pixel", "slant_range_time"])
         else:
-
             # if the reference_date is not in the burst nan shift and coherence will be returned #
             coords = burst0.acquisition_date.coords
             data = np.full(burst0.acquisition_date.size, np.nan)
             mean_phase = xr.DataArray(name="mean_phase", data=data, coords=coords)
             coherence = xr.DataArray(name="coherence", data=data, coords=coords)
 
-        return (reference_date, mean_phase.compute(), coherence.rename("coherence").compute())
+        return (
+            reference_date,
+            mean_phase.compute(),
+            coherence.rename("coherence").compute(),
+        )
 
     # Computation of doppler frequency at the edge of the burst0 #
     annot = burst0.attrs[list(burst0.attrs)[0]]
@@ -265,11 +263,10 @@ def esd_single_burst(
 
     def get_next_burst_id():
         swath, id = burst_id.split("_")
-        next_burst_id = f"{swath}_{int(id)+1}"
+        next_burst_id = f"{swath}_{int(id) + 1}"
         return next_burst_id
 
     def time_to_pixel(stack: xr.Dataset, dtaz: float, reference_time: datetime.datetime | None = None):
-
         if reference_time is None:
             reference_time = stack.azimuth_time[0].values
         azimuth_pixel = np.round((stack.azimuth_time - reference_time).astype("float64") / 1e9 / dtaz).astype("int32")
@@ -277,15 +274,18 @@ def esd_single_burst(
         return stack.swap_dims(azimuth_time="azimuth_pixel"), reference_time
 
     # current coregistered burst extraction #
-    current_burst = read(working_directory.append(f"bursts/{burst_id}/coreg/measurements"), consolidate_metadata=False)
+    current_burst = read(
+        working_directory.append(f"bursts/{burst_id}/coreg/measurements"),
+        consolidate_metadata=False,
+    )
 
     next_burst_id = get_next_burst_id()
     if next_burst_id in burst_list:
-
         # next coregistered burst extraction #
         logger.info(f"Processing overlap area between bursts: {burst_id} and {next_burst_id}")
         next_burst = read(
-            working_directory.append(f"bursts/{next_burst_id}/coreg/measurements"), consolidate_metadata=False
+            working_directory.append(f"bursts/{next_burst_id}/coreg/measurements"),
+            consolidate_metadata=False,
         )
         annot = current_burst.cstack.attrs
         annot = annot[list(annot)[0]]
@@ -358,6 +358,7 @@ def esd_single_burst(
 
     return esd
 
+
 @timeit
 def estimate(
     slcs: xr.DataTree,
@@ -389,7 +390,12 @@ def estimate(
     )
 
     # Structure re-formatting in order to solve the global problem
-    esd = xr.merge([e for e in esd if e is not None], compat="no_conflicts", combine_attrs="drop", join="outer")
+    esd = xr.merge(
+        [e for e in esd if e is not None],
+        compat="no_conflicts",
+        combine_attrs="drop",
+        join="outer",
+    )
 
     args = [
         esd.sel(acquisition_date=d, reference_date=rd)

@@ -39,8 +39,10 @@ requires-python = ">=3.11"
 # Users are encouraged to fix the EOPF CPM version to make sure to
 # have a stable build environment.
 dependencies = [
+    "astropy>=7.2.0",
     "bokeh>=3.4.1",
-    "s1-ard-core@git+https://gitlab.eopf.copernicus.eu/S1/s1-ard-core.git@29-quality-tools",
+    "ortools>=9.15.6755",
+    "s1-ard-core",
     "xarray-spatial",
     "xrft>=1.0.1",
 ]

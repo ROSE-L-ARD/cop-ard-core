@@ -1,15 +1,13 @@
+import numpy as np
 import xarray as xr
 import xrft
-import numpy as np
-
-from scipy.constants import speed_of_light
 from s1_ard_core.computing.io import write
 from s1_ard_core.computing.logger import logger, timeit
+from scipy.constants import speed_of_light
 
 
 @timeit
 def extract_subband(cslc: xr.DataArray, bw: float, f0: float) -> xr.DataArray:
-
     frange = xrft.fft(
         cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
         true_amplitude=True,
@@ -30,23 +28,15 @@ def extract_subband(cslc: xr.DataArray, bw: float, f0: float) -> xr.DataArray:
 def subband_mapping(burst: str, cslc: xr.DataTree, f_c: float, bw: float, id: str, wdir_path: str):
     chunks_burst = {k: v[0] for k, v in cslc.chunksizes.items()}
     if cslc.acquisition_date.size != 2:
-        print(f"Skipping burst {k} with {cslc.acquisition_date.size} acquisitions")
+        logger.info(f"Skipping burst {burst} with {cslc.acquisition_date.size} acquisitions")
         return None, None
 
-    # select area according to the output multilook grid
-    print("Select area ...")
-
-    # compute full range spectrum
-    print("Computing full range spectrum...")
     frange = xrft.fft(
         cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
         true_amplitude=True,
         true_phase=True,
         dim="slant_range_time",
     ).persist()
-
-    # extract low and high freq subbands
-    print("Extracting subbands...")
 
     # extract slc sub band
     cslc_sub_band = (
@@ -83,9 +73,15 @@ def get_bounding_box(slcs: xr.DataTree, path: str) -> list:
 
     for burst in slcs.values():
         if burst[path].azimuth_time.size > 0:
-            azimuth_time += [burst[path].azimuth_time.min().values, burst[path].azimuth_time.max().values]
+            azimuth_time += [
+                burst[path].azimuth_time.min().values,
+                burst[path].azimuth_time.max().values,
+            ]
         if burst[path].slant_range_time.size > 0:
-            slant_range_time += [burst[path].slant_range_time.min().values, burst[path].slant_range_time.max().values]
+            slant_range_time += [
+                burst[path].slant_range_time.min().values,
+                burst[path].slant_range_time.max().values,
+            ]
 
     if len(azimuth_time) <= 0 or len(slant_range_time) <= 0:
         raise ValueError("Null slc in input")
@@ -167,12 +163,10 @@ def get_carrier_frequency(slcs: xr.DataTree, path: str, pol: str) -> float:
 
 
 def get_coeff_demod(annot: dict):
-
     return (2 * np.pi) * np.polynomial.polynomial.polyint(annot["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"], axis=1)
 
 
 def get_poly(poly, poly_type: str, dd: str):
-
     poly.attrs["offset"][0] = np.datetime64(poly.attrs[dd]["offset"][0], "ns")
     poly.attrs[dd]["offset"][1] = np.array(poly.attrs[dd]["offset"][1])
     poly.attrs[dd]["scale_fact"][0] = np.array(int(poly.attrs[dd]["scale_fact"][0].split()[0]))
@@ -191,7 +185,6 @@ def get_coordinates(coreg, alpha, beta, coord_type: str = "pixels"):
 
 @timeit
 def get_daz_corr(burst, y_poly, dd):
-
     c1, c2 = get_coordinates(burst, y_poly[dd].offset, y_poly[dd].scale_fact, y_poly.type)
     return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly[dd].values)
 
@@ -207,7 +200,6 @@ def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
         )
 
     for k, dd in enumerate(burst.acquisition_date.values):
-
         slc = orig[f"{dd}/measurements/slc"]
         annot = slc.attrs[list(slc.attrs)[0]]
 
@@ -239,7 +231,10 @@ def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
         ph_ramp_diff_da = xr.DataArray(
             poly_combine(rg, az_off, az_ori, coeff_demod),
             dims=["azimuth_time", "slant_range_time"],
-            coords={"slant_range_time": burst.slant_range_time, "azimuth_time": burst.azimuth_time},
+            coords={
+                "slant_range_time": burst.slant_range_time,
+                "azimuth_time": burst.azimuth_time,
+            },
         )
 
         ph_ramp_diff_list.append(ph_ramp_diff_da)
@@ -256,9 +251,8 @@ def wrap(v: np.ndarray, w: float = 2 * np.pi):
 
 
 def sparse_multilook(data: xr.Dataset, cohe_th: float, multilook: dict):
- 
     coords = list(multilook.keys())
-    if not np.all([e in data.dims for e in coords]), f'Not all coords in {data.coords}':
+    if not np.all([e in data.dims for e in coords]):
         raise Exception(f"Not all {coords} in {data.dims}")
 
     # set temporary linear coords
@@ -268,28 +262,31 @@ def sparse_multilook(data: xr.Dataset, cohe_th: float, multilook: dict):
     rg0 = slant_range_time[0]
     dtaz = (azimuth_time[-1] - azimuth_time[0]).astype(float) / (azimuth_time.size - 1)
     dtrg = (slant_range_time[-1] - slant_range_time[0]) / (slant_range_time.size - 1)
-    y_ = ((azimuth_time - az0).astype(float) / dtaz)
-    x_ = ((slant_range_time - rg0) / dtrg)
-    
+    y_ = (azimuth_time - az0).astype(float) / dtaz
+    x_ = (slant_range_time - rg0) / dtrg
+
     data_copy = data.copy(deep=True)
-    data_copy = data_copy.assign_coords({'y_': ('azimuth_time', y_), 'x_': ('slant_range_time', x_ )})
-    data_copy = data_copy.swap_dims({'azimuth_time': 'y_', 'slant_range_time': 'x_'})
+    data_copy = data_copy.assign_coords({"y_": ("azimuth_time", y_), "x_": ("slant_range_time", x_)})
+    data_copy = data_copy.swap_dims({"azimuth_time": "y_", "slant_range_time": "x_"})
 
     # pewrform multilook considering temporary coords
-    multilook_yx = {'y_': multilook['azimuth_time'], 'x_': multilook['slant_range_time']}
+    multilook_yx = {
+        "y_": multilook["azimuth_time"],
+        "x_": multilook["slant_range_time"],
+    }
     data_ml = sparse_multilook_core(data_copy, cohe_th=cohe_th, multilook=multilook_yx)
 
     # restore original coords
-    az_ml = (data_ml.y_.data * dtaz).astype('timedelta64[ns]') + az0
+    az_ml = (data_ml.y_.data * dtaz).astype("timedelta64[ns]") + az0
     rg_ml = data_ml.x_.data * dtrg + rg0
-    data_ml = data_ml.assign_coords({'azimuth_time': ('y_', az_ml), 'slant_range_time': ('x_', rg_ml)})
-    data_ml = data_ml.swap_dims({'y_': 'azimuth_time', 'x_': 'slant_range_time'})
-    data_ml = data_ml.drop_vars(['y_', 'x_'])
-        
+    data_ml = data_ml.assign_coords({"azimuth_time": ("y_", az_ml), "slant_range_time": ("x_", rg_ml)})
+    data_ml = data_ml.swap_dims({"y_": "azimuth_time", "x_": "slant_range_time"})
+    data_ml = data_ml.drop_vars(["y_", "x_"])
+
     return data_ml
 
-def sparse_multilook_core(data: xr.Dataset, cohe_th: float, multilook: dict):
 
+def sparse_multilook_core(data: xr.Dataset, cohe_th: float, multilook: dict):
     coords = list(multilook.keys())
 
     x_size_ml = data[coords[1]].size // multilook[coords[1]] + 1
@@ -302,9 +299,9 @@ def sparse_multilook_core(data: xr.Dataset, cohe_th: float, multilook: dict):
     ind = (x_ml + y_ml * x_size_ml).astype(int)
     data_stack = data_stack.assign_coords(ind=ind)
 
-    v_mean = data_stack.groupby(['ind']).mean()
+    v_mean = data_stack.groupby(["ind"]).mean()
 
-    coords_ml = {e: ('points', data_stack[e].astype(float).groupby(['ind']).mean().data) for e in coords}
+    coords_ml = {e: ("points", data_stack[e].astype(float).groupby(["ind"]).mean().data) for e in coords}
 
     data_ml = xr.Dataset(
         v_mean,
@@ -312,3 +309,38 @@ def sparse_multilook_core(data: xr.Dataset, cohe_th: float, multilook: dict):
     )
 
     return data_ml
+
+
+def griddata_interp(data: xr.Dataset, out_coords):
+    from scipy.interpolate import griddata
+
+    # set temporary linear coords
+    azimuth_time = data.azimuth_time.values
+    slant_range_time = data.slant_range_time.values
+    az0 = azimuth_time[0]
+    rg0 = slant_range_time[0]
+    dtaz = (azimuth_time[-1] - azimuth_time[0]).astype(float) / (azimuth_time.size - 1)
+    dtrg = (slant_range_time[-1] - slant_range_time[0]) / (slant_range_time.size - 1)
+    y_ = (azimuth_time - az0).astype(float) / dtaz
+    x_ = (slant_range_time - rg0) / dtrg
+    points = np.vstack([x_, y_]).T
+
+    data_copy = data.copy(deep=True)
+    data_copy = data_copy.assign_coords({"y_": ("azimuth_time", y_), "x_": ("slant_range_time", x_)})
+    data_copy = data_copy.swap_dims({"azimuth_time": "y_", "slant_range_time": "x_"})
+
+    gridx, gridy = out_coords["slant_range_time"], out_coords["azimuth_time"]
+    gridx = (gridx - rg0) / dtrg
+    gridy = (gridy - az0).astype(float) / dtaz
+    gridxx, gridyy = np.meshgrid(gridx, gridy)
+    out_points = np.vstack((gridxx.ravel(), gridyy.ravel())).T
+
+    print(points.shape)
+    print(out_points.shape)
+
+    res = griddata(points, data.phase.values, out_points, method="cubic")
+
+    return xr.Dataset(
+        data_vars={"phase": (["azimuth_time", "slant_range_time"], res.reshape(gridxx.shape))},
+        coords=out_coords,
+    )

@@ -1,12 +1,10 @@
-import xarray as xr
-import numpy as np
-import scipy.optimize
-
-from astropy import stats as ast
 from itertools import combinations_with_replacement
 from typing import Literal, Tuple
 
-from s1_ard_core.computing.logger import logger, timeit
+import numpy as np
+import scipy.optimize
+from astropy import stats as ast
+from s1_ard_core.computing.logger import logger
 
 
 def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -94,9 +92,9 @@ def get_model_matrix(x: np.ndarray, regions: np.ndarray | None = None, degree: i
     # Different degrees
     for k in np.arange(1, degree + 1):
         # Define all combinations
-        for l in combinations_with_replacement(np.arange(x.shape[1]), k):
+        for ll in combinations_with_replacement(np.arange(x.shape[1]), k):
             # Construct the model matrix
-            X = np.hstack((np.prod(x[:, list(l)], axis=1).reshape(-1, 1), X))
+            X = np.hstack((np.prod(x[:, list(ll)], axis=1).reshape(-1, 1), X))
 
     return X
 
@@ -157,14 +155,11 @@ def estimate_global_surface(
 
     # Iterations
     for i in np.arange(maximum_iterations):
-
         # Remove outliers
         y_prec = fit(X, sol_prec)
         diff = y - y_prec
-        aa = np.abs(diff).sum() / diff.size
-
         mask = (
-            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask == False)
+            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask is False)
             & (diff > range[0])
             & (diff < range[1])
         )
@@ -177,9 +172,6 @@ def estimate_global_surface(
 
         # compute difference wrt previous iteration
         diff = np.max(np.abs(y_new - y_prec))
-        print(
-            f"Iter {i} --> Difference: {diff} {convergency_threshold}, selected points: {mask.sum()}, obj: {aa}, solution: {output.x}"
-        )
 
         # check convergence
         if diff < convergency_threshold:
@@ -187,7 +179,6 @@ def estimate_global_surface(
         else:
             sol_prec = output.x
 
-    # Print debug information
-    print(f"Convergency reached in {i} iterations (Solution: {output.x})")
+    logger.info(f"Convergency reached in {i} iterations (Solution: {output.x})")
 
     return output
