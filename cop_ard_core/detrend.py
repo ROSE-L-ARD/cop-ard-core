@@ -158,8 +158,9 @@ def estimate_global_surface(
         # Remove outliers
         y_prec = fit(X, sol_prec)
         diff = y - y_prec
+
         mask = (
-            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask is False)
+            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask == False)
             & (diff > range[0])
             & (diff < range[1])
         )
@@ -169,10 +170,10 @@ def estimate_global_surface(
 
         # new surface fit
         y_new = fit(X, output.x)
-
+        
         # compute difference wrt previous iteration
         diff = np.max(np.abs(y_new - y_prec))
-
+        
         # check convergence
         if diff < convergency_threshold:
             break
