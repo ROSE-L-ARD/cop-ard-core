@@ -5,7 +5,6 @@ from s1_ard_core.computing.logger import logger, timeit
 import cop_ard_core.utils
 
 
-@timeit
 def get_interf_single_burst(
     cslc: xr.Dataset, reference: str, multilook: dict, x_off: int = 0, y_off: int = 0
 ) -> xr.Dataset:
@@ -31,20 +30,15 @@ def get_interf_single_burst(
     interf_ds["cohe"] = xr.apply_ufunc(np.abs, interf, dask="parallelized")
 
     # assign pixel coordinates
-    interf_ds["azimuth_time"] = (
-        multilook["azimuth_time"] / 2 - 0.5 + y_off + np.arange(interf_ds.azimuth_time.size) * multilook["azimuth_time"]
-    )
-    interf_ds["slant_range_time"] = (
-        multilook["slant_range_time"] / 2
-        - 0.5
-        + x_off
-        + np.arange(interf_ds.slant_range_time.size) * multilook["slant_range_time"]
-    )
+    azimuth_time_px = multilook["azimuth_time"] / 2 - 0.5 + y_off + np.arange(interf_ds.azimuth_time.size) * multilook["azimuth_time"]
+    interf_ds["azimuth_time_px"] = (['azimuth_time'], azimuth_time_px)
+    
+    slant_range_time_px = multilook["slant_range_time"] / 2 - 0.5 + x_off + np.arange(interf_ds.slant_range_time.size) * multilook["slant_range_time"]
+    interf_ds["slant_range_time_px"] = (['slant_range_time'], slant_range_time_px)
 
     return interf_ds
 
 
-@timeit
 def extract_coreg_aoi(coreg: xr.Dataset, bbox: tuple, dt_az: float, dt_rg: float, multilook: dict):
     a_min, a_max, r_min, r_max = bbox
 
@@ -58,7 +52,7 @@ def extract_coreg_aoi(coreg: xr.Dataset, bbox: tuple, dt_az: float, dt_rg: float
     chunk_burst = {k: v[0] for k, v in cslc.chunksizes.items() if k in ["azimuth_time", "slant_range_time"]}
 
     # select area according to the output multilook grid
-    logger.debug("Select area ...")
+    # logger.debug("Select area ...")
     x_min = np.ceil((cslc.slant_range_time.min().values - r_min) / dt_rg_ml) * dt_rg_ml + r_min
     x_min = np.round((x_min - cslc.slant_range_time.min().values) / dt_rg).astype(int)
     x_max = np.floor((cslc.slant_range_time.max().values - r_min) / dt_rg_ml) * dt_rg_ml + r_min
@@ -103,7 +97,7 @@ def extract_interf(
 
     # extract subbands
     if (f0 is not None) and (bw is not None):
-        logger.debug("Computing full range spectrum...")
+        # logger.debug("Computing full range spectrum...")
 
         cslc = cop_ard_core.utils.extract_subband(coreg_sel.cstack, bw, f0).chunk(chunk_burst)
     else:
@@ -119,29 +113,35 @@ def extract_interf(
 
         # detrend the cslc
         cslc = cslc * np.exp(-1j * ph_ramp_diff)
-
+    
     # set offset with respect to the reference grid
     x_off = np.round((cslc.slant_range_time[0].values - r_min) / dt_rg).astype(int)
     y_off = np.round((cslc.azimuth_time[0].values - a_min).astype(float) / dt_az).astype(int)
 
     # reset coordinates as pixel wrt the reference grid
-    cslc["slant_range_time"] = np.arange(x_min + x_off, x_max + x_off)
-    cslc["azimuth_time"] = np.arange(y_min + y_off, y_max + y_off) * dt_az
+    cslc["slant_range_time_px"] = (['slant_range_time'], np.arange(cslc.slant_range_time.size)+x_off)
+    cslc["azimuth_time_px"] = (['azimuth_time'], np.arange(cslc.azimuth_time.size) + y_off)
 
-    logger.debug("extract multilooked interferogram and coherence")
+    # logger.debug(f"extract multilooked interferogram and coherence")
     # extract multilooked interferogram and coherence
     interf = get_interf_single_burst(cslc, reference, multilook=multilook, x_off=x_off, y_off=y_off)
 
     # force coordinates
-    interf["slant_range_time"] = interf.slant_range_time.values * dt_rg + r_min
-    interf["azimuth_time"] = (interf.azimuth_time.values * dt_az).astype("timedelta64[ns]") + a_min
+    interf["slant_range_time"] = interf.slant_range_time_px.values * dt_rg + r_min
+    interf["azimuth_time"] = (interf.azimuth_time_px.values * dt_az).astype("timedelta64[ns]") + a_min
 
     if y_poly is not None:
-        logger.debug("save phase_ramp")
+        # logger.debug("save phase_ramp")
         # compute multilooked phase correction
         ph_ramp_diff_ml = ph_ramp_diff.coarsen(multilook, boundary="trim").mean()
         ph_ramp_diff_ml["slant_range_time"] = interf["slant_range_time"]
         ph_ramp_diff_ml["azimuth_time"] = interf["azimuth_time"]
         interf["phase_ramp"] = ph_ramp_diff_ml
-
+        
+    az_slice = slice(multilook['azimuth_time']//2,None,multilook['azimuth_time'])
+    rg_slice = slice(multilook['slant_range_time']//2,None,multilook['slant_range_time'])
+    annot = coreg_sel['cstack'].attrs['V:V']
+    azimuth_time_raw =  (cop_ard_core.utils.get_azimuth_time_raw(coreg_sel['cstack'].isel(azimuth_time=az_slice, slant_range_time=rg_slice), 'V:V')*1e9).astype('timedelta64[ns]') + np.datetime64(annot["Timeline"]["CollectStart"])
+    interf['azimuth_time_raw'] = (['azimuth_time', 'slant_range_time'], azimuth_time_raw.values)
+        
     return (burst_id, interf.compute())
