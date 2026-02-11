@@ -133,6 +133,51 @@ def get_spacing(slcs: xr.DataTree, path: str) -> list:
         np.mean(slant_range_time),
     ]
 
+def get_burst_duration(slcs: xr.DataTree, path: str, pol: str) -> list:
+
+    azimuth_time, azimuth_time_raw = [], []
+
+    for burst in slcs.values():
+        if burst[path].azimuth_time.size > 0:
+            annot = burst[path].attrs[pol]
+            
+            # focsed zero-Doppler azimuth time
+            azimuth_time += [
+                (burst[path].azimuth_time.max().values - burst[path].azimuth_time.min().values).astype(float) / 1e9
+            ]
+
+            # raw azimuth time
+            slant_range_m = burst[path].slant_range_m.values[::10]
+            azimuth_m = burst[path].azimuth_m.values[::10]
+
+            coeffs = annot['Grid']['TimeCOAPoly']['Coefs']
+            
+            TimeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs ).T.mean(axis=1)
+            azimuth_time_raw += [np.nanmax(TimeCOA) - np.nanmin(TimeCOA)]
+            
+    if len(azimuth_time) <= 0:
+        raise ValueError("Null slc in input")
+
+    return [
+        np.mean(azimuth_time), np.mean(azimuth_time_raw)
+    ]
+
+
+def get_azimuth_time_raw(burst: xr.DataTree, pol: str) -> xr.DataArray:
+
+    annot = burst.attrs[pol]
+    
+    # raw azimuth time
+    slant_range_m = burst.slant_range_m.values
+    azimuth_m = burst.azimuth_m.values
+
+    coeffs = annot['Grid']['TimeCOAPoly']['Coefs']
+    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs ).T
+
+    return xr.DataArray(timeCOA, dims=['azimuth_time', 'slant_range_time'], 
+                        coords={'azimuth_time': burst.azimuth_time.values, 
+                                'slant_range_time': burst.slant_range_time.values})
+
 
 def get_carrier_frequency(slcs: xr.DataTree, path: str, pol: str) -> float:
     """
@@ -297,9 +342,9 @@ def sparse_multilook_core(data: xr.Dataset, cohe_th: float, multilook: dict):
     x_ml = np.round(data_stack[coords[1]] // multilook[coords[1]]).astype(int)
     y_ml = np.round(data_stack[coords[0]] // multilook[coords[0]]).astype(int)
     ind = (x_ml + y_ml * x_size_ml).astype(int)
-    data_stack = data_stack.assign_coords(ind=ind)
+    data_stack = data_stack.assign_coords(ind=ind).compute()
 
-    v_mean = data_stack.groupby(["ind"]).mean()
+    v_mean = data_stack.groupby(["ind"]).median()
 
     coords_ml = {e: ("points", data_stack[e].astype(float).groupby(["ind"]).mean().data) for e in coords}
 
@@ -344,3 +389,141 @@ def griddata_interp(data: xr.Dataset, out_coords):
         data_vars={"phase": (["azimuth_time", "slant_range_time"], res.reshape(gridxx.shape))},
         coords=out_coords,
     )
+
+
+def encode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
+    """
+    Return a version of input v_poly object so that it can be saved.
+
+    Merges separate variables in v_poly into a single variable aligned
+    with stack.acquisition_date.
+    """
+
+    def _safe_encode(obj):
+        """Recursively encode attributes for serialization."""
+        if isinstance(obj, (list, tuple)):
+            return [_safe_encode(x) for x in obj]
+        elif isinstance(obj, dict):
+            return {k: _safe_encode(v) for k, v in obj.items()}
+        elif isinstance(obj, (np.datetime64, np.timedelta64)):
+            return str(obj)
+        elif isinstance(obj, (np.floating, np.integer)):
+            return obj.item()  # Convert numpy scalars to python scalars
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()  # Convert arrays to lists
+        else:
+            return obj
+
+    # 1. Extract attributes BEFORE transforming the dataset
+    # We capture attributes from variables that match the stack's dates
+    poly_attrs = {}
+
+    # We convert stack dates to the same type as v_poly keys (usually strings) for checking
+    stack_date_lookup = set(stack.acquisition_date.astype(str).values)
+
+    for var_name, data_array in v_poly.data_vars.items():
+        # Check if this variable name corresponds to a date in the stack
+        if str(var_name) in stack_date_lookup:
+            poly_attrs[str(var_name)] = _safe_encode(data_array.attrs)
+
+    # 2. Transform: Convert variables (dates) into a dimension
+    da_poly = v_poly.to_array(dim="acquisition_date", name=name)
+
+    # 3. Ensure Type Consistency (Crucial step)
+    # to_array usually results in string/object coords. Cast to datetime to match stack.
+    try:
+        da_poly["acquisition_date"] = da_poly.acquisition_date.astype("datetime64[ns]")
+    except ValueError:
+        # Fallback if keys weren't date strings
+        pass
+
+    # 4. Filter and Assign Attributes
+    da_poly = (
+        da_poly.sel(acquisition_date=stack.acquisition_date)  # Filter dates
+        .assign_attrs(poly_attrs)  # Add the attrs we extracted earlier
+        .assign_attrs(_safe_encode(stack.attrs))  # Add stack global attrs
+    )
+
+    # 5. Convert back to Dataset
+    ds_out = da_poly.to_dataset()
+
+    # 6. Chunking
+    # We use .get() to avoid KeyErrors if dims are missing or not chunked
+    chunk_plan = {"acquisition_date": stack.chunksizes.get("acquisition_date", "auto"), "i": 1, "j": 1}
+
+    # Only chunk dimensions that actually exist in the output
+    final_chunks = {k: v for k, v in chunk_plan.items() if k in ds_out.dims}
+
+    return ds_out.chunk(final_chunks)
+
+
+
+def decode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
+    """
+    Read and reformat x_ or y_poly from the slcs structure.
+
+    Splits the 'acquisition_date' dimension back into separate variables.
+    """
+
+    def _safe_decode(obj):
+        """Recursively decode attributes, handling strings to datetime/timedelta."""
+        if isinstance(obj, dict):
+            return {k: _safe_decode(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [_safe_decode(x) for x in obj]
+        elif isinstance(obj, str):
+            # 1. Try Timedelta (specific format from encode)
+            if "nanoseconds" in obj:
+                try:
+                    # Extracts "12345" from "12345 nanoseconds"
+                    val = float(obj.split()[0])
+                    return np.timedelta64(int(val), "ns")
+                except (ValueError, IndexError):
+                    pass
+
+            # 2. Try Datetime
+            # Only attempt conversion if it looks like a date (ISO-ish) to avoid false positives
+            if "-" in obj and ":" in obj:
+                try:
+                    return np.datetime64(obj)
+                except ValueError:
+                    pass
+
+            # Return original string if no conversion applied
+            return obj
+
+        # Return numbers/arrays as is
+        return obj
+
+    # Dictionary to hold the new variables
+    data_vars = {}
+
+    # We iterate over the dates in the stack
+    # We assume stack["acquisition_date"] exists
+    dates = stack["acquisition_date"].values
+
+    for date in dates:
+        # Convert date to string to find the matching attribute key
+        # (Assuming encode_poly saved keys as strings)
+        date_key = str(date)
+
+        # 1. Select data lazily
+        # drop=True removes 'acquisition_date' so it doesn't persist as a scalar coord
+        da_slice = v_poly[name].sel(acquisition_date=date, drop=True)
+
+        # 2. Decode specific attributes for this date
+        # We use .get() in case the attribute is missing
+        raw_attrs = da_slice.attrs.get(date_key, {})
+        da_slice.attrs = _safe_decode(raw_attrs)
+
+        # 3. Add to dictionary
+        # We use the string representation of the date as the variable name
+        data_vars[date_key] = da_slice
+
+    # Create the final dataset
+    decoded_ds = xr.Dataset(data_vars)
+
+    # Preserve the specific 'type' attribute from the input
+    decoded_ds = decoded_ds.assign_attrs({"type": v_poly.attrs.get("type", "times")})
+
+    return decoded_ds
