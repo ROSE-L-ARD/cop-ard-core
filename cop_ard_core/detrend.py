@@ -170,12 +170,13 @@ def estimate_global_surface(
 
         # new surface fit
         y_new = fit(X, output.x)
-        
+
         # compute difference wrt previous iteration
-        diff = np.max(np.abs(y_new - y_prec))
+        diff_prec = np.max(np.abs(y_new - y_prec))
+        logger.debug(f"iter {i}: {diff_prec=} {np.max(np.abs(diff))=}")
         
         # check convergence
-        if diff < convergency_threshold:
+        if diff_prec < convergency_threshold:
             break
         else:
             sol_prec = output.x
