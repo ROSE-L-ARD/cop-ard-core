@@ -184,3 +184,22 @@ def estimate_global_surface(
     logger.info(f"Convergency reached in {i} iterations (Solution: {output.x})")
 
     return output
+
+
+def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, degree: int=1, norm: int=1):
+
+    # estimate only in correspondence of finite values
+    mask = np.isfinite(data)
+
+    # select points
+    data_sel = data[mask]
+    xx, yy = x.ravel()[mask], y.ravel()[mask]
+
+    # Axis normalization
+    x_ = np.vstack([xx, yy]).T
+    x_0 = x_.mean(axis=0)
+    x_ = x_ - x_0
+    x_sc = np.abs(x_).max(axis=0)
+    x_ = x_ / x_sc
+
+    return estimate_global_surface(x_, data_sel, regions=None, degree=degree, norm=norm), x_sc, x_0
