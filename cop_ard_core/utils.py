@@ -6,7 +6,7 @@ from s1_ard_core.computing.logger import logger, timeit
 from scipy.constants import speed_of_light
 
 
-@timeit
+# @timeit
 def extract_subband(cslc: xr.DataArray, bw: float, f0: float) -> xr.DataArray:
     frange = xrft.fft(
         cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
@@ -133,13 +133,13 @@ def get_spacing(slcs: xr.DataTree, path: str) -> list:
         np.mean(slant_range_time),
     ]
 
-def get_burst_duration(slcs: xr.DataTree, path: str, pol: str) -> list:
+def get_burst_duration(slcs: xr.DataTree, path: str) -> list:
 
     azimuth_time, azimuth_time_raw = [], []
 
     for burst in slcs.values():
         if burst[path].azimuth_time.size > 0:
-            annot = burst[path].attrs[pol]
+            _, annot = next(iter(burst[path].attrs.items()))
             
             # focsed zero-Doppler azimuth time
             azimuth_time += [
@@ -163,23 +163,42 @@ def get_burst_duration(slcs: xr.DataTree, path: str, pol: str) -> list:
     ]
 
 
-def get_azimuth_time_raw(burst: xr.DataTree, pol: str) -> xr.DataArray:
+def get_azimuth_time_raw(burst: xr.DataTree, multilook: dict| None=None) -> xr.DataArray:
 
-    annot = burst.attrs[pol]
+    # retrieve image annotation
+    # the polarization is equivalent
+    _, annot = next(iter(burst.attrs.items()))
+
+    if multilook is not None:   
+        az_slice = slice(multilook['azimuth_time']//2,None,multilook['azimuth_time'])
+        rg_slice = slice(multilook['slant_range_time']//2,None,multilook['slant_range_time'])
+    else:
+        az_slice = slice(None, None, None)
+        rg_slice = slice(None, None, None)
+
+    burst_ = burst.isel(azimuth_time=az_slice, slant_range_time=rg_slice)
     
-    # raw azimuth time
-    slant_range_m = burst.slant_range_m.values
-    azimuth_m = burst.azimuth_m.values
-
+    # retrieve axis and coefficients
+    slant_range_m = burst_.slant_range_m.values
+    azimuth_m = burst_.azimuth_m.values
     coeffs = annot['Grid']['TimeCOAPoly']['Coefs']
+
+    # compute the relative azimuth time
     timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs ).T
+    
+    # convert to timedelta in nanoseconds
+    timeCOA = (timeCOA*1e9).astype('timedelta64[ns]')
 
+    # compute absolute time
+    timeCOA = timeCOA + np.datetime64(annot["Timeline"]["CollectStart"])
+
+    # return as dataarray
     return xr.DataArray(timeCOA, dims=['azimuth_time', 'slant_range_time'], 
-                        coords={'azimuth_time': burst.azimuth_time.values, 
-                                'slant_range_time': burst.slant_range_time.values})
+                        coords={'azimuth_time': burst_.azimuth_time.values, 
+                                'slant_range_time': burst_.slant_range_time.values})
 
 
-def get_carrier_frequency(slcs: xr.DataTree, path: str, pol: str) -> float:
+def get_carrier_frequency(slcs: xr.DataTree, path: str) -> float:
     """
     Compute the mean carrier frequency of the bursts.
 
@@ -198,7 +217,7 @@ def get_carrier_frequency(slcs: xr.DataTree, path: str, pol: str) -> float:
     f0 = []
 
     for burst in slcs.values():
-        annot = burst[path].attrs[pol]
+        _, annot = next(iter(burst[path].attrs.items()))
         f0.append((annot["RadarCollection"]["TxFrequency"]["Max"] + annot["RadarCollection"]["TxFrequency"]["Min"]) / 2)
 
     if len(f0) <= 0:
@@ -228,17 +247,17 @@ def get_coordinates(coreg, alpha, beta, coord_type: str = "pixels"):
     return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
 
 
-@timeit
+# @timeit
 def get_daz_corr(burst, y_poly, dd):
     c1, c2 = get_coordinates(burst, y_poly[dd].offset, y_poly[dd].scale_fact, y_poly.type)
     return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly[dd].values)
 
 
-@timeit
+# @timeit
 def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
     ph_ramp_diff_list = []
 
-    @timeit
+    # @timeit
     def poly_combine(rg, az_off, az_ori, coeff_demod):
         return np.polynomial.polynomial.polyval2d(rg, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
             rg, az_ori, coeff_demod
@@ -246,7 +265,7 @@ def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
 
     for k, dd in enumerate(burst.acquisition_date.values):
         slc = orig[f"{dd}/measurements/slc"]
-        annot = slc.attrs[list(slc.attrs)[0]]
+        _, annot = next(iter(slc.attrs.items()))
 
         # extract demodulation coefficients
         coeff_demod = get_coeff_demod(annot)
@@ -379,9 +398,6 @@ def griddata_interp(data: xr.Dataset, out_coords):
     gridy = (gridy - az0).astype(float) / dtaz
     gridxx, gridyy = np.meshgrid(gridx, gridy)
     out_points = np.vstack((gridxx.ravel(), gridyy.ravel())).T
-
-    print(points.shape)
-    print(out_points.shape)
 
     res = griddata(points, data.phase.values, out_points, method="cubic")
 
@@ -527,3 +543,10 @@ def decode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
     decoded_ds = decoded_ds.assign_attrs({"type": v_poly.attrs.get("type", "times")})
 
     return decoded_ds
+
+
+def get_interf(a,b,ml_factor):
+    return (a*b.conj()).coarsen(ml_factor, boundary='trim').mean()
+
+def get_normalized_interf(a,b,ml_factor):
+    return get_interf(a,b,ml_factor) / (np.sqrt(get_interf(a,a,ml_factor) * get_interf(b,b,ml_factor)))
