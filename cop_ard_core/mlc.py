@@ -1,9 +1,14 @@
 import numpy as np
-import itertools
 import xarray as xr
-from s1_ard_core.computing.computation import map_blocks
+from s1_ard_core.computing.io import (
+    get_storage_options,
+    normpath,
+    read,
+    save_empty_dataset,
+    write,
+)
 from s1_ard_core.computing.logger import logger, timeit
-from s1_ard_core.computing.io import read, write, normpath, save_empty_dataset, get_storage_options
+
 import cop_ard_core.utils
 
 SHORT_DIMS = ["polarization", "azimuth_time", "slant_range_time"]
@@ -41,15 +46,14 @@ def single_cmlp(
 
     # 2. Prepare Data (Slicing, Padding, Chunking)
     cstack_sel, slices, pad, chunks = _prepare_cstack(cstack, multilook)
-    dims = cstack.dims
     acquisition_dates = cstack_sel.acquisition_date.values
 
     # Handle inputs for resumption (Apply same slicing to inputs)
     if last_reference is not None:
-        last_reference = last_reference.isel(slices).drop_vars([k for k in last_reference.coords if k not in dims])
+        last_reference = last_reference.isel(slices).drop_vars([k for k in last_reference.coords if k not in DIMS])
     if stable_reference is not None:
         stable_reference = stable_reference.isel(slices).drop_vars(
-            [k for k in stable_reference.coords if k not in dims]
+            [k for k in stable_reference.coords if k not in DIMS]
         )
 
     # 3. Calculate Date Milestones
@@ -59,17 +63,20 @@ def single_cmlp(
 
     # 4. Initialize Output Stores
     _initialize_cmlp_zarr_stores(
-        data_path, cstack, acquisition_dates, stable_reference_dates, multilook, chunks, kwargs
+        data_path,
+        cstack,
+        acquisition_dates,
+        stable_reference_dates,
+        multilook,
+        chunks,
+        kwargs,
     )
 
     # 5. Get Starting State
     current_reference, start_date = get_current_reference(cstack_sel, last_reference, stable_reference)
-    chunks.pop("acquisition_date")
     stable_cstack = stable_reference
     for date_idx, date in enumerate(cstack_sel.acquisition_date.values):
-        if date not in stable_reference_dates:
-            continue
-        logger.debug(f"{'*'*50}")
+        logger.debug(f"{'*' * 50}")
         logger.info(f"Processing: {date}")
 
         slc = cstack_sel.sel(acquisition_date=date)
@@ -77,11 +84,9 @@ def single_cmlp(
             target_slc=slc,
             reference_slc=current_reference,
             multilook=multilook,
-            output_path=f"{data_path}/cmlp",
-            region_slice=slice(date_idx, date_idx + 1),
+            output_path=f"{data_path}/cmlp/{date}",
             compute_phase=True,
             name="short_term_coh",
-            skip_read=False,
         )
 
         # Step 2: Update the Reference State
@@ -101,7 +106,6 @@ def single_cmlp(
                 data_path=data_path,
                 pad=pad,
                 chunks=chunks,
-                dims=dims,
                 slices=slices,
                 initial_stable_reference=stable_reference,
             )
@@ -117,8 +121,7 @@ def single_cmlp(
                 coherence_threshold=coherence_threshold,
                 chunks=chunks,
                 shape=normalized_interf.shape,
-                output_path=f"{data_path}/cmlp",
-                region_slice=slice(date_idx, date_idx + 1),
+                output_path=f"{data_path}/cmlp/{date}",
             )
 
     return current_reference
@@ -214,7 +217,7 @@ def _initialize_cmlp_zarr_stores(
     multilook: dict,
     chunks: dict,
     kwargs: dict,
-) -> tuple[dict, dict]:
+) -> None:
     """
     Creates empty Zarr/NetCDF stores on disk for the results.
 
@@ -252,14 +255,14 @@ def _initialize_cmlp_zarr_stores(
     shape_stable = [coords_stable[i].size for i in SHORT_DIMS]
     for date in stable_reference_dates:
         coords_stable["acquisition_date"] = date
-        ds = save_empty_dataset(
+        save_empty_dataset(
             data_vars=["cstack"],
             dims={"cstack": SHORT_DIMS},
             coords=coords_stable,
             shape={"cstack": shape_stable},
             chunks=chunks,
             dtype={"cstack": "complex64"},
-            skip_read=False,
+            skip_read=True,
             data_path=f"{data_path}/stable_reference/{date}",
             storage_options=storage_opts,
         )
@@ -268,8 +271,6 @@ def _initialize_cmlp_zarr_stores(
     # Note: Using .mean() computes the values, ensuring we have concrete coords
     coords_coarse = {k: cstack[k].coarsen({k: v}, boundary="trim").mean().values for k, v in multilook.items()}
     coords_coarse["polarization"] = cstack.polarization.values
-    
-
 
     for date in acquisition_dates:
         data_vars = ["phase", "short_term_coh"]
@@ -281,26 +282,24 @@ def _initialize_cmlp_zarr_stores(
 
         sd = stable_reference_dates.astype("datetime64[ns]")
         d = date.astype("datetime64[ns]")
-        ind, = np.where(sd<d)
+        (ind,) = np.where(sd <= d)
         if ind.size != 0:
             data_vars.append("long_term_coh")
             dims_coarse["long_term_coh"] = LONG_DIMS
             coords_coarse["past_reference_date"] = stable_reference_dates[ind]
             shape_coarse["long_term_coh"] = [coords_coarse[i].size for i in LONG_DIMS]
             ch["past_reference_date"] = 1
-        ds = save_empty_dataset(
+        save_empty_dataset(
             data_vars=data_vars,
             dims=dims_coarse,
             coords=coords_coarse,
             shape=shape_coarse,
             chunks=ch,
             dtype={k: "float32" for k in data_vars},
-            skip_read=False,
+            skip_read=True,
             data_path=f"{data_path}/cmlp/{date}",
             storage_options=storage_opts,
         )
-        for name, var in ds.data_vars.items():
-            logger.debug(f"{name} : {var.shape}")
 
     return
 
@@ -311,12 +310,9 @@ def _compute_and_save_interferogram(
     reference_slc: xr.DataArray,
     multilook: dict,
     output_path: str,
-    region_slice: slice,
-    dims: tuple,
     compute_phase: bool,
     name: str,
-    skip_read: bool,
-) -> xr.DataArray:
+) -> np.ndarray:
     """
     Computes a normalized interferogram between a target and reference,
     extracts coherence and phase, and writes the result to a Zarr store.
@@ -349,19 +345,18 @@ def _compute_and_save_interferogram(
     data[name] = (SHORT_DIMS, np.abs(normalized_interf))
     if compute_phase:
         data["phase"] = (SHORT_DIMS, np.angle(normalized_interf))
-    ds = xr.Dataset(data).expand_dims({"acquisition_date": 1}).transpose(*dims)
+    ds = xr.Dataset(data)
 
     # 3. Write to Disk
     write(
         ds,
         output_path,
         mode="r+",
-        region={"acquisition_date": region_slice},
         skip_read=True,
         consolidated=False,
     )
 
-    return None if skip_read else normalized_interf
+    return normalized_interf
 
 
 @timeit
@@ -396,7 +391,9 @@ def _update_recursive_reference(
 
 
 def get_current_reference(
-    cstack: xr.DataArray, last_reference: xr.DataArray | None, stable_reference: xr.DataArray | None
+    cstack: xr.DataArray,
+    last_reference: xr.DataArray | None,
+    stable_reference: xr.DataArray | None,
 ):
     date = np.min(cstack.acquisition_date.values.astype("datetime64"))
     date_l = np.max(last_reference.acquisition_date.values.astype("datetime64")) if last_reference is not None else None
@@ -407,22 +404,22 @@ def get_current_reference(
 
     if (date_l is not None) and (date_s is not None):
         if date_l > date_s:
-            if date_l < date:
+            if date_l < date and isinstance(last_reference, xr.DataArray):
                 current_reference = last_reference.sel(acquisition_date=date_l.astype(str))
             else:
                 raise Exception(f"Last current reference {date_l} is more recent than cstack {date}")
         else:
-            if date_s < date:
+            if date_s < date and isinstance(stable_reference, xr.DataArray):
                 current_reference = stable_reference.sel(acquisition_date=date_s.astype(str))
             else:
                 raise Exception(f"Last stable reference {date_s} is more recent than cstack {date}")
     else:
-        if date_l is not None:
+        if date_l is not None and isinstance(last_reference, xr.DataArray):
             if date_l < date:
                 current_reference = last_reference.sel(acquisition_date=date_l.astype(str))
             else:
                 raise Exception(f"Last current reference {date_l} is more recent than cstack {date}")
-        if date_s is not None:
+        if date_s is not None and isinstance(stable_reference, xr.DataArray):
             if date_s < date:
                 current_reference = stable_reference.sel(acquisition_date=date_s.astype(str))
             else:
@@ -441,7 +438,6 @@ def _update_stable_reference(
     data_path: str,
     pad: dict,
     chunks: dict,
-    dims: tuple,
     slices: dict,
     initial_stable_reference: xr.DataArray | None,
 ) -> xr.DataArray:
@@ -481,33 +477,28 @@ def _update_stable_reference(
     idx = np.searchsorted(stable_reference_dates, date)
 
     # 2. Prepare the dataset (Pad -> Chunk -> Expand -> Transpose -> Dataset)
-    ds = (
-        current_reference.pad(pad, constant_values=np.nan)
-        .chunk(chunks)
-        .expand_dims({"acquisition_date": 1})
-        .transpose(*dims)
-        .to_dataset(name="cstack")
-    )
-
+    ds = current_reference.pad(pad, constant_values=np.nan).chunk(chunks).to_dataset(name="cstack")
     # 3. Write to the specific slot
     ds = write(
         ds,
-        f"{data_path}/stable_reference",
+        f"{data_path}/stable_reference/{date}",
         mode="r+",
-        region={"acquisition_date": slice(idx, idx + 1)},
         skip_read=True,
         consolidated=False,
+        region={k: slice(None) for k in SHORT_DIMS},
     )
     # 4. Reload the updated history from disk
     # We read up to the current index (idx + 1) to get the 'new' history
     # We apply the 'slices' to remove the padding we just added (if any)
-    new_stable_cstack = read(f"{data_path}/stable_reference", consolidate_metadata=False).cstack.isel(
-        {**slices, "acquisition_date": slice(0, idx + 1)}
-    )
+    new_stable_cstack = [
+        read(f"{data_path}/stable_reference/{date}", consolidate_metadata=False).cstack.isel({**slices})
+        for date in stable_reference_dates[: idx + 1]
+    ]
     # 5. Concatenate with historical reference (if it exists)
     if initial_stable_reference is not None:
-        new_stable_cstack = xr.concat([initial_stable_reference, new_stable_cstack], dim="acquisition_date")
-
+        new_stable_cstack = xr.concat([initial_stable_reference, *new_stable_cstack], dim="acquisition_date")
+    else:
+        new_stable_cstack = xr.concat(new_stable_cstack, dim="acquisition_date")
     return new_stable_cstack
 
 
@@ -520,7 +511,6 @@ def _correct_drift(
     chunks: dict,
     shape: tuple,
     output_path: str,
-    region_slice: slice,
 ) -> xr.DataArray:
     """
     Estimates and applies long-term drift correction using historical stable references.
@@ -549,9 +539,9 @@ def _correct_drift(
     """
 
     # 1. Initialize Drift Accumulator
-    shape_coh = (shape[0], 1, stable_cstack.acquisition_date.size, shape[1], shape[2])
+    shape_coh = (shape[0], stable_cstack.acquisition_date.size, shape[1], shape[2])
     drift_interf = np.full(shape, np.nan, dtype="complex64")
-    long_term_coh = np.empty(shape_coh, dtype="complex64")
+    long_term_coh = np.empty(shape_coh, dtype="float32")
     # 2. Iteratively fill drift_interf with coherent pixels from history
     for iteration, stable_date in enumerate(stable_cstack.acquisition_date.values):
         stable_ref_slice = stable_cstack.sel(acquisition_date=stable_date)
@@ -570,18 +560,16 @@ def _correct_drift(
             # Fill holes
             drift_interf[mask] = normalized_vals[mask]
 
-        long_term_coh[:, 0, iteration, ...] = coherence
+        long_term_coh[:, iteration, ...] = coherence
 
     data = {}
     data["long_term_coh"] = (LONG_DIMS, long_term_coh)
     ds = xr.Dataset(data)
-    logger.debug(f"shape: {ds.long_term_coh}")
     # 3. Write to Disk
     write(
         ds,
         output_path,
         mode="r+",
-        region={"acquisition_date": region_slice},
         skip_read=True,
         consolidated=False,
     )
@@ -602,9 +590,12 @@ def _correct_drift(
         current_reference.shape
     )
     corrected_reference = (
-        xr.DataArray(corrected_reference, dims=current_reference.dims, coords=current_reference.coords)
+        xr.DataArray(
+            corrected_reference,
+            dims=current_reference.dims,
+            coords=current_reference.coords,
+        )
         .compute()
         .chunk(chunks)
     )
-    raise
     return corrected_reference
