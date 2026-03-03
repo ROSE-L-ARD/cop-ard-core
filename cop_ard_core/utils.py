@@ -1,53 +1,29 @@
 import numpy as np
 import xarray as xr
-import xrft
+import scipy.fft
 from s1_ard_core.computing.io import write
 from s1_ard_core.computing.logger import logger, timeit
 from scipy.constants import speed_of_light
 
 
 # @timeit
-def extract_subband(cslc: xr.DataArray, bw: float, f0: float) -> xr.DataArray:
-    frange = xrft.fft(
-        cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
-        true_amplitude=True,
-        true_phase=True,
-        dim="slant_range_time",
-    )
+def extract_subband(cslc: xr.DataArray, bw: float, f0: float, dim_trasf: str = 'slant_range_time') -> xr.DataArray:
+
+    dim = cslc.dims
+    freq_dim = [f"freq_{e}" if e == dim_trasf else e for e in cslc.dims] 
+    
+    coord_trasf = (np.arange(cslc[dim_trasf].size) - cslc[dim_trasf].size // 2)  / (cslc[dim_trasf][-1] - cslc[dim_trasf][0]).values
+    axis = int(np.where(np.array(dim) == dim_trasf)[0])
+    freq_coords = {
+        (f"freq_{e}" if e == dim_trasf else e): (coord_trasf if e == dim_trasf else cslc.coords[e].values)
+        for e in cslc.dims
+    }
+ 
+    frange = xr.DataArray(scipy.fft.fftshift(scipy.fft.fft(cslc.values, norm="ortho", axis=axis), axes=(axis,)), dims=freq_dim, coords=freq_coords)
 
     mask = (frange.freq_slant_range_time > f0 - bw / 2) * (frange.freq_slant_range_time < f0 + bw / 2)
 
-    return xrft.ifft(
-        (frange * mask).chunk(freq_slant_range_time=-1),
-        dim=["freq_slant_range_time"],
-        true_amplitude=True,
-        true_phase=True,
-    )
-
-
-def subband_mapping(burst: str, cslc: xr.DataTree, f_c: float, bw: float, id: str, wdir_path: str):
-    chunks_burst = {k: v[0] for k, v in cslc.chunksizes.items()}
-    if cslc.acquisition_date.size != 2:
-        logger.info(f"Skipping burst {burst} with {cslc.acquisition_date.size} acquisitions")
-        return None, None
-
-    frange = xrft.fft(
-        cslc.drop_vars(["slant_range_m", "azimuth_m"]).chunk(slant_range_time=-1),
-        true_amplitude=True,
-        true_phase=True,
-        dim="slant_range_time",
-    ).persist()
-
-    # extract slc sub band
-    cslc_sub_band = (
-        extract_subband(frange, bw, f_c)
-        .to_dataset(name="cstack")
-        .compute()
-        .chunk(chunks_burst)
-        .assign_coords(cslc.coords)
-        .assign_attrs(cslc.attrs)
-    )
-    write(cslc_sub_band, f"{wdir_path}/{id}/bursts/{burst}/coreg/measurements", mode="w")
+    return xr.DataArray(scipy.fft.ifft((frange * mask).values, norm='ortho', axis=axis), dims=dim, coords=cslc.drop_vars(["slant_range_m", "azimuth_m"]).coords)
 
 
 def get_bounding_box(slcs: xr.DataTree, path: str) -> list:
@@ -190,7 +166,7 @@ def get_azimuth_time_raw(burst: xr.DataTree, multilook: dict| None=None) -> xr.D
     timeCOA = (timeCOA*1e9).astype('timedelta64[ns]')
 
     # compute absolute time
-    timeCOA = timeCOA + np.datetime64(annot["Timeline"]["CollectStart"])
+    timeCOA = timeCOA + np.datetime64(annot["Timeline"]["CollectStart"][:-1])
 
     # return as dataarray
     return xr.DataArray(timeCOA, dims=['azimuth_time', 'slant_range_time'], 
@@ -549,4 +525,4 @@ def get_interf(a,b,ml_factor):
     return (a*b.conj()).coarsen(ml_factor, boundary='trim').mean()
 
 def get_normalized_interf(a,b,ml_factor):
-    return get_interf(a,b,ml_factor) / (np.sqrt(get_interf(a,a,ml_factor) * get_interf(b,b,ml_factor)))
+    return (get_interf(a,b,ml_factor) / np.sqrt(get_interf(a,a,ml_factor) * get_interf(b,b,ml_factor))).fillna(0j)
