@@ -96,8 +96,6 @@ def find_global_shift(
     A, B = zip(*[create_matrix(esd.sel(stacked=(id, date))) for (id, date) in esd.stacked.values])
     # global least square problem solving #
     A, B = scipy.sparse.vstack(A), np.hstack(B)
-    logger.debug(f"A : {A.toarray().shape}")
-    logger.debug(f"B : {B.shape}")
 
     X, istop, itn, r1norm, r2norm, _, _, _, _, _ = scipy.sparse.linalg.lsqr(A, B)
 
@@ -426,7 +424,7 @@ def estimate(
         {key: list(slcs.bursts.children.values())[0].coreg.measurements.attrs[key]}
     )
     # Auxiliary data saved as attributes of the dataset
-    return find_global_shift(esd, poly_degree=poly_degree)
+    return esd, find_global_shift(esd, poly_degree=poly_degree)
 
 
 def optimize_curvature(esd, poly_degree: int):
