@@ -43,10 +43,10 @@ def get_interf_single_burst(
     interf_ds = xr.Dataset()
 
     # extract phase
-    interf_ds["phase"] = xr.apply_ufunc(np.angle, interf, dask="parallelized")
+    interf_ds["phase"] = xr.apply_ufunc(np.angle, interf, dask="parallelized", output_dtypes=float)
 
     # extract coherence
-    interf_ds["cohe"] = xr.apply_ufunc(np.abs, interf, dask="parallelized")
+    interf_ds["cohe"] = xr.apply_ufunc(np.abs, interf, dask="parallelized", output_dtypes=float)
 
     return interf_ds
 
@@ -142,13 +142,13 @@ def extract_interf_single(
     # force coordinates
     interf = update_interf_coordinates(interf, multilook, dt_az, dt_rg, a_min, r_min, x_off=x_off, y_off=y_off)
 
-    # add raw image azimuth time
+    # add raw image azimuth times
     azimuth_time_raw = cop_ard_core.utils.get_azimuth_time_raw(coreg_sel['cstack'], multilook)
     interf['azimuth_time_raw'] = (['azimuth_time', 'slant_range_time'], azimuth_time_raw.values)
  
     if y_poly is not None:
         # logger.debug("save phase_ramp")
-        # compute multilooked phase correction
+        # compute multilooked phase corrections
         ph_ramp_diff_ml = ph_ramp_diff.coarsen(multilook, boundary="trim").mean()
         ph_ramp_diff_ml["slant_range_time"] = interf["slant_range_time"]
         ph_ramp_diff_ml["azimuth_time"] = interf["azimuth_time"]
@@ -159,7 +159,7 @@ def extract_interf_single(
 
 def extract_interf_multi(slcs: xr.DataTree, reference_date: str, **kwargs):
 
-    args = [(burst_id, slc.orig, slc.coreg.measurements) for burst_id,slc in slcs.bursts.items() if burst_id.startswith('iw1_14619') ]
+    args = [(burst_id, slc.orig, slc.coreg.measurements) for burst_id,slc in slcs.bursts.items() ]
     args = list(zip(*args))
 
     results = s1_ard_core.computing.computation.map(extract_interf_single, 
