@@ -382,7 +382,7 @@ def _update_recursive_reference(
     # 3. Calculate Correction and Update
     # Correction rotates the SLC to match the reference frame
     correction = slc.data.reshape(shape) * phasor_interf.reshape(shape_ph).conj()
-    mask = correction == np.nan
+    mask = np.isnan(correction)
     correction[mask] = 0
     # Apply fading memory filter
     new_reference = (memory_param * current_reference) + correction.reshape(slc.shape)
@@ -576,8 +576,9 @@ def _correct_drift(
 
     # 3. Normalize to Unit Phasor
     drift_phasor = drift_interf / np.abs(drift_interf)
-    mask = drift_phasor == np.nan
-    drift_phasor[mask] = 1
+
+    mask = np.isnan(drift_phasor) + (drift_phasor == 0)
+    drift_phasor[mask] = 1.0
 
     n_az, n_rg = drift_phasor.shape[1:]
     shape = current_reference.shape
