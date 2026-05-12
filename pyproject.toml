@@ -24,14 +24,14 @@ readme = "README.md"
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development",
     "Typing :: Typed",
     "Private :: Do Not Upload",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13, <3.14"
 
 # By default, the project template does not rely on any specific
 # version of the EOPF CPM. The source code examples are validated
@@ -40,64 +40,43 @@ requires-python = ">=3.11"
 # have a stable build environment.
 dependencies = [
     "astropy>=7.2.0",
-    "bokeh>=3.4.1",
     "ortools>=9.15.6755",
-    "s1-ard-core",
+    "s1-ard-core==1.2.0",
     "xarray-spatial",
     "xrft>=1.0.1",
 ]
 license = { file = "LICENSE" }
 
 [project.optional-dependencies]
-cluster-plugin = ["eopf[cluster-plugin] >= 2.5.8"]
-tests = ["eopf[tests] >= 2.5.8"]
-linter = ["eopf[linter] >= 2.5.8"]
-typing = ["eopf[typing] >= 2.5.8"]
-formatter = ["eopf[formatter] >= 2.5.8"]
-security = ["eopf[security] >= 2.5.8"]
-notebook = ["eopf[notebook] >= 2.5.8"]
+cluster-plugin = ["eopf[cluster-plugin] >= 3.0.0rc2"]
+tests = ["eopf[tests] >= 3.0.0rc2"]
+linter = ["eopf[linter] >= 3.0.0rc2"]
+typing = ["eopf[typing] >= 3.0.0rc2"]
+formatter = ["eopf[formatter] >= 3.0.0rc2"]
+security = ["eopf[security] >= 3.0.0rc2"]
+notebook = ["eopf[notebook] >= 3.0.0rc2"]
 doc = [
     "eopf[doc]",
-    # Align the versions with the ones from the 'python-build-environment' project.
-    # "sphinxcontrib-mermaid",
-    # Dependency required to be present for sphinx-test-reports to work,
-    # even though never used. The extension will actually not work as it
-    # requires PlantUML to be installed, which is a Java library.
+    "sphinxcontrib-mermaid",
     "sphinxcontrib-plantuml",
     "sphinxcontrib-spelling",
     "sphinx-test-reports",
-    "docxbuilder",
 ]
-complexity = ["eopf[complexity] >= 2.5.8"]
-doc-cov = ["eopf[doc-cov] >= 2.5.8"]
-dev = ["eopf[dev] >= 2.5.8"]
+complexity = ["eopf[complexity] >= 3.0.0rc2"]
+doc-cov = ["eopf[doc-cov] >= 3.0.0rc2"]
+dev = ["ipykernel","matplotlib"]
 
-[tool.isort]
-profile = "black"
-
-[tool.black]
+[tool.ruff]
 line-length = 120
-target-version = ['py311']
+target-version = "py311"
+
 
 [tool.pytest.ini_options]
-markers = [
-    "integration",
-    "unit",
-    "need_files",
-    "l1",
-    "l2",
-    "sm",
-    "ew",
-    "iw",
-    "osw",
-    "owi",
-    "ard",
-]
-
+markers = ["integration", "unit", "need_files"]
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 
+# Add the gitlab token in your `.netrc` file to allow `uv lock`
 # s1-ard-core
 [[tool.uv.index]]
 url = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/simple"
-
