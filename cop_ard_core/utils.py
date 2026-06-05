@@ -1,21 +1,23 @@
 import numpy as np
 import xarray as xr
 import scipy.fft
-from s1_ard_core.computing.io import write
+from s1_ard_core.computing.io import write, path_to_dict
 from s1_ard_core.computing.logger import logger, timeit
 from scipy.constants import speed_of_light
 
 
 # @timeit
-def extract_subband(cslc: xr.DataArray, bw: float, f0: float, dim_trasf: str = 'slant_range_time') -> xr.DataArray:
+def extract_subband(cslc: xr.DataArray, bw: float, f0: float, dim_transf: str = 'slant_range_time') -> xr.DataArray:
 
     dim = cslc.dims
-    freq_dim = [f"freq_{e}" if e == dim_trasf else e for e in cslc.dims] 
-    
-    coord_trasf = (np.arange(cslc[dim_trasf].size) - cslc[dim_trasf].size // 2)  / (cslc[dim_trasf][-1] - cslc[dim_trasf][0]).values
-    axis = int(np.where(np.array(dim) == dim_trasf)[0])
+    freq_dim = [f"freq_{e}" if e == dim_transf else e for e in cslc.dims] 
+    axis = cslc.get_axis_num(dim_transf)
+    N = cslc.sizes[dim_transf]
+    t_coords = cslc[dim_transf].values
+    coord_trasf = (np.arange(N) - N // 2)  / (t_coords[-1] - t_coords[0])
+    # coord_trasf = (np.arange(cslc[dim_trasf].size) - cslc[dim_trasf].size // 2)  / (cslc[dim_trasf][-1] - cslc[dim_trasf][0]).values
     freq_coords = {
-        (f"freq_{e}" if e == dim_trasf else e): (coord_trasf if e == dim_trasf else cslc.coords[e].values)
+        (f"freq_{e}" if e == dim_transf else e): (coord_trasf if e == dim_transf else cslc.coords[e].values)
         for e in cslc.dims
     }
  
@@ -215,73 +217,160 @@ def get_poly(poly, poly_type: str, dd: str):
     return poly
 
 
-def get_coordinates(coreg, alpha, beta, coord_type: str = "pixels"):
+def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
     """
-    y, x = coreg.azimuth_time, coreg.slant_range_time
     return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
 
 
 # @timeit
-def get_daz_corr(burst, y_poly, dd):
-    c1, c2 = get_coordinates(burst, y_poly[dd].offset, y_poly[dd].scale_fact, y_poly.type)
-    return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly[dd].values)
+def get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact):
+    c1, c2 = get_coordinates(azimuth_time, slant_range_time, offset, scale_fact)
+    return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly)
 
+
+def get_az_rg_meters(annot):
+    """
+    Compute azimuth and slant range distance arrays (in meters) from SICD metadata.
+    """
+
+    try:
+        # Access metadata fields directly from the Sarpy object.
+        daz = annot.Grid.Col.SS
+        azimuth_m = (np.arange(annot.ImageData.FullImage.NumCols) - annot.ImageData.SCPPixel.Col) * daz
+        slant_range_m = (
+            np.arange(annot.ImageData.FullImage.NumRows) - annot.ImageData.SCPPixel.Row
+        ) * annot.Grid.Row.SS
+    except AttributeError:
+        # Fallback to dictionary-based access.
+        daz = path_to_dict(annot, "Grid.Col.SS")
+        drg = path_to_dict(annot, "Grid.Row.SS")
+        num_cols = path_to_dict(annot, "ImageData.FullImage.NumCols")
+        scp_col = path_to_dict(annot, "ImageData.SCPPixel.Col")
+        num_rows = path_to_dict(annot, "ImageData.FullImage.NumRows")
+        scp_row = path_to_dict(annot, "ImageData.SCPPixel.Row")
+        azimuth_m = (np.arange(num_cols) - scp_col) * daz
+        slant_range_m = (np.arange(num_rows) - scp_row) * drg
+    except Exception as e:
+        logger.critical(f"Caught an unexpected error: {type(e).__name__} - {e}")
+        azimuth_m, slant_range_m = None, None
+        raise
+    return azimuth_m, slant_range_m
 
 # @timeit
-def get_phramp_diff(burst: xr.Dataset, orig: xr.DataTree, y_poly: xr.Dataset):
-    ph_ramp_diff_list = []
+def get_az_rg_times(annot):
+    """
+    Compute azimuth and slant range time coordinate arrays from SICD metadata.
+    """
+    import pandas as pd
+
+    try:
+        # Access metadata fields directly from the Sarpy object.
+        num_cols = annot.ImageData.FullImage.NumCols
+        num_rows = annot.ImageData.FullImage.NumRows
+        scp_col = annot.ImageData.SCPPixel.Col
+        scp_row = annot.ImageData.SCPPixel.Row
+        time_ca_poly = annot.RMA.INCA.TimeCAPoly.Coefs
+        collect_start = annot.Timeline.CollectStart
+        col_ss = annot.Grid.Col.SS
+        row_ss = annot.Grid.Row.SS
+        r_ca_scp = annot.RMA.INCA.R_CA_SCP
+    except AttributeError:
+        # Fallback to dictionary-based access if the input is a dict.
+        num_cols = path_to_dict(annot, "ImageData.FullImage.NumCols")
+        num_rows = path_to_dict(annot, "ImageData.FullImage.NumRows")
+        scp_col = path_to_dict(annot, "ImageData.SCPPixel.Col")
+        scp_row = path_to_dict(annot, "ImageData.SCPPixel.Row")
+        time_ca_poly = path_to_dict(annot, "RMA.INCA.TimeCAPoly.Coefs")
+        raw_time = path_to_dict(annot, "Timeline.CollectStart")
+        collect_start = pd.to_datetime(raw_time, utc=True).tz_localize(None).to_numpy()
+        col_ss = path_to_dict(annot, "Grid.Col.SS")
+        row_ss = path_to_dict(annot, "Grid.Row.SS")
+        r_ca_scp = path_to_dict(annot, "RMA.INCA.R_CA_SCP")
+    except Exception as e:
+        logger.critical(f"Caught an unexpected error: {type(e).__name__} - {e}")
+        azimuth_time, slant_range_time = None, None
+        raise
+    finally:
+        # Calculate azimuth time based on the TimeCAPoly polynomial.
+        dtaz = time_ca_poly[1] * col_ss
+        azimuth_time_float = (np.arange(num_cols, dtype="float64") - scp_col) * dtaz + time_ca_poly[0]
+        azimuth_time = (np.round(azimuth_time_float * 1e9)).astype("timedelta64[ns]") + collect_start
+        # Calculate slant range time based on the distance from the scene center.
+        slant_range_time = 2 * ((np.arange(num_rows) - scp_row) * row_ss + r_ca_scp) / speed_of_light
+    return azimuth_time, slant_range_time
+
+# @timeit
+def get_phramp_diff_(azimuth_time: xr.DataArray,
+                     slant_range_time: xr.DataArray, 
+                     drg: xr.DataArray, 
+                     daz: xr.DataArray, 
+                     annot: dict, 
+                     y_poly: xr.DataArray,
+                     multilook: dict):
 
     # @timeit
     def poly_combine(rg, az_off, az_ori, coeff_demod):
         return np.polynomial.polynomial.polyval2d(rg, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
             rg, az_ori, coeff_demod
         )
+        
+    # extract demodulation coefficients
+    coeff_demod = get_coeff_demod(annot)
 
-    for k, dd in enumerate(burst.acquisition_date.values):
-        slc = orig[f"{dd}/measurements/slc"]
-        _, annot = next(iter(slc.attrs.items()))
+    # compute spacing and start times
+    dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
+    scale_daz = 1 / (annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * 1e9)
 
-        # extract demodulation coefficients
-        coeff_demod = get_coeff_demod(annot)
+    # compute azimuth correction
+    daz_corr = get_daz_corr(azimuth_time, slant_range_time, y_poly.values, y_poly.offset, y_poly.scale_fact)
 
-        # compute spacing and start times
-        dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
-        scale_daz = 1 / (annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * 1e9)
+    # Corrected slant range and azimuth positions
+    daz_corr = daz + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
 
-        # compute azimuth correction
-        daz_corr = get_daz_corr(burst, y_poly, dd)
+    # centre scene coordinates
+    az_time, rg_time = get_az_rg_times(annot)
 
-        # Corrected slant range and azimuth positions
-        drg = burst.drg.sel(acquisition_date=dd)
-        daz = burst.daz.sel(acquisition_date=dd) + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
+    rg_mid = rg_time[annot["ImageData"]["SCPPixel"]["Row"]]
+    az_mid = az_time[annot["ImageData"]["SCPPixel"]["Col"]]
 
-        # centre scene coordinates
-        rg_mid = slc.isel(slant_range_time=annot["ImageData"]["SCPPixel"]["Row"]).slant_range_time.values
-        az_mid = slc.isel(azimuth_time=annot["ImageData"]["SCPPixel"]["Col"]).azimuth_time.values
+    # compute the position in the secondary image corresponding to the reference one with and without corrections in meters wrt the scene centre
+    az_off = ((azimuth_time + daz_corr - az_mid).astype(float) * scale_daz).values
+    az_ori = ((azimuth_time + daz - az_mid).astype(float) * scale_daz).values
 
-        # compute the position in the secondary image corresponding to the reference one with and without corrections
-        az_off = ((burst.azimuth_time + daz - az_mid).astype(float) * scale_daz).values
-        az_ori = ((burst.azimuth_time + burst.daz.sel(acquisition_date=dd) - az_mid).astype(float) * scale_daz).values
+    # range in meters wrt the burst center
+    rg = ((slant_range_time + drg - rg_mid).T * (speed_of_light / 2)).values 
 
-        rg = ((burst.slant_range_time + drg - rg_mid).T * (speed_of_light / 2)).values
+    # recontruct polynomial function
+    ph_ramp_diff_da = xr.DataArray(
+        poly_combine(rg, az_off, az_ori, coeff_demod),
+        dims=["azimuth_time", "slant_range_time"],
+        coords={
+            "slant_range_time": slant_range_time,
+            "azimuth_time": azimuth_time,
+        },
+    )
 
-        # recontruct polynomial function
-        ph_ramp_diff_da = xr.DataArray(
-            poly_combine(rg, az_off, az_ori, coeff_demod),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={
-                "slant_range_time": burst.slant_range_time,
-                "azimuth_time": burst.azimuth_time,
-            },
-        )
+    return ph_ramp_diff_da 
 
-        ph_ramp_diff_list.append(ph_ramp_diff_da)
+# @timeit
+def get_phramp_diff(interf: xr.Dataset, drg_full: xr.DataArray, daz_full: xr.DataArray, annot: dict, y_poly: xr.Dataset, multilook: dict):
+    ph_ramp_diff_list = []
+
+    for k, dd in enumerate(interf.acquisition_date.values):
+        #  call core function
+        y_poly[dd].attrs['type'] = y_poly.type
+        res = get_phramp_diff_(interf.azimuth_time,
+                               interf.slant_range_time, 
+                               drg_full.sel(acquisition_date=dd).coarsen(multilook, boundary='trim').mean(), 
+                               daz_full.sel(acquisition_date=dd).coarsen(multilook, boundary='trim').mean(),
+                               annot[dd], y_poly[dd], multilook)
+        ph_ramp_diff_list.append(res)
 
     # return the concatenated dataarray
     return xr.concat(ph_ramp_diff_list, dim="acquisition_date").assign_coords(
-        {"acquisition_date": burst.acquisition_date}
+        {"acquisition_date": interf.acquisition_date}
     )
 
 
@@ -524,5 +613,45 @@ def decode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
 def get_interf(a,b,ml_factor):
     return (a*b.conj()).coarsen(ml_factor, boundary='trim').mean()
 
+# def get_normalized_interf(a, b, ml_factor, rel_thresh=None, abs_thresh=1e-6):
+#     cross = get_interf(a, b, ml_factor)
+#     p_a = get_interf(a, a, ml_factor)
+#     p_b = get_interf(b, b, ml_factor)
+    
+#     coh = cross / np.sqrt(p_a * p_b)
+    
+#     valid_mask = (p_a > abs_thresh) & (p_b > abs_thresh)
+    
+#     if rel_thresh is not None:
+#         is_actively_updated = p_a > (rel_thresh * p_b)
+#         valid_mask = valid_mask & is_actively_updated
+        
+#     return coh.where(valid_mask, 0j).fillna(0j)
+
+
+
 def get_normalized_interf(a,b,ml_factor):
     return (get_interf(a,b,ml_factor) / np.sqrt(get_interf(a,a,ml_factor) * get_interf(b,b,ml_factor))).fillna(0j)
+
+
+def time_to_pixel(stack: xr.Dataset, y0: float | None = None, x0: float | None = None) -> xr.Dataset:
+    """
+
+    Convert from times to pixel dimensions of the input stack
+
+    """
+
+    if y0 is None:
+        y0 = stack.azimuth_time[0].values
+    if x0 is None:
+        x0 = stack.slant_range_time[0].values
+
+    # spacing computation #
+    y_spacing, x_spacing = [(stack[e][1] - stack[e][0]).values for e in ["azimuth_time", "slant_range_time"]]
+
+    # times to pixel coordinates #
+    x = np.round((stack.slant_range_time - x0) / x_spacing).values.astype("int32")
+    y = np.round((stack.azimuth_time - y0) / y_spacing).values.astype("int32")
+
+    stack = stack.assign_coords({"y": (["azimuth_time"], y), "x": (["slant_range_time"], x)})
+    return stack.swap_dims(azimuth_time="y", slant_range_time="x")

@@ -20,7 +20,7 @@ import s1_ard_core.computing.dem
 import s1_ard_core.computing.griddata
 import s1_ard_core.computing.io
 import s1_ard_core.computing.kernels
-import s1_ard_core.computing.shiroma
+import s1_ard_core.computing.area_projection
 import s1_ard_core.computing.simul
 import s1_ard_core.computing.slc
 import xarray as xr
@@ -319,7 +319,6 @@ def map_geocoding(
     selection = s1_ard_core.computing.simul.extract_simul_on_radar_chunk(
         slc, simulation, simulation_ml, margin, simulation.acquisition_date.values[0]
     ).drop_vars(["axis", "dem_distance"])
-
     # NOTE: do we want this in rose-L?? this was needed to be aligned with shiroma. probably yes
     # Define the output coordinates at pixel centers.
     x, y = selection.x.values, selection.y.values
@@ -328,7 +327,7 @@ def map_geocoding(
     # --- Initialize Output GSLC Dataset ---
     # Create the empty Zarr store for the Geocoded SLC.
     for date in acquisition_dates:
-        data = read(normpath(f"{cmlp_path}/{date}"), consolidate_metadata=False)
+        data = read(normpath(f"{cmlp_path}/{date}"),as_type="xr.Dataset", consolidate_metadata=False)
         data_vars = list(data.data_vars)
         dims = {k: DIMS if "past_reference_date" not in data[k].dims else LONG_DIMS for k in data_vars}
         chunks = {k: v[0] for k, v in data.chunksizes.items() if k in LONG_DIMS}
@@ -356,7 +355,7 @@ def map_geocoding(
     empty_dataset = xr.DataArray(
         da.empty(shape_), dims=["acquisition_date", "y", "x"], coords={"acquisition_date": acquisition_dates}
     ).chunk(chunks)
-    chunks = s1_ard_core.computing.shiroma.compute_chunks(dict(empty_dataset.chunksizes))
+    chunks = s1_ard_core.computing.area_projection.compute_chunks(dict(empty_dataset.chunksizes))
     # --- Map the Geocoding Worker Function ---
     # This call applies the `warp_gslc` function to each block of the simulation grid.
     s1_ard_core.computing.computation.map_blocks(
@@ -429,6 +428,7 @@ def extract_rg_az(slc: xr.DataArray, simulation: xr.Dataset, multilook: dict) ->
     return rg, az
 
 
+@timeit
 def warp_cmlp(
     empty_dataset: xr.DataArray,
     cmlp_path: str,
