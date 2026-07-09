@@ -9,7 +9,7 @@
 from typing import Literal, Sequence
 
 import numpy as np
-import s1_ard_core.computing.computation
+import cop_ard_core.computing.computation
 import structlog
 import xarray as xr
 from scipy.constants import speed_of_light
@@ -320,7 +320,7 @@ def compute_pearson_coefficient(
         data_type,
     )
     # Cross-Correlation computation via map_blocks
-    results = s1_ard_core.computing.computation.map_blocks(
+    results = cop_ard_core.computing.computation.map_blocks(
         compute_pearson_coefficient_blk,
         (xyz_stack, xyz_stack.sel(z=reference_date)),
         args=args,

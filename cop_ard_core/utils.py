@@ -1,8 +1,8 @@
 import numpy as np
 import xarray as xr
 import scipy.fft
-from s1_ard_core.computing.io import write, path_to_dict
-from s1_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.io import write, path_to_dict
+from cop_ard_core.computing.logger import logger, timeit
 from scipy.constants import speed_of_light
 
 

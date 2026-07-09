@@ -1,13 +1,13 @@
 import numpy as np
 import xarray as xr
-from s1_ard_core.computing.io import (
+from cop_ard_core.computing.io import (
     get_storage_options,
     normpath,
     read,
     save_empty_dataset,
     write,
 )
-from s1_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.logger import logger, timeit
 
 import cop_ard_core.utils
 

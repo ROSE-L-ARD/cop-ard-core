@@ -15,18 +15,18 @@ from typing import Dict, cast
 
 import dask.array as da
 import numpy as np
-import s1_ard_core.computing.computation
-import s1_ard_core.computing.dem
-import s1_ard_core.computing.griddata
-import s1_ard_core.computing.io
-import s1_ard_core.computing.kernels
-import s1_ard_core.computing.area_projection
-import s1_ard_core.computing.simul
-import s1_ard_core.computing.slc
+import cop_ard_core.computing.computation
+import cop_ard_core.computing.dem
+import cop_ard_core.computing.griddata
+import cop_ard_core.computing.io
+import cop_ard_core.computing.kernels
+import cop_ard_core.computing.area_projection
+import cop_ard_core.computing.simul
+import cop_ard_core.computing.slc
 import xarray as xr
-from s1_ard_core.computing.io import get_storage_options, normpath, read, write
-from s1_ard_core.computing.logger import timeit
-from s1_ard_core.computing.warp import sinc_warp
+from cop_ard_core.computing.io import get_storage_options, normpath, read, write
+from cop_ard_core.computing.logger import timeit
+from cop_ard_core.computing.warp import sinc_warp
 from scipy.constants import speed_of_light
 
 DIMS = ["polarization", "y", "x"]
@@ -120,7 +120,7 @@ def stack_geocoding(
     # Map the `single_geocode_phase` worker function over the list of arguments.
     results = cast(
         list,
-        s1_ard_core.computing.computation.map(
+        cop_ard_core.computing.computation.map(
             single_geocoding,
             args,
             kwargs=dict(
@@ -217,8 +217,8 @@ def single_geocoding(
     kaiser_beta = kwargs.get("warp_kaiser_beta", 6)
 
     # Pre-compute the sinc kernels for x and y directions.
-    sinc_x = s1_ard_core.computing.warp.sinc(kernel_shape[1], ov_fact, kaiser_beta)
-    sinc_y = s1_ard_core.computing.warp.sinc(kernel_shape[0], ov_fact, kaiser_beta)
+    sinc_x = cop_ard_core.computing.warp.sinc(kernel_shape[1], ov_fact, kaiser_beta)
+    sinc_y = cop_ard_core.computing.warp.sinc(kernel_shape[0], ov_fact, kaiser_beta)
 
     kernel = {
         "kernel_shape": kernel_shape,
@@ -314,9 +314,9 @@ def map_geocoding(
     annot = slc.attrs
     annot = annot[list(annot.keys())[0]]
     # Calculate grid spacing for margin calculation.
-    margin = s1_ard_core.computing.slc.get_margin(annot)
+    margin = cop_ard_core.computing.slc.get_margin(annot)
     # Extract the subset of the simulation grid relevant to this CSLC.
-    selection = s1_ard_core.computing.simul.extract_simul_on_radar_chunk(
+    selection = cop_ard_core.computing.simul.extract_simul_on_radar_chunk(
         slc, simulation, simulation_ml, margin, simulation.acquisition_date.values[0]
     ).drop_vars(["axis", "dem_distance"])
     # NOTE: do we want this in rose-L?? this was needed to be aligned with shiroma. probably yes
@@ -338,7 +338,7 @@ def map_geocoding(
         coords = {k: v.values for k, v in data.coords.items() if k in COORDS}
         coords["y"] = y
         coords["x"] = x
-        s1_ard_core.computing.io.save_empty_dataset(
+        cop_ard_core.computing.io.save_empty_dataset(
             data_vars=data_vars,
             dims=dims,
             shape=shape,
@@ -355,10 +355,10 @@ def map_geocoding(
     empty_dataset = xr.DataArray(
         da.empty(shape_), dims=["acquisition_date", "y", "x"], coords={"acquisition_date": acquisition_dates}
     ).chunk(chunks)
-    chunks = s1_ard_core.computing.area_projection.compute_chunks(dict(empty_dataset.chunksizes))
+    chunks = cop_ard_core.computing.area_projection.compute_chunks(dict(empty_dataset.chunksizes))
     # --- Map the Geocoding Worker Function ---
     # This call applies the `warp_gslc` function to each block of the simulation grid.
-    s1_ard_core.computing.computation.map_blocks(
+    cop_ard_core.computing.computation.map_blocks(
         warp_cmlp,
         empty_dataset,
         args=(

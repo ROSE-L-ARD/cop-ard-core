@@ -2,9 +2,9 @@ import numpy as np
 import xarray as xr
 import os
 
-from s1_ard_core.computing.logger import logger, timeit
-from s1_ard_core.computing.io import Path, read, write
-from s1_ard_core.computing.computation import map, map_blocks
+from cop_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.io import Path, read, write
+from cop_ard_core.computing.computation import map, map_blocks
 
 import cop_ard_core.utils
 import cop_ard_core.interf

@@ -3,11 +3,11 @@ import warnings
 from typing import cast
 
 import numpy as np
-import s1_ard_core.computing.computation
+import cop_ard_core.computing.computation
 import scipy.optimize
 import xarray as xr
 from numba import njit
-from s1_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.logger import logger, timeit
 
 from cop_ard_core.utils import wrap
 from cop_ard_core.interf import compute_interf_norm
@@ -279,7 +279,7 @@ def esd_single_burst(
     current_reference = current_burst.sel(acquisition_date=reference_dates)
     # new dimension id and corresponding coords added to the shifts #
     coords = {k: (["id"], [current_burst[k].mean().values]) for k in ["azimuth_time", "slant_range_time"]}
-    esd = s1_ard_core.computing.computation.map_blocks(
+    esd = cop_ard_core.computing.computation.map_blocks(
         compute_azimuth_shifts,
         (current_burst, next_burst),
         args=(current_reference, next_reference),
@@ -321,7 +321,7 @@ def estimate(
             args.append(a)
     args = list(zip(*args))
     # Residual azimuth shifts estimation for each bursts
-    esd = s1_ard_core.computing.computation.map(
+    esd = cop_ard_core.computing.computation.map(
         esd_single_burst,
         args=args,
         kwargs={"reference_dates": reference_dates, "enable_dask": enable_dask},
@@ -347,7 +347,7 @@ def estimate(
 
     esd_opt = cast(
         list,
-        s1_ard_core.computing.computation.map(
+        cop_ard_core.computing.computation.map(
             optimize_curvature,
             args=args,
             kwargs={"poly_degree": poly_degree},

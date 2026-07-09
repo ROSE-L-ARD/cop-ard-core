@@ -1,8 +1,8 @@
 import numpy as np
 import xarray as xr
-import s1_ard_core.computing.computation
+import cop_ard_core.computing.computation
 
-from s1_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.logger import logger, timeit
 
 import cop_ard_core.utils
 import json
@@ -197,7 +197,7 @@ def extract_interf_multi(slcs: xr.DataTree, reference_date: str, enable_dask: bo
     args = [(burst_id, json.dumps({k: v.measurements.slc.attrs[pol] for k,v in slc.orig.items()}), slc.coreg.measurements.ds) for burst_id,slc in slcs.bursts.items() ]
     args = list(zip(*args))
 
-    results = s1_ard_core.computing.computation.map(extract_interf_single, 
+    results = cop_ard_core.computing.computation.map(extract_interf_single, 
                                                     args=args, kwargs = {'reference_date': reference_date, **kwargs}, 
                                                     enable_dask = enable_dask, combine=False)
 

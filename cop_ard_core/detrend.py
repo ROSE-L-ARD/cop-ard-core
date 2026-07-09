@@ -4,7 +4,7 @@ from typing import Literal, Tuple
 import numpy as np
 import scipy.optimize
 from astropy import stats as ast
-from s1_ard_core.computing.logger import logger
+from cop_ard_core.computing.logger import logger
 
 
 def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.ndarray:
