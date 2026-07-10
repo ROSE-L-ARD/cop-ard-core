@@ -720,7 +720,6 @@ def computeGammaNaughtArea(
     normal_order: bool,
     GNA: np.ndarray,
     lia: np.ndarray,
-    nlook: np.ndarray,
     data_w: np.ndarray,
     indptr_w: np.ndarray,
     indices_w: np.ndarray,
@@ -763,8 +762,6 @@ def computeGammaNaughtArea(
     lia : np.ndarray
         1D array to store the cosine of the local incidence angle for each triangle.
         Modified in-place.
-    nlook : np.ndarray
-        1D array containing the total projected area (number of looks) for each triangle.
     data_w : np.ndarray
         Non-zero values of the sparse weight matrix `W` (triangle projected area).
     indptr_w : np.ndarray
@@ -840,14 +837,19 @@ def computeGammaNaughtArea(
     # --- Step 2: Distribute GNA onto Dense Grid using Sparse Weights W ---
     # Iterate through each row (triangle) of the sparse weight matrix W.
     for i in range(n_rows):
-        # Iterate through the non-zero elements (projected areas) for this triangle.
-        for k in range(indptr_w[i], indptr_w[i + 1]):
-            # `indices_w[k]` is the linear index of the radar grid pixel.
-            # `data_w[k]` is the projected area of triangle `i` onto pixel `indices_w[k]`.
-            # `nlook[i]` is the total projected area of triangle `i`.
-            # We distribute the triangle's GNA value proportionally to its projected area in each pixel.
-            # The division by 2.0 might be related to specific definitions or conventions.
-            dense[indices_w[k]] += GNA[i] * (data_w[k] / nlook[i]) / 2.0
+        nlook = 0.0
+        for j in range(indptr_w[i], indptr_w[i + 1]):
+            nlook += data_w[j]
+        
+        if nlook > 0.0:
+            # Iterate through the non-zero elements (projected areas) for this triangle.
+            for k in range(indptr_w[i], indptr_w[i + 1]):
+                # `indices_w[k]` is the linear index of the radar grid pixel.
+                # `data_w[k]` is the projected area of triangle `i` onto pixel `indices_w[k]`.
+                # `nlook` is the total projected area of triangle `i`.
+                # We distribute the triangle's GNA value proportionally to its projected area in each pixel.
+                # The division by 2.0 might be related to specific definitions or conventions.
+                dense[indices_w[k]] += GNA[i] * (data_w[k] / nlook) / 2.0
 
     # --- Step 3: Convert Dense GNA Map to Sparse CSR Format ---
     count = 0  # Counter for non-zero elements in the output sparse matrix.

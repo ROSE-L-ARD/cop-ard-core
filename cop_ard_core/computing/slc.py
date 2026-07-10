@@ -101,7 +101,7 @@ def import_slc_stack(
         group_discover,
         or_f,
         kwargs=dict(aoi_wkt=aoi_wkt, multiburst=multiburst, indices=indices, polarizations=polarizations, **kwargs),
-        enable_dask=True if isinstance(base_type, str) else False,
+        enable_dask=True if base_type is str else False,
         combine=False,
     )
 
@@ -409,12 +409,14 @@ def import_image(
             args = []
             obj = [image.slc]
             # Define the chunking strategy for `map_blocks`.
+            print(in_path)
             if in_path is not None:
                 chunksizes = {k: v for k, v in chunks.items() if k in image.dims}
                 chunksizes["slant_range_time"] = slant_range_time.size
                 chunksizes["azimuth_time"] = min([azimuth_time.size, chunksizes["azimuth_time"]])
-                annot = ds.sicd_meta[index].to_dict()
+                annot = ds.sicd_meta[index]
                 processed_pol = annot.get_processed_polarization().replace(":", "")
+                annot = annot.to_dict()
                 args.append(slc)
             else:
                 chunksizes = None
