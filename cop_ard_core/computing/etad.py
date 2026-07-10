@@ -17,7 +17,6 @@ import numpy as np
 import scipy.interpolate
 import xarray as xr
 
-from cop_ard_core.computing.computation import map
 from cop_ard_core.computing.io import Path, get_storage_options, normpath, read, write
 from cop_ard_core.computing.logger import logger, timeit
 from cop_ard_core.computing.orbit import update_orbit
@@ -184,82 +183,6 @@ def update_etad(
         bid,
         read(data_path, storage_options=get_storage_options(kwargs)),
     )
-
-
-def import_etad_stack(
-    etad_file_list: list,
-    slcs: xr.DataTree,
-    multiburst: bool,
-    wdir_path: str,
-    enable_dask: bool,
-    **kwargs,
-):
-
-    slcs_az = xr.DataTree()
-    for burst_id, slc in slcs.bursts.items():
-        for date in slc.orig:
-            measurements = slc.orig[date].measurements
-            az_min, az_max = measurements.azimuth_time.min().values, measurements.azimuth_time.max().values
-            slcs_az[f"bursts/{burst_id}/orig/{date}/measurements"] = xr.DataArray([az_min, az_max], dims=["point"])
-
-    orbit_paths = []
-    flat_burst_args = []
-    # 1. Iterate over all files to collect bursts and metadata
-    for etad_file in etad_file_list:
-        nc_files = etad_file.glob("measurement/*.nc")
-        if not nc_files:
-            raise ValueError(f"No .nc file found at {etad_file.path}/measurement")
-        etad_nc_path = nc_files[0].path
-        open_kwargs: dict[str, Any] = {"chunks": {}, "cache": False}
-        local_file = "://" not in etad_nc_path or etad_nc_path.startswith("file://")
-        if not local_file:
-            open_kwargs["storage_options"] = etad_file.storage_options
-        etad_nc = xr.open_datatree(etad_nc_path, engine="h5netcdf", **open_kwargs)
-        # Discover dates and times
-        t0az = np.datetime64(etad_nc.attrs["azimuthTimeMin"], "ns")
-        t0rg = etad_nc.attrs["rangeTimeMin"]
-        etad_acquisition_date = discover_etaddate_slcsdate(slcs_az, etad_nc, multiburst).pop()
-
-        if not etad_acquisition_date:
-            logger.info(f"ETAD file without correspondence: {etad_nc_path}")
-            continue
-
-        # Save orbit path
-        orbit_paths.append(etad_file.glob("annotation/*.EOF")[0])
-
-        # Traverse the DataTree immediately to extract bursts
-        for sw_name, etad_sw in etad_nc.items():
-            for et_name, etad_burst in etad_sw.items():
-                burst_key = f"{sw_name.lower()}_{etad_burst.attrs['burstId']}"
-
-                # Check if burst exists in input SLC data
-                if burst_key in (slcs.bursts if multiburst else {"data": slcs}):
-                    flat_burst_args.append((etad_burst, sw_name, etad_acquisition_date, etad_nc_path, t0az, t0rg))
-
-    if not flat_burst_args:
-        return slcs, orbit_paths
-
-    # Transpose the list of tuples
-    mapped_args = list(zip(*flat_burst_args))
-    flat_results = cast(
-        list,
-        map(
-            update_etad,
-            mapped_args,
-            kwargs=dict(wdir_path=f"{wdir_path}/bursts" if multiburst else wdir_path, **kwargs),
-            combine=False,
-            enable_dask=enable_dask,
-        ),
-    )
-
-    # 3. Integrate all results back into the DataTree
-    for ad, bid, et in flat_results:
-        if multiburst:
-            slcs[f"bursts/{bid}/orig/{ad}/conditions/ETAD"] = et
-        else:
-            slcs[f"orig/{ad}/conditions/ETAD"] = et
-
-    return slcs, orbit_paths
 
 
 def apply_etad_corrections(
