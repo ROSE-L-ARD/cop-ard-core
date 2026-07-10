@@ -28,10 +28,10 @@ these custom readers when given a path to a corresponding Sentinel-1 product.
 import sarpy.io.complex.converter
 
 # Import the custom Sarpy-compatible reader for Sentinel-1 EOPF files
-import s1_ard_core.readers.sarpy_sentinel_eopf as sarpy_eopf
+import cop_ard_core.readers.sarpy_sentinel_eopf as sarpy_eopf
 
 # Import the custom Sarpy-compatible reader for Sentinel-1 SAFE files
-import s1_ard_core.readers.sarpy_sentinel_safe as sarpy_safe
+import cop_ard_core.readers.sarpy_sentinel_safe as sarpy_safe
 
 # Register the EOPF reader's identification function (`is_a`) with Sarpy.
 # This allows Sarpy to recognize EOPF products.
