@@ -11,6 +11,9 @@ __pycache__
 build/
 develop-eggs/
 dist/
+notebooks_tmp/
+log/
+scripts/
 downloads/
 eggs/
 .eggs/
