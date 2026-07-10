@@ -135,8 +135,8 @@ def compute_azimuth_shifts(
 
         if all(reference_date in e.acquisition_date for e in [reference0, reference1]):
             # interferogram multilooked and normalized #
-            interf0 = compute_interf_norm(burst0,reference0.sel(acquisition_date=reference_date).squeeze(), multilook)
-            interf1 = compute_interf_norm(burst1,reference1.sel(acquisition_date=reference_date).squeeze(), multilook)
+            interf0 = compute_interf_norm(reference0.sel(acquisition_date=reference_date).squeeze(), burst0, multilook)
+            interf1 = compute_interf_norm(reference1.sel(acquisition_date=reference_date).squeeze(), burst1, multilook)
     
             # coherence computation #
             interf_prod = (interf1*interf0.conj()).compute()
