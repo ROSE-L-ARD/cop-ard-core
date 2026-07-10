@@ -741,7 +741,7 @@ def compute_geocoded_mask(
     threshold: float = 0.3,
     chunk: dict = {},
     **kwargs,
-) -> None:
+) -> xr.Dataset:
     """
     Computes the geocoded Gamma Naught for a single chunk.
 
@@ -782,16 +782,12 @@ def compute_geocoded_mask(
 
     Returns
     -------
-    None
-        This function writes its results directly to disk.
+    xr.Dataset
+        Geocoded mask data for this chunk.
     """
     so = get_storage_options(kwargs)
     # Get the geogrid dimensions for this chunk (e.g., 512x512)
     dim_x, dim_y = empty_data.x.size - 1, empty_data.y.size - 1
-
-    # Define the region for writing to the output Zarr store
-    # Slices for pol/acq_date are taken directly, y/x are adjusted for cell centers
-    region = {"y": slice(chunk["y"].start, chunk["y"].stop - 1), "x": slice(chunk["x"].start, chunk["x"].stop - 1)}
 
     # Determine the chunk's row/column index from its start position
     row_number, column_number = chunk["y"].start // chunk_length, chunk["x"].start // chunk_length
@@ -852,17 +848,7 @@ def compute_geocoded_mask(
             data_vars={"mask": (["y", "x"], np.zeros((size["y"] - 1, size["x"] - 1), dtype="int32"))}
         )
 
-    # Write the mask dataset to the 'geo_grid' in the *static* path
-    write(
-        geocoded_mask,
-        data_path=normpath(f"{data_path_static}/geo_grid"),
-        region=region,
-        consolidated=False,
-        mode="r+",
-        skip_read=True,
-        storage_options=so,
-    )
-    return
+    return geocoded_mask
 
 
 def compute_shadow(

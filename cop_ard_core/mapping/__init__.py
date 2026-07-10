@@ -1518,6 +1518,86 @@ def update_orbit(
 
 
 @timeit
+def import_ETAD(
+    slcs: xr.DataTree,
+    acquisition_dates: list[str],
+    etad_files: list[Path],
+    wdir_path: str,
+    multiburst: bool = False,
+    enable_dask: bool = True,
+    **kwargs,
+):
+    """
+    Find and import relevant ETAD and precise orbit files for a set of acquisitions.
+
+    This function serves as a high-level wrapper. It filters a list of all available
+    ETAD files to find the ones that match the acquisition dates of interest. It then
+    calls `import_etad_stack` to perform the import and updates the precise orbit
+    information in the `slcs` DataTree.
+
+    Parameters
+    ----------
+    slcs : xr.DataTree
+        The main DataTree containing all the SLC data.
+    acquisition_dates : list[str]
+        A list of acquisition date strings to process.
+    etad_files : list[str]
+        A list of all available ETAD file paths to search through.
+    wdir_path : str
+        The root working directory.
+    multiburst : bool, optional
+        A boolean flag indicating if the data is in multiburst format.
+
+    Returns
+    -------
+    xr.DataTree
+        The updated `slcs` DataTree, now containing the imported ETAD and precise
+        orbit information.
+    """
+    is_valid = all(isinstance(x, Path) for x in etad_files)
+    if not is_valid:
+        raise TypeError("Invalid input: Expected a list of Path objects for ETAD files.")
+    acquisition_date: Union[str, np.datetime64]
+    etad_paths = []
+    # --- Find Matching ETAD Files ---
+    for acquisition_date in acquisition_dates:
+        acquisition_date = np.datetime64(acquisition_date)
+        # Format the date as YYYYMMDD to match typical ETAD filenames.
+        date = acquisition_date.astype("M8[D]").astype(object).strftime("%Y%m%d")
+        # Find all files in the `etad_files` list that contain this date string.
+        files = [file for file in etad_files if date in file.name]
+        if files:
+            etad_paths.extend(files)
+    used_etad: list[str] = []
+    # --- Import ETAD and Orbits ---
+    if etad_paths:
+        # Call the main import function with the filtered list of ETAD paths.
+        slcs, orbit_paths = import_etad_stack(
+            etad_file_list=etad_paths,
+            slcs=slcs,
+            multiburst=multiburst,
+            wdir_path=f"{wdir_path}/slcs",
+            enable_dask=enable_dask,
+            **kwargs,
+        )
+        # Check if orbit files were found for all necessary acquisitions.
+        if any(e is None for e in orbit_paths):
+            raise RuntimeError("The input slcs is not completely convered by the input ETAD file(s)")
+        # Update the SLC DataTree with the new precise orbit information.
+        logger.info(orbit_paths)
+        update_orbit(
+            slcs=slcs,
+            multiburst=multiburst,
+            orbit_paths=orbit_paths,
+            enable_dask=enable_dask,
+            wdir_path=wdir_path,
+            **kwargs,
+        )
+        used_etad = [i.path.split(".SAFE")[0] + ".SAFE" for i in orbit_paths]
+    return slcs, used_etad
+
+
+@timeit
 def import_ORBIT(
     slcs: xr.DataTree,
     acquisition_dates: list[np.datetime64],
@@ -2731,8 +2811,6 @@ def stack_coregistration(
     return slcs
 
 
-
-
 def map_shadow_projection(
     slc: xr.DataArray,
     data_path_static: str,
@@ -2811,6 +2889,24 @@ def map_shadow_projection(
     # Define the arguments to be passed to the worker function `compute_geocoded_mask`
     args = [chunk_length, slc.shape[-1], data_path_static, threshold]
 
+    def region_callback(region: Mapping[str, slice], kwargs: dict) -> Mapping[str, slice]:
+        out = {}
+        for k, v in region.items():
+            if k in ["y", "x"]:
+                out[k] = slice(v.start, v.stop - 1)
+            else:
+                raise ValueError(f"Unexpected dimension {k}")
+        return out
+
+    save_options = {
+        "data_path": f"{data_path_static}/geo_grid",
+        "save_options": {
+            "consolidated": False,
+            "skip_read": True,
+            "storage_options": get_storage_options(kwargs),
+        }
+    }
+
     # Map the `compute_geo_ap` function over all chunks of the `empty_data`
     map_blocks(
         func=compute_geocoded_mask,
@@ -2819,7 +2915,9 @@ def map_shadow_projection(
         kwargs=kwargs,
         chunks=chunks,
         enable_dask=enable_dask,
-        combine=False,  # `compute_geo_ap` writes to disk, no results to combine
+        combine=False,
+        region_callback={0: region_callback},
+        store_mapping={0: save_options}
     )
 
     return
