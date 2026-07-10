@@ -670,10 +670,25 @@ name = "cop-ard-core"
 source = { editable = "." }
 dependencies = [
     { name = "astropy" },
+    { name = "dask" },
+    { name = "defusedxml" },
+    { name = "mgrs" },
+    { name = "numba" },
+    { name = "numpy" },
     { name = "ortools" },
-    { name = "s1-ard-core" },
+    { name = "psutil" },
+    { name = "pyproj" },
+    { name = "rasterio" },
+    { name = "retry" },
+    { name = "rioxarray" },
+    { name = "s3fs" },
+    { name = "sarpy" },
+    { name = "scipy" },
+    { name = "structlog" },
+    { name = "xarray" },
     { name = "xarray-spatial" },
     { name = "xrft" },
+    { name = "zarr" },
 ]
 
 [package.optional-dependencies]
@@ -719,6 +734,8 @@ typing = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=7.2.0" },
+    { name = "dask", specifier = ">=2026.3.0" },
+    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "eopf", extras = ["cluster-plugin"], marker = "extra == 'cluster-plugin'", specifier = ">=3.0.0rc2" },
     { name = "eopf", extras = ["complexity"], marker = "extra == 'complexity'", specifier = ">=3.0.0rc2" },
     { name = "eopf", extras = ["doc"], marker = "extra == 'doc'" },
@@ -731,14 +748,27 @@ requires-dist = [
     { name = "eopf", extras = ["typing"], marker = "extra == 'typing'", specifier = ">=3.0.0rc2" },
     { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "matplotlib", marker = "extra == 'dev'" },
+    { name = "mgrs", specifier = ">=1.5.4" },
+    { name = "numba", specifier = ">=0.65.1" },
+    { name = "numpy", specifier = ">=2.4.4" },
     { name = "ortools", specifier = ">=9.15.6755" },
-    { name = "s1-ard-core", specifier = "==1.2.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pyproj", specifier = ">=3.7.2" },
+    { name = "rasterio", specifier = ">=1.5.0" },
+    { name = "retry", specifier = ">=0.9.2" },
+    { name = "rioxarray", specifier = ">=0.22.0" },
+    { name = "s3fs", specifier = ">=2026.4.0" },
+    { name = "sarpy", specifier = ">=2.0.1" },
+    { name = "scipy", specifier = ">=1.17.1" },
     { name = "sphinx-test-reports", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-mermaid", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-plantuml", marker = "extra == 'doc'" },
     { name = "sphinxcontrib-spelling", marker = "extra == 'doc'" },
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "xarray" },
     { name = "xarray-spatial" },
     { name = "xrft", specifier = ">=1.0.1" },
+    { name = "zarr", specifier = ">=3.2.1" },
 ]
 provides-extras = ["cluster-plugin", "complexity", "dev", "doc", "doc-cov", "formatter", "linter", "notebook", "security", "tests", "typing"]
 
@@ -1424,7 +1454,9 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/58/fc576f99037ce19c5aa16628e4c3226b6d1419f72a62c79f5f40576e6eb3/greenlet-3.5.0-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:5a5ed18de6a0f6cc7087f1563f6bd93fc7df1c19165ca01e9bde5a5dc281d106", size = 285066, upload-time = "2026-04-27T12:23:05.033Z" },
     { url = "https://files.pythonhosted.org/packages/4a/ba/b28ddbe6bfad6a8ac196ef0e8cff37bc65b79735995b9e410923fffeeb70/greenlet-3.5.0-cp313-cp313-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3a717fbc46d8a354fa675f7c1e813485b6ba3885f9bef0cd56e5ba27d758ff5b", size = 604414, upload-time = "2026-04-27T12:52:42.358Z" },
     { url = "https://files.pythonhosted.org/packages/09/06/4b69f8f0b67603a8be2790e55107a190b376f2627fe0eaf5695d85ffb3cd/greenlet-3.5.0-cp313-cp313-manylinux_2_24_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:ddc090c5c1792b10246a78e8c2163ebbe04cf877f9d785c230a7b27b39ad038e", size = 617349, upload-time = "2026-04-27T12:59:43.32Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/15/a643b4ecd09969e30b8a150d5919960caae0abe4f5af75ab040b1ab85e78/greenlet-3.5.0-cp313-cp313-manylinux_2_24_s390x.manylinux_2_28_s390x.whl", hash = "sha256:4964101b8585c144cbda5532b1aa644255126c08a265dae90c16e7a0e63aaa9d", size = 623234, upload-time = "2026-04-27T13:02:40.611Z" },
     { url = "https://files.pythonhosted.org/packages/8a/17/a3918541fd0ddefe024a69de6d16aa7b46d36ac19562adaa63c7fa180eff/greenlet-3.5.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2094acd54b272cb6eae8c03dd87b3fa1820a4cef18d6889c378d503500a1dc13", size = 613927, upload-time = "2026-04-27T12:25:30.28Z" },
+    { url = "https://files.pythonhosted.org/packages/77/18/3b13d5ef1275b0ffaf933b05efa21408ac4ca95823c7411d79682e4fdcff/greenlet-3.5.0-cp313-cp313-manylinux_2_39_riscv64.whl", hash = "sha256:7022615368890680e67b9965d33f5773aade330d5343bbe25560135aaa849eae", size = 425243, upload-time = "2026-04-27T13:05:15.689Z" },
     { url = "https://files.pythonhosted.org/packages/ee/e1/bd0af6213c7dd33175d8a462d4c1fe1175124ebed4855bc1475a5b5242c2/greenlet-3.5.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:5e05ba267789ea87b5a155cf0e810b1ab88bf18e9e8740813945ceb8ee4350ba", size = 1570893, upload-time = "2026-04-27T12:53:29.483Z" },
     { url = "https://files.pythonhosted.org/packages/9b/2a/0789702f864f5382cb476b93d7a9c823c10472658102ccd65f415747d2e2/greenlet-3.5.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:0ecec963079cd58cbd14723582384f11f166fd58883c15dcbfb342e0bc9b5846", size = 1636060, upload-time = "2026-04-27T12:25:28.845Z" },
     { url = "https://files.pythonhosted.org/packages/b2/8f/22bf9df92bbff0eb07842b60f7e63bf7675a9742df628437a9f02d09137f/greenlet-3.5.0-cp313-cp313-win_amd64.whl", hash = "sha256:728d9667d8f2f586644b748dbd9bb67e50d6a9381767d1357714ea6825bb3bf5", size = 238740, upload-time = "2026-04-27T12:24:01.341Z" },
@@ -1677,6 +1709,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9c/cb/8ac0172223afbccb63986cc25049b154ecfb5e85932587206f42317be31d/itsdangerous-2.2.0.tar.gz", hash = "sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173", size = 54410, upload-time = "2024-04-16T21:28:15.614Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl", hash = "sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef", size = 16234, upload-time = "2024-04-16T21:28:14.499Z" },
+]
+
+[[package]]
+name = "jbpy"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/d0/49258552145d01cdb46d7ab42747d827d786a1d8b57d074572e62be4b21f/jbpy-0.6.1.tar.gz", hash = "sha256:23efac30cbbae33e4318eb71f073825b0b7a6578335479e34bb61451406dc523", size = 59429, upload-time = "2026-06-16T21:32:58.26Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/4b/4e86304da39405734949770e4315d598016c891fdf2d28159c7a2503980b/jbpy-0.6.1-py3-none-any.whl", hash = "sha256:8c046d48db9ddab218bf9a9ff4797c64ae567746eaf3fa9a27ebe4f8bc319885", size = 45894, upload-time = "2026-06-16T21:32:56.72Z" },
 ]
 
 [[package]]
@@ -3893,34 +3934,6 @@ wheels = [
 ]
 
 [[package]]
-name = "s1-ard-core"
-version = "1.2.0"
-source = { registry = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/simple" }
-dependencies = [
-    { name = "bokeh" },
-    { name = "dask" },
-    { name = "defusedxml" },
-    { name = "distributed" },
-    { name = "mgrs" },
-    { name = "netcdf4" },
-    { name = "numba" },
-    { name = "numpy" },
-    { name = "rasterio" },
-    { name = "retry" },
-    { name = "rioxarray" },
-    { name = "s3fs" },
-    { name = "sarpy" },
-    { name = "scipy" },
-    { name = "structlog" },
-    { name = "xarray" },
-    { name = "zarr" },
-]
-sdist = { url = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/files/258bdc3da0bda20234c8f555519f04cac87ddd542682884cbf97e93c1ee9d4e9/s1_ard_core-1.2.0.tar.gz", hash = "sha256:258bdc3da0bda20234c8f555519f04cac87ddd542682884cbf97e93c1ee9d4e9" }
-wheels = [
-    { url = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/files/a758eb4be0c3137ef8e1c0e71d8fc9bb93b68e934e1294ecba6c13ff4aac9495/s1_ard_core-1.2.0-py3-none-any.whl", hash = "sha256:a758eb4be0c3137ef8e1c0e71d8fc9bb93b68e934e1294ecba6c13ff4aac9495" },
-]
-
-[[package]]
 name = "s3fs"
 version = "2026.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3935,8 +3948,23 @@ wheels = [
 ]
 
 [[package]]
+name = "sarkit"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jbpy" },
+    { name = "lxml" },
+    { name = "numpy" },
+    { name = "shapely" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/55/b9e54e8b96be48d712b894a190b35bffb6d3f77bf2779907c6e0181cefc4/sarkit-1.10.0.tar.gz", hash = "sha256:68f5977e91c4092ac561e4efe3b71260305e469a2ea21a72db0bdc78e76b4344", size = 951008, upload-time = "2026-06-26T00:05:16.597Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/e4/8153747f90a54a75d89e539e4ba3a8f56f24961a466557dc58d3b9f0ec9f/sarkit-1.10.0-py3-none-any.whl", hash = "sha256:184c6cf59de9c23852e36c33c71362b5289be02d595c879cc41fa678054f3aea", size = 1113453, upload-time = "2026-06-26T00:05:14.825Z" },
+]
+
+[[package]]
 name = "sarpy"
-version = "1.3.64"
+version = "2.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deprecated" },
@@ -3945,12 +3973,13 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pillow" },
+    { name = "sarkit" },
     { name = "scipy" },
     { name = "shapely" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/d6/a35dfa04e20fd61b4e24d641a21930109aaf1b2c8ee375df10b8db29b6b6/sarpy-1.3.64.tar.gz", hash = "sha256:b80a9fd927512fc5e8162ccead78d13a7525d3b8e5832a2cba5c47be0d3f3a44", size = 1290881, upload-time = "2026-01-27T17:01:55.943Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/ca/26a941e3145e8e177b8fde28c5f4b29369e59749cbd7d3df2813e9a8d192/sarpy-2.0.1.tar.gz", hash = "sha256:60468107bfe7d73b65e14be112c7e8032eabe1a19de497972b201af03791070c", size = 1294775, upload-time = "2026-05-20T00:10:37.145Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/77/830ebac367f676819bbf0627c1c90cc828a891bfe873e8f6d529da0faaeb/sarpy-1.3.64-py2.py3-none-any.whl", hash = "sha256:70035cc81892982b005a2d90c8e624ac7f65c62c3978fc028b417502675cff4c", size = 1653128, upload-time = "2026-01-27T17:01:53.105Z" },
+    { url = "https://files.pythonhosted.org/packages/39/03/351bfcef8169aacf427fc5e863464e08a07e0aca2515116904980106ea65/sarpy-2.0.1-py2.py3-none-any.whl", hash = "sha256:c290577a330216d140f29628da12fa6a99f03745824c31f2e5f1c1c1e062d454", size = 1659341, upload-time = "2026-05-20T00:10:34.386Z" },
 ]
 
 [[package]]
@@ -4430,11 +4459,11 @@ wheels = [
 
 [[package]]
 name = "structlog"
-version = "25.5.0"
+version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ef/52/9ba0f43b686e7f3ddfeaa78ac3af750292662284b3661e91ad5494f21dbc/structlog-25.5.0.tar.gz", hash = "sha256:098522a3bebed9153d4570c6d0288abf80a031dfdb2048d59a49e9dc2190fc98", size = 1460830, upload-time = "2025-10-27T08:28:23.028Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/89/b4a0bcfdf4f71a3dea31379f095929613d7e4528a0996bca6aa964cd0dca/structlog-26.1.0.tar.gz", hash = "sha256:f63a716cbd1b1291cf7661de7794b455acfa4c43c5bcf1630e6ad5ddc1adb3b7", size = 1459881, upload-time = "2026-06-06T07:33:39.348Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl", hash = "sha256:a8453e9b9e636ec59bd9e79bbd4a72f025981b3ba0f5837aebf48f02f37a7f9f", size = 72510, upload-time = "2025-10-27T08:28:21.535Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/18/489c97b834dfff9cf2fc2507cede4bcd4b11e67f84bc462acd1992496f86/structlog-26.1.0-py3-none-any.whl", hash = "sha256:e081a26d6c373e6d201eca24eede26d8ffab07f88f477822e679183428d3d91e", size = 73764, upload-time = "2026-06-06T07:33:38.046Z" },
 ]
 
 [[package]]
