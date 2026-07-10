@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Any, Dict, Mapping, Sequence, cast
+from typing import Any, Dict, Mapping, Sequence
 
 import dask.distributed
-import defusedxml.ElementTree as ET
 import mgrs
 import numpy as np
 import pyproj
@@ -26,8 +25,8 @@ from pyproj import CRS, Transformer, datadir
 from pyproj.transformer import TransformerGroup
 
 from cop_ard_core.computing.griddata import interp_dataset
-from cop_ard_core.computing.io import exists, get_storage_options, normpath, read, save_empty_dataset, write
-from cop_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.io import get_storage_options, normpath, write
+from cop_ard_core.computing.logger import logger
 
 rioxarray.__version__
 

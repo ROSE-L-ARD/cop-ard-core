@@ -11,15 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Union, cast
-
 import numpy as np
 import scipy.interpolate
 import xarray as xr
 
-from cop_ard_core.computing.io import Path, get_storage_options, normpath, read, write
-from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.orbit import update_orbit
+from cop_ard_core.computing.io import get_storage_options, normpath, read, write
 
 
 def discover_etaddate_slcsdate(slcs: xr.DataTree, etad: xr.DataTree, multiburst: bool) -> set:

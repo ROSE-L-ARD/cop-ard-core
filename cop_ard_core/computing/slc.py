@@ -11,26 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from xml.etree.ElementTree import Element
-import json
 import os
-from collections import defaultdict
-from typing import Any, Dict, Sequence, Union, cast
+from typing import Sequence, cast
+from xml.etree.ElementTree import Element
 
-import dateutil.parser
 import numpy as np
 import sarpy.io
 import xarray as xr
 from scipy.constants import speed_of_light
 
-import cop_ard_core.readers  # register sarpy readers
 from cop_ard_core.computing.io import (
     Path,
     path_to_dict,
 )
-from cop_ard_core.computing.logger import logger, timeit
-
-cop_ard_core.readers.__file__
+from cop_ard_core.computing.logger import logger
 
 
 def get_coefficients(path: str, annot: dict) -> np.ndarray | None:
@@ -108,7 +102,9 @@ class SentinelSarpyObj(object):
             self.sicd_meta = [v for k, v in self._sentinel_details.get_sicd_collection()]
 
 
-def apply_invalid_mask(slc: xr.DataArray, valid_y: np.ndarray, valid_x: np.ndarray, first_idx_y: int = 0, first_idx_x: int = 0) -> xr.DataArray:
+def apply_invalid_mask(
+    slc: xr.DataArray, valid_y: np.ndarray, valid_x: np.ndarray, first_idx_y: int = 0, first_idx_x: int = 0
+) -> xr.DataArray:
     """
     Apply a mask to the SLC data to zero out invalid regions.
     """
@@ -146,7 +142,9 @@ def amplitude_calibration(slc: xr.DataArray, calibration_polynomial_coeffs: np.n
         return slc
     # Evaluate the 2D polynomial on the image grid to get the calibration factor.
     calib_factor = np.sqrt(
-        np.polynomial.polynomial.polygrid2d(slc.slant_range_m.values, slc.azimuth_m.values, calibration_polynomial_coeffs)
+        np.polynomial.polynomial.polygrid2d(
+            slc.slant_range_m.values, slc.azimuth_m.values, calibration_polynomial_coeffs
+        )
     ).T
 
     # Apply the calibration factor to the complex data.
@@ -296,7 +294,9 @@ def get_az_rg_times(annot):
         azimuth_time_float = (np.arange(cast(int, num_cols), dtype="float64") - scp_col) * dtaz + time_ca_poly[0]
         azimuth_time = (np.round(azimuth_time_float * 1e9)).astype("timedelta64[ns]") + collect_start
         # Calculate slant range time based on the distance from the scene center.
-        slant_range_time = 2 * ((np.arange(cast(int, num_rows)) - cast(int, scp_row)) * row_ss + r_ca_scp) / speed_of_light
+        slant_range_time = (
+            2 * ((np.arange(cast(int, num_rows)) - cast(int, scp_row)) * row_ss + r_ca_scp) / speed_of_light
+        )
     return azimuth_time, slant_range_time
 
 
@@ -561,7 +561,7 @@ def get_burst_id_safe(file_sets: Sequence[dict], annot, relative_orbit_number: i
     mode = swath[:-1]
     # Extract ANX (Ascending Node Crossing) time from the XML file
     root_node = sarpy.io.complex.sentinel._parse_xml(cast(str, product_file_name), without_ns=True)
-    anx_time = float(root_node.findall("./swathTiming/burstList/burst")[burst].find("./azimuthAnxTime").text) # type: ignore
+    anx_time = float(root_node.findall("./swathTiming/burstList/burst")[burst].find("./azimuthAnxTime").text)  # type: ignore
     # Constants for timing calculations
     TBEAM = {"iw": 2.758273, "ew": 3.0388819516}  # Time per beam in seconds
     TORB = 12 * 86400 / 175  # Orbital period in seconds

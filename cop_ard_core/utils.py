@@ -1,31 +1,40 @@
 import numpy as np
-import xarray as xr
 import scipy.fft
-from cop_ard_core.computing.io import write, path_to_dict
-from cop_ard_core.computing.logger import logger, timeit
+import xarray as xr
 from scipy.constants import speed_of_light
+
+from cop_ard_core.computing.io import path_to_dict
+from cop_ard_core.computing.logger import logger
 
 
 # @timeit
-def extract_subband(cslc: xr.DataArray, bw: float, f0: float, dim_transf: str = 'slant_range_time') -> xr.DataArray:
+def extract_subband(cslc: xr.DataArray, bw: float, f0: float, dim_transf: str = "slant_range_time") -> xr.DataArray:
 
     dim = cslc.dims
-    freq_dim = [f"freq_{e}" if e == dim_transf else e for e in cslc.dims] 
+    freq_dim = [f"freq_{e}" if e == dim_transf else e for e in cslc.dims]
     axis = cslc.get_axis_num(dim_transf)
     N = cslc.sizes[dim_transf]
     t_coords = cslc[dim_transf].values
-    coord_trasf = (np.arange(N) - N // 2)  / (t_coords[-1] - t_coords[0])
+    coord_trasf = (np.arange(N) - N // 2) / (t_coords[-1] - t_coords[0])
     # coord_trasf = (np.arange(cslc[dim_trasf].size) - cslc[dim_trasf].size // 2)  / (cslc[dim_trasf][-1] - cslc[dim_trasf][0]).values
     freq_coords = {
         (f"freq_{e}" if e == dim_transf else e): (coord_trasf if e == dim_transf else cslc.coords[e].values)
         for e in cslc.dims
     }
- 
-    frange = xr.DataArray(scipy.fft.fftshift(scipy.fft.fft(cslc.values, norm="ortho", axis=axis), axes=(axis,)), dims=freq_dim, coords=freq_coords)
+
+    frange = xr.DataArray(
+        scipy.fft.fftshift(scipy.fft.fft(cslc.values, norm="ortho", axis=axis), axes=(axis,)),
+        dims=freq_dim,
+        coords=freq_coords,
+    )
 
     mask = (frange.freq_slant_range_time > f0 - bw / 2) * (frange.freq_slant_range_time < f0 + bw / 2)
 
-    return xr.DataArray(scipy.fft.ifft((frange * mask).values, norm='ortho', axis=axis), dims=dim, coords=cslc.drop_vars(["slant_range_m", "azimuth_m"]).coords)
+    return xr.DataArray(
+        scipy.fft.ifft((frange * mask).values, norm="ortho", axis=axis),
+        dims=dim,
+        coords=cslc.drop_vars(["slant_range_m", "azimuth_m"]).coords,
+    )
 
 
 def get_bounding_box(slcs: xr.DataTree, path: str) -> list:
@@ -111,6 +120,7 @@ def get_spacing(slcs: xr.DataTree, path: str) -> list:
         np.mean(slant_range_time),
     ]
 
+
 def get_burst_duration(slcs: xr.DataTree, path: str) -> list:
 
     azimuth_time, azimuth_time_raw = [], []
@@ -118,7 +128,7 @@ def get_burst_duration(slcs: xr.DataTree, path: str) -> list:
     for burst in slcs.values():
         if burst[path].azimuth_time.size > 0:
             _, annot = next(iter(burst[path].attrs.items()))
-            
+
             # focsed zero-Doppler azimuth time
             azimuth_time += [
                 (burst[path].azimuth_time.max().values - burst[path].azimuth_time.min().values).astype(float) / 1e9
@@ -128,52 +138,52 @@ def get_burst_duration(slcs: xr.DataTree, path: str) -> list:
             slant_range_m = burst[path].slant_range_m.values[::10]
             azimuth_m = burst[path].azimuth_m.values[::10]
 
-            coeffs = annot['Grid']['TimeCOAPoly']['Coefs']
-            
-            TimeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs ).T.mean(axis=1)
+            coeffs = annot["Grid"]["TimeCOAPoly"]["Coefs"]
+
+            TimeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs).T.mean(axis=1)
             azimuth_time_raw += [np.nanmax(TimeCOA) - np.nanmin(TimeCOA)]
-            
+
     if len(azimuth_time) <= 0:
         raise ValueError("Null slc in input")
 
-    return [
-        np.mean(azimuth_time), np.mean(azimuth_time_raw)
-    ]
+    return [np.mean(azimuth_time), np.mean(azimuth_time_raw)]
 
 
-def get_azimuth_time_raw(burst: xr.DataTree, multilook: dict| None=None) -> xr.DataArray:
+def get_azimuth_time_raw(burst: xr.DataTree, multilook: dict | None = None) -> xr.DataArray:
 
     # retrieve image annotation
     # the polarization is equivalent
     _, annot = next(iter(burst.attrs.items()))
 
-    if multilook is not None:   
-        az_slice = slice(multilook['azimuth_time']//2,None,multilook['azimuth_time'])
-        rg_slice = slice(multilook['slant_range_time']//2,None,multilook['slant_range_time'])
+    if multilook is not None:
+        az_slice = slice(multilook["azimuth_time"] // 2, None, multilook["azimuth_time"])
+        rg_slice = slice(multilook["slant_range_time"] // 2, None, multilook["slant_range_time"])
     else:
         az_slice = slice(None, None, None)
         rg_slice = slice(None, None, None)
 
     burst_ = burst.isel(azimuth_time=az_slice, slant_range_time=rg_slice)
-    
+
     # retrieve axis and coefficients
     slant_range_m = burst_.slant_range_m.values
     azimuth_m = burst_.azimuth_m.values
-    coeffs = annot['Grid']['TimeCOAPoly']['Coefs']
+    coeffs = annot["Grid"]["TimeCOAPoly"]["Coefs"]
 
     # compute the relative azimuth time
-    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs ).T
-    
+    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, coeffs).T
+
     # convert to timedelta in nanoseconds
-    timeCOA = (timeCOA*1e9).astype('timedelta64[ns]')
+    timeCOA = (timeCOA * 1e9).astype("timedelta64[ns]")
 
     # compute absolute time
     timeCOA = timeCOA + np.datetime64(annot["Timeline"]["CollectStart"][:-1])
 
     # return as dataarray
-    return xr.DataArray(timeCOA, dims=['azimuth_time', 'slant_range_time'], 
-                        coords={'azimuth_time': burst_.azimuth_time.values, 
-                                'slant_range_time': burst_.slant_range_time.values})
+    return xr.DataArray(
+        timeCOA,
+        dims=["azimuth_time", "slant_range_time"],
+        coords={"azimuth_time": burst_.azimuth_time.values, "slant_range_time": burst_.slant_range_time.values},
+    )
 
 
 def get_carrier_frequency(slcs: xr.DataTree, path: str) -> float:
@@ -258,6 +268,7 @@ def get_az_rg_meters(annot):
         raise
     return azimuth_m, slant_range_m
 
+
 # @timeit
 def get_az_rg_times(annot):
     """
@@ -301,21 +312,24 @@ def get_az_rg_times(annot):
         slant_range_time = 2 * ((np.arange(num_rows) - scp_row) * row_ss + r_ca_scp) / speed_of_light
     return azimuth_time, slant_range_time
 
+
 # @timeit
-def get_phramp_diff_(azimuth_time: xr.DataArray,
-                     slant_range_time: xr.DataArray, 
-                     drg: xr.DataArray, 
-                     daz: xr.DataArray, 
-                     annot: dict, 
-                     y_poly: xr.DataArray,
-                     multilook: dict):
+def get_phramp_diff_(
+    azimuth_time: xr.DataArray,
+    slant_range_time: xr.DataArray,
+    drg: xr.DataArray,
+    daz: xr.DataArray,
+    annot: dict,
+    y_poly: xr.DataArray,
+    multilook: dict,
+):
 
     # @timeit
     def poly_combine(rg, az_off, az_ori, coeff_demod):
         return np.polynomial.polynomial.polyval2d(rg, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
             rg, az_ori, coeff_demod
         )
-        
+
     # extract demodulation coefficients
     coeff_demod = get_coeff_demod(annot)
 
@@ -340,7 +354,7 @@ def get_phramp_diff_(azimuth_time: xr.DataArray,
     az_ori = ((azimuth_time + daz - az_mid).astype(float) * scale_daz).values
 
     # range in meters wrt the burst center
-    rg = ((slant_range_time + drg - rg_mid).T * (speed_of_light / 2)).values 
+    rg = ((slant_range_time + drg - rg_mid).T * (speed_of_light / 2)).values
 
     # recontruct polynomial function
     ph_ramp_diff_da = xr.DataArray(
@@ -352,20 +366,27 @@ def get_phramp_diff_(azimuth_time: xr.DataArray,
         },
     )
 
-    return ph_ramp_diff_da 
+    return ph_ramp_diff_da
+
 
 # @timeit
-def get_phramp_diff(interf: xr.Dataset, drg_full: xr.DataArray, daz_full: xr.DataArray, annot: dict, y_poly: xr.Dataset, multilook: dict):
+def get_phramp_diff(
+    interf: xr.Dataset, drg_full: xr.DataArray, daz_full: xr.DataArray, annot: dict, y_poly: xr.Dataset, multilook: dict
+):
     ph_ramp_diff_list = []
 
     for k, dd in enumerate(interf.acquisition_date.values):
         #  call core function
-        y_poly[dd].attrs['type'] = y_poly.type
-        res = get_phramp_diff_(interf.azimuth_time,
-                               interf.slant_range_time, 
-                               drg_full.sel(acquisition_date=dd).coarsen(multilook, boundary='trim').mean(), 
-                               daz_full.sel(acquisition_date=dd).coarsen(multilook, boundary='trim').mean(),
-                               annot[dd], y_poly[dd], multilook)
+        y_poly[dd].attrs["type"] = y_poly.type
+        res = get_phramp_diff_(
+            interf.azimuth_time,
+            interf.slant_range_time,
+            drg_full.sel(acquisition_date=dd).coarsen(multilook, boundary="trim").mean(),
+            daz_full.sel(acquisition_date=dd).coarsen(multilook, boundary="trim").mean(),
+            annot[dd],
+            y_poly[dd],
+            multilook,
+        )
         ph_ramp_diff_list.append(res)
 
     # return the concatenated dataarray
@@ -538,7 +559,6 @@ def encode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
     return ds_out.chunk(final_chunks)
 
 
-
 def decode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
     """
     Read and reformat x_ or y_poly from the slcs structure.
@@ -610,28 +630,28 @@ def decode_poly(v_poly: xr.Dataset, name: str, stack: xr.Dataset) -> xr.Dataset:
     return decoded_ds
 
 
-def get_interf(a,b,ml_factor):
-    return (a*b.conj()).coarsen(ml_factor, boundary='trim').mean()
+def get_interf(a, b, ml_factor):
+    return (a * b.conj()).coarsen(ml_factor, boundary="trim").mean()
+
 
 # def get_normalized_interf(a, b, ml_factor, rel_thresh=None, abs_thresh=1e-6):
 #     cross = get_interf(a, b, ml_factor)
 #     p_a = get_interf(a, a, ml_factor)
 #     p_b = get_interf(b, b, ml_factor)
-    
+
 #     coh = cross / np.sqrt(p_a * p_b)
-    
+
 #     valid_mask = (p_a > abs_thresh) & (p_b > abs_thresh)
-    
+
 #     if rel_thresh is not None:
 #         is_actively_updated = p_a > (rel_thresh * p_b)
 #         valid_mask = valid_mask & is_actively_updated
-        
+
 #     return coh.where(valid_mask, 0j).fillna(0j)
 
 
-
-def get_normalized_interf(a,b,ml_factor):
-    return (get_interf(a,b,ml_factor) / np.sqrt(get_interf(a,a,ml_factor) * get_interf(b,b,ml_factor))).fillna(0j)
+def get_normalized_interf(a, b, ml_factor):
+    return (get_interf(a, b, ml_factor) / np.sqrt(get_interf(a, a, ml_factor) * get_interf(b, b, ml_factor))).fillna(0j)
 
 
 def time_to_pixel(stack: xr.Dataset, y0: float | None = None, x0: float | None = None) -> xr.Dataset:

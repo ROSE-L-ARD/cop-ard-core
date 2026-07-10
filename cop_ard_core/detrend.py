@@ -4,6 +4,7 @@ from typing import Literal, Tuple
 import numpy as np
 import scipy.optimize
 from astropy import stats as ast
+
 from cop_ard_core.computing.logger import logger
 
 
@@ -160,7 +161,7 @@ def estimate_global_surface(
         diff = y - y_prec
 
         mask = (
-            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask == False)
+            (~ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask)
             & (diff > range[0])
             & (diff < range[1])
         )
@@ -174,7 +175,7 @@ def estimate_global_surface(
         # compute difference wrt previous iteration
         diff_prec = np.max(np.abs(y_new - y_prec))
         logger.debug(f"iter {i}: {diff_prec=} {np.max(np.abs(diff))=}")
-        
+
         # check convergence
         if diff_prec < convergency_threshold:
             break
@@ -186,7 +187,7 @@ def estimate_global_surface(
     return output
 
 
-def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, degree: int=1, norm: int=1):
+def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, degree: int = 1, norm: int = 1):
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)

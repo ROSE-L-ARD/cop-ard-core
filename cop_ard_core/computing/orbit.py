@@ -11,19 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import re
 from collections import OrderedDict
-from datetime import datetime
-from typing import Any, Union, cast
 
-import dateutil.parser
 import defusedxml.ElementTree as ET
 import numpy as np
 import sarpy.io.complex.utils
 import xarray as xr
 
 from cop_ard_core.computing.io import Path, get_storage_options, normpath, write
-from cop_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.logger import logger
 
 
 def read_orbit_file(orbit_paths, **kwargs):

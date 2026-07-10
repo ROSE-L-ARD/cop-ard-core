@@ -1031,7 +1031,12 @@ def map_blocks(
             with dask.config.set(config):
                 res = func(*objs, *args, **kwargs_)
                 return try_to_store(
-                    res, indices[0], store_mapping, store_directory, region_callback=region_callback, **{k: v for k, v in kwargs_.items() if k != "chunk"}
+                    res,
+                    indices[0],
+                    store_mapping,
+                    store_directory,
+                    region_callback=region_callback,
+                    **{k: v for k, v in kwargs_.items() if k != "chunk"},
                 )
 
         _chunks, _block_ids, _n_chunks = get_chunks(_objs[0], chunks, chunksizes)

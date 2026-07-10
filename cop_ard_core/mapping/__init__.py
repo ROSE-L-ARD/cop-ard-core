@@ -1,32 +1,90 @@
 import json
-from collections import defaultdict
-import re
-from datetime import datetime
-from cop_ard_core.computing.orbit import read_orbit_file, overwrite_coeffs, update_slcs
-import dateutil
-from cop_ard_core.computing.simul import get_radar_bbox, get_geo_from_radar_bbox, extract_simul_on_radar_chunk, single_simulation_ml, init_simulation, update_elevation, compute_simulation, SPATIAL_DIMS_
-from cop_ard_core.computing.etad import discover_etaddate_slcsdate, update_etad
-from pyproj import CRS
 import os
-from cop_ard_core.computing.warp import warp_cslc, warp_dazdrg, sinc, warp_gslc
-from cop_ard_core.computing.coreg import update_quality, update_conditions, update_LUT, initialize_LUT_coords
-from typing import cast, Dict, Any, Mapping, Union, Sequence
+import re
+from collections import defaultdict
+from datetime import datetime
+from typing import Any, Dict, Mapping, Sequence, Union, cast
+from unittest import mock
+
 import botocore.exceptions
 import dask.array as da
+import dateutil
 import numpy as np
-import xarray as xr
-from scipy.constants import speed_of_light
-from unittest import mock
 import sarpy.io
 import sarpy.io.general.base
+import xarray as xr
+from pyproj import CRS
+from scipy.constants import speed_of_light
 
-from cop_ard_core.computing.area_projection import initialize_simulation, compute_chunks, sparse_to_dense, compute_rasterization_and_rtc_ap, compute_shadow, compute_geocoded_mask
+from cop_ard_core.computing.area_projection import (
+    compute_chunks,
+    compute_geocoded_mask,
+    compute_rasterization_and_rtc_ap,
+    compute_shadow,
+    initialize_simulation,
+    sparse_to_dense,
+)
 from cop_ard_core.computing.computation import map, map_blocks
-from cop_ard_core.computing.dem import GeoEnvPlugin, get_resolution_in_meters, get_default_epsg, check_available_transformation, extract_vertical_crs, compute_shape_and_off, interp_dem
+from cop_ard_core.computing.coreg import initialize_LUT_coords, update_conditions, update_LUT, update_quality
+from cop_ard_core.computing.dem import (
+    GeoEnvPlugin,
+    check_available_transformation,
+    compute_shape_and_off,
+    extract_vertical_crs,
+    get_default_epsg,
+    get_resolution_in_meters,
+    interp_dem,
+)
+from cop_ard_core.computing.etad import discover_etaddate_slcsdate, update_etad
 from cop_ard_core.computing.griddata import init_interpolate
-from cop_ard_core.computing.io import touch, get_storage_options, normpath, exists, delete, write, makedirs, save_empty_dataset, glob, read, Path, is_s3_path, path_to_dict, generate_empty_dataset
+from cop_ard_core.computing.io import (
+    Path,
+    delete,
+    exists,
+    generate_empty_dataset,
+    get_storage_options,
+    glob,
+    is_s3_path,
+    makedirs,
+    normpath,
+    path_to_dict,
+    read,
+    save_empty_dataset,
+    touch,
+    write,
+)
 from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.slc import get_margin, get_footprint, intersect, get_burst_id, get_burst_id_safe, get_relative_orbit_number, map_index_to_group, merge_dict, get_az_rg_meters, get_az_rg_times, get_coefficients, noise_removal, amplitude_calibration, image_deramp, apply_invalid_mask, extract_acquisition_dates, SentinelSarpyObj
+from cop_ard_core.computing.orbit import overwrite_coeffs, read_orbit_file, update_slcs
+from cop_ard_core.computing.simul import (
+    SPATIAL_DIMS_,
+    compute_simulation,
+    extract_simul_on_radar_chunk,
+    get_geo_from_radar_bbox,
+    get_radar_bbox,
+    init_simulation,
+    single_simulation_ml,
+    update_elevation,
+)
+from cop_ard_core.computing.slc import (
+    SentinelSarpyObj,
+    amplitude_calibration,
+    apply_invalid_mask,
+    extract_acquisition_dates,
+    get_az_rg_meters,
+    get_az_rg_times,
+    get_burst_id,
+    get_burst_id_safe,
+    get_coefficients,
+    get_footprint,
+    get_margin,
+    get_relative_orbit_number,
+    image_deramp,
+    intersect,
+    map_index_to_group,
+    merge_dict,
+    noise_removal,
+)
+from cop_ard_core.computing.warp import sinc, warp_cslc, warp_dazdrg, warp_gslc
 
 
 def init_single_coreg_stack(
@@ -648,7 +706,7 @@ def import_image(
             "save_options": {
                 "skip_read": True,
                 "consolidated": False,
-            }
+            },
         }
         # --- Process Data Slice by Slice ---
         if in_path is not None:
@@ -1082,7 +1140,7 @@ def dem_to_radar(
         "save_options": {
             "consolidated": False,
             "storage_options": get_storage_options(kwargs),
-        }
+        },
     }
     map_blocks(
         compute_simulation,
@@ -1329,7 +1387,7 @@ def stack_simulation_ml(
                 **kwargs,
             ),
             combine=False,
-            enable_dask=kwargs.get('enable_dask', True)
+            enable_dask=kwargs.get("enable_dask", True),
         ),
     )
     # --- Assemble Results ---
@@ -1734,13 +1792,16 @@ def map_geocode_phase(
     slant_range_time = cslc.measurements.slant_range_time
     bbox_radar = get_radar_bbox(azimuth_time, slant_range_time, margin)
     bbox_geo = get_geo_from_radar_bbox(simulation_ml, bbox_radar)
-    
+
     if bbox_geo is None:
         raise ValueError("Could not determine geographic bounding box from radar bounding box.")
     selection = (
         (
             extract_simul_on_radar_chunk(
-                simulation, simulation.acquisition_date.values[0], bbox_radar, bbox_geo,
+                simulation,
+                simulation.acquisition_date.values[0],
+                bbox_radar,
+                bbox_geo,
             )
         )
         .squeeze()
@@ -1833,7 +1894,6 @@ def map_geocode_phase(
     dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
     dtrg = 2 * annot["Grid"]["Row"]["SS"] / speed_of_light
     scp_idx = annot["ImageData"]["SCPPixel"]["Col"], annot["ImageData"]["SCPPixel"]["Row"]
-
 
     map_blocks(
         warp_gslc,
@@ -2557,14 +2617,14 @@ def coreg_single_burst(
         compute_daz_drg = True
 
     store_mapping = {
-        0 : {
+        0: {
             "data_path": os.path.join(coreg_path, "daz_drg"),
             "dims": ["acquisition_date", "azimuth_time", "slant_range_time"],
             "save_options": {
                 "consolidated": False,
                 "storage_options": get_storage_options(kwargs),
                 "skip_read": True,
-            }
+            },
         }
     }
     orig_slcs = {k: v.measurements.slc for k, v in slc.orig.children.items()}
@@ -2582,7 +2642,9 @@ def coreg_single_burst(
     single_pol_annotation = annotation[list(annotation.keys())[0]]
     # Calculate azimuth and range sampling intervals.
     margin = get_margin(single_pol_annotation)
-    azimuth_grid_spacing = single_pol_annotation["Grid"]["Col"]["SS"] * single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
+    azimuth_grid_spacing = (
+        single_pol_annotation["Grid"]["Col"]["SS"] * single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
+    )
     range_grid_spacing = 2 * single_pol_annotation["Grid"]["Row"]["SS"] / speed_of_light
     map_blocks(
         warp_dazdrg,
@@ -2611,11 +2673,11 @@ def coreg_single_burst(
     )
 
     daz_drg = read(
-            daz_drg_store_path,
-            consolidate_metadata=False,
-            storage_options=get_storage_options(kwargs),
-            as_type="xr.Dataset",
-        )
+        daz_drg_store_path,
+        consolidate_metadata=False,
+        storage_options=get_storage_options(kwargs),
+        as_type="xr.Dataset",
+    )
 
     list_daz_drg_sel = cast(
         list,
@@ -2627,7 +2689,7 @@ def coreg_single_burst(
             enable_dask=enable_dask,
         ),
     )
-    
+
     store_mapping = {
         0: {
             "data_path": measurements.attrs["store_path"],
@@ -2639,13 +2701,7 @@ def coreg_single_burst(
     }
     map_blocks(
         warp_cslc,
-        obj=[
-            measurements.cstack,
-            measurements.phase_model,
-            daz_drg.daz,
-            daz_drg.drg,
-            measurements.acquisition_date
-        ],
+        obj=[measurements.cstack, measurements.phase_model, daz_drg.daz, daz_drg.drg, measurements.acquisition_date],
         args=(
             measurements.coregistration_reference_date,
             orig_slcs,
@@ -2665,7 +2721,6 @@ def coreg_single_burst(
         },
         store_mapping=store_mapping,
     )
-
 
     # --- Step 3: Update Metadata ---
     # Merge the list of daz/drg offsets computed by each chunk.
@@ -2904,7 +2959,7 @@ def map_shadow_projection(
             "consolidated": False,
             "skip_read": True,
             "storage_options": get_storage_options(kwargs),
-        }
+        },
     }
 
     # Map the `compute_geo_ap` function over all chunks of the `empty_data`
@@ -2917,7 +2972,7 @@ def map_shadow_projection(
         enable_dask=enable_dask,
         combine=False,
         region_callback={0: region_callback},
-        store_mapping={0: save_options}
+        store_mapping={0: save_options},
     )
 
     return
@@ -2997,12 +3052,12 @@ def map_shadow(
             "consolidated": False,
             "skip_read": True,
             "storage_options": get_storage_options(kwargs, "storage_options"),
-        }
+        },
     }
     map_blocks(
         func=compute_shadow,
         obj=radar_data,
-        args = [
+        args=[
             simulation_h,
             simulation_dem_distance,
             simulation_azimuth_time,
@@ -3019,8 +3074,6 @@ def map_shadow(
         store_mapping={0: save_options},
     )
     return
-
-
 
 
 def mask_shadow_single_burst(
@@ -3114,8 +3167,6 @@ def mask_shadow_single_burst(
         # Skip computation if completion file exists and recompute is False
         logger.info(f"Found existing mask files for burst {burst_id}")
     return
-
-
 
 
 @timeit
@@ -3298,7 +3349,7 @@ def map_rasterization_and_rtc_ap(
                 "mode": "a",
                 "skip_read": True,
                 "storage_options": get_storage_options(kwargs, "storage_options_static"),
-            }
+            },
         },
         2: {
             "data_path": normpath(f"{data_path_tmp}/sparse_dir"),
@@ -3321,23 +3372,28 @@ def map_rasterization_and_rtc_ap(
                 "skip_read": True,
                 "storage_options": get_storage_options(kwargs, "storage_options_dynamic"),
             },
-        }
+        },
     }
+
     def output_callback(region: dict[str, slice], kwargs: dict) -> dict[str, slice] | None:
         # Determine the chunk's row and column position in the global grid using the job_id
-        row_number = kwargs['job_id'] // (np.ceil(dim_x_global / chunk_length).astype(int))
-        column_number = kwargs['job_id'] % (np.ceil(dim_x_global / chunk_length).astype(int))
+        row_number = kwargs["job_id"] // (np.ceil(dim_x_global / chunk_length).astype(int))
+        column_number = kwargs["job_id"] % (np.ceil(dim_x_global / chunk_length).astype(int))
 
         # Define the geogrid region (slice) this chunk corresponds to, for writing output
-        region["y"] = slice(row_number * chunk_length, row_number * chunk_length + region["y"].stop - region["y"].start - 1)
-        region["x"] = slice(column_number * chunk_length, column_number * chunk_length + region["x"].stop - region["x"].start - 1)
+        region["y"] = slice(
+            row_number * chunk_length, row_number * chunk_length + region["y"].stop - region["y"].start - 1
+        )
+        region["x"] = slice(
+            column_number * chunk_length, column_number * chunk_length + region["x"].stop - region["x"].start - 1
+        )
         return region
 
     region_callback = {
         0: output_callback,
-        1: lambda _, __ : None,
-        2: lambda _, __ : None,
-        3: lambda _, __ : None,
+        1: lambda _, __: None,
+        2: lambda _, __: None,
+        3: lambda _, __: None,
     }
     map_blocks(
         func=compute_rasterization_and_rtc_ap,

@@ -9,12 +9,12 @@
 from typing import Literal, Sequence
 
 import numpy as np
-import cop_ard_core.computing.computation
 import structlog
 import xarray as xr
 from scipy.constants import speed_of_light
 from xrspatial.convolution import convolution_2d as conv
 
+import cop_ard_core.computing.computation
 import cop_ard_core.detrend
 
 logger = structlog.get_logger(__name__)

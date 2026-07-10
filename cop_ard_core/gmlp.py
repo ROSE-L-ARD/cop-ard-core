@@ -15,19 +15,20 @@ from typing import Dict, cast
 
 import dask.array as da
 import numpy as np
+import xarray as xr
+from scipy.constants import speed_of_light
+
+import cop_ard_core.computing.area_projection
 import cop_ard_core.computing.computation
 import cop_ard_core.computing.dem
 import cop_ard_core.computing.griddata
 import cop_ard_core.computing.io
 import cop_ard_core.computing.kernels
-import cop_ard_core.computing.area_projection
 import cop_ard_core.computing.simul
 import cop_ard_core.computing.slc
-import xarray as xr
 from cop_ard_core.computing.io import get_storage_options, normpath, read, write
 from cop_ard_core.computing.logger import timeit
 from cop_ard_core.computing.warp import sinc_warp
-from scipy.constants import speed_of_light
 
 DIMS = ["polarization", "y", "x"]
 LONG_DIMS = ["polarization", "past_reference_date", "y", "x"]
@@ -327,7 +328,7 @@ def map_geocoding(
     # --- Initialize Output GSLC Dataset ---
     # Create the empty Zarr store for the Geocoded SLC.
     for date in acquisition_dates:
-        data = read(normpath(f"{cmlp_path}/{date}"),as_type="xr.Dataset", consolidate_metadata=False)
+        data = read(normpath(f"{cmlp_path}/{date}"), as_type="xr.Dataset", consolidate_metadata=False)
         data_vars = list(data.data_vars)
         dims = {k: DIMS if "past_reference_date" not in data[k].dims else LONG_DIMS for k in data_vars}
         chunks = {k: v[0] for k, v in data.chunksizes.items() if k in LONG_DIMS}

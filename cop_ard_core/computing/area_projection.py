@@ -12,29 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import itertools
-from typing import Dict, cast
+from typing import Dict
 
-import botocore.exceptions
-import dask.array as da
 import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
 from scipy.ndimage import median_filter
 
-from cop_ard_core.computing.dem import GeoEnvPlugin, convert_to_dem_ecef, get_resolution_in_meters
+from cop_ard_core.computing.dem import convert_to_dem_ecef
 from cop_ard_core.computing.griddata import init_interpolate, interpolate
 from cop_ard_core.computing.io import (
-    delete,
+    build_sparse_array,
     exists,
     get_storage_options,
-    glob,
-    makedirs,
     normpath,
     read,
-    save_empty_dataset,
-    save_sparse_array,
-    touch,
-    write, build_sparse_array,
 )
 from cop_ard_core.computing.kernels import (
     area_proj_triangles,
@@ -43,8 +35,7 @@ from cop_ard_core.computing.kernels import (
     csr_times_dense,
     update_dense_array,
 )
-from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_radar_bbox, get_geo_from_radar_bbox
+from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_geo_from_radar_bbox, get_radar_bbox
 from cop_ard_core.computing.slc import get_margin
 
 
@@ -362,12 +353,6 @@ def compute_rasterization_and_rtc_ap(
     row_number = job_id // (np.ceil(dim_x_global / chunk_length).astype(int))
     column_number = job_id % (np.ceil(dim_x_global / chunk_length).astype(int))
 
-    # Define the geogrid region (slice) this chunk corresponds to, for writing output
-    region = {
-        "y": slice(row_number * chunk_length, row_number * chunk_length + dim_y),
-        "x": slice(column_number * chunk_length, column_number * chunk_length + dim_x),
-    }
-
     # Translate radar grid coordinates to the local reference system (starting from 0,0) and flatten
     x_, y_ = (rg_px - xmin).squeeze().values.ravel(), (az_px - ymin).squeeze().values.ravel()
 
@@ -461,7 +446,7 @@ def compute_rasterization_and_rtc_ap(
                 chunks=triang.shape[0] // 4,
                 # Save with a name corresponding to its radar grid bounding box
             )
-            ablock_dt = xr.DataTree(children={'.'.join([str(i) for i in bbox_radar]): xr.DataTree(dataset=a_block)})
+            ablock_dt = xr.DataTree(children={".".join([str(i) for i in bbox_radar]): xr.DataTree(dataset=a_block)})
 
         # Compute Area Normalization Factor (ANF) by summing GNA contributions
         ANF = xr.DataArray(GNA.reshape(dim_y, dim_x, 4).sum(axis=2), dims=["y", "x"]).astype("float32") / 2.0
@@ -610,10 +595,7 @@ def get_w(
         # data_path=f"{data_path_tmp}/sparse_dir/layover_block_{i}/{'.'.join([str(j) for j in b])}",
         # skip_read=True,  # We don't need to read these back
         # storage_options=get_storage_options(kwargs, key="storage_options_static"),
-        layover_dt = xr.DataTree(children={
-            f"layover_block_{i}": xr.DataTree()
-            for i in range(2)}
-        )
+        layover_dt = xr.DataTree(children={f"layover_block_{i}": xr.DataTree() for i in range(2)})
         for i, (ll, b) in enumerate([(l1, bbox_l1), (l2, bbox_l2)]):
             ds = build_sparse_array(
                 data=ll[0].astype("float32"),
@@ -624,13 +606,15 @@ def get_w(
                 chunks=number_of_triang // 4,
             )
             layover_dt[f"layover_block_{i}/{'.'.join([str(j) for j in b])}"] = xr.DataTree(dataset=ds)
-        
+
     # Return the weights dataset and the nlook array
     # If no weights were computed, return None
     return (w, nlook.astype("float32"), w_dt, layover_dt) if nnz > 0 else (None, None, None, None)
 
 
-def sparse_to_dense(A: xr.Dataset, files_A, files_l1, files_l2, data_path: str, chunk: dict = {}, **kwargs) -> xr.Dataset:
+def sparse_to_dense(
+    A: xr.Dataset, files_A, files_l1, files_l2, data_path: str, chunk: dict = {}, **kwargs
+) -> xr.Dataset:
     """
     Converts and accumulates sparse matrix blocks into a single dense xr.DataArray
     for a specified chunk of the radar grid.

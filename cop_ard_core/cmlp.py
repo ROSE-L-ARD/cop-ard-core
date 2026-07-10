@@ -1,5 +1,7 @@
 import numpy as np
 import xarray as xr
+
+import cop_ard_core.utils
 from cop_ard_core.computing.io import (
     get_storage_options,
     normpath,
@@ -8,8 +10,6 @@ from cop_ard_core.computing.io import (
     write,
 )
 from cop_ard_core.computing.logger import logger, timeit
-
-import cop_ard_core.utils
 
 SHORT_DIMS = ["polarization", "azimuth_time", "slant_range_time"]
 DIMS = ["polarization", "acquisition_date", "azimuth_time", "slant_range_time"]

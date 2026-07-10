@@ -18,14 +18,14 @@ import numpy as np
 import rioxarray
 import scipy.ndimage
 import xarray as xr
-from numpy.polynomial.polynomial import polyval, polyder
+from numpy.polynomial.polynomial import polyder, polyval
 from pyproj import CRS
 from scipy.constants import speed_of_light
 
-from cop_ard_core.computing.dem import GeoEnvPlugin, convert_to_dem_ecef
-from cop_ard_core.computing.io import delete, exists, get_storage_options, makedirs, normpath, read, touch, write
+from cop_ard_core.computing.dem import convert_to_dem_ecef
+from cop_ard_core.computing.io import delete, exists, get_storage_options, normpath, read, touch, write
 from cop_ard_core.computing.kernels import main_loop
-from cop_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.logger import logger
 
 rioxarray.__version__
 
@@ -41,6 +41,7 @@ VARS_ = ["azimuth_time", "slant_range_time", "dem_distance", "h"]
 DTYPE_ = {"azimuth_time": "datetime64[ns]", "slant_range_time": "float64", "dem_distance": "float64", "h": "float32"}
 
 SPATIAL_DIMS_ = ["y", "x"]
+
 
 def get_position(azimuth_time: xr.DataArray, t0: np.datetime64, arp_coeffs: dict[str, np.ndarray]) -> xr.DataArray:
     """
@@ -424,7 +425,7 @@ def get_radar_bbox(
 ) -> Tuple[int | float, int | float, int | float, int | float]:
     """
     Calculate the bounding box in radar coordinates for a given radar chunk.
-    
+
     Parameters
     ----------
     azimuth_time : xr.DataArray
@@ -522,8 +523,12 @@ def extract_simul_on_radar_chunk(
         # If a secondary simulation exists, apply the same tight selection.
         if simulation_secondary is not None:
             selection_secondary = simulation_secondary.sel(x=slice(xmin, xmax), y=slice(ymin, ymax))
-            selection_secondary = selection_secondary.isel(x=slice(xmin_idx, xmax_idx), y=slice(ymin_idx, ymax_idx)).chunk(chunks)
-            selection = xr.concat([selection, selection_secondary], dim="acquisition_date", data_vars="all").chunk(chunks)
+            selection_secondary = selection_secondary.isel(
+                x=slice(xmin_idx, xmax_idx), y=slice(ymin_idx, ymax_idx)
+            ).chunk(chunks)
+            selection = xr.concat([selection, selection_secondary], dim="acquisition_date", data_vars="all").chunk(
+                chunks
+            )
     else:
         raise Exception("Selection is empty.")
     return selection

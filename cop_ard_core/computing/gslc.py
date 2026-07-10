@@ -11,31 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from scipy.constants import speed_of_light
 import copy
 import datetime
-from typing import Mapping, Union, cast
+from typing import Union
 
-import mgrs
 import numpy as np
-import scipy.ndimage
 import xarray as xr
-from pyproj import CRS, Transformer
+from pyproj import CRS
 
 import cop_ard_core
 from cop_ard_core.computing.dem import (
-    GeoEnvPlugin,
-    compute_shape_and_off,
     extract_vertical_crs,
-    get_resolution_in_meters,
 )
-from cop_ard_core.computing.griddata import interp_dataset
-from cop_ard_core.computing.io import get_id_product, get_storage_options, normpath, read, save_empty_dataset, write
-from cop_ard_core.computing.kernels import gaussian_kernel
-from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_radar_bbox, get_geo_from_radar_bbox
-from cop_ard_core.computing.slc import get_margin
-from cop_ard_core.computing.warp import sinc, warp_gslc
+from cop_ard_core.computing.io import get_id_product
 
 
 def compute_center(gslc: xr.Dataset, crs: str) -> dict:

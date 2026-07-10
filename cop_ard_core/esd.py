@@ -3,14 +3,15 @@ import warnings
 from typing import cast
 
 import numpy as np
-import cop_ard_core.computing.computation
 import scipy.optimize
 import xarray as xr
 from numba import njit
-from cop_ard_core.computing.logger import logger, timeit
 
-from cop_ard_core.utils import wrap
+import cop_ard_core.computing.computation
+from cop_ard_core.computing.logger import timeit
 from cop_ard_core.interf import compute_interf_norm
+from cop_ard_core.utils import wrap
+
 
 def to_dataset(X, acquisition_date, poly_degree, t0, r0, s_y, s_x):
     def to_polygrid2d(c):
@@ -114,6 +115,7 @@ def find_global_shift(
 
     return X.assign_attrs({"type": "times"})
 
+
 def compute_azimuth_shifts(
     burst0: xr.Dataset,
     burst1: xr.Dataset,
@@ -123,7 +125,6 @@ def compute_azimuth_shifts(
     multilook: dict = {"azimuth_pixel": 4, "slant_range_time": 16},
     coherence_th: float = 0.7,
 ):
-
 
     # @timeit
     def compute_shift(reference_date: str, multilook: dict) -> tuple[xr.DataArray]:
@@ -135,22 +136,26 @@ def compute_azimuth_shifts(
 
         if all(reference_date in e.acquisition_date for e in [reference0, reference1]):
             # interferogram multilooked and normalized #
-            interf0 = compute_interf_norm(burst0,reference0.sel(acquisition_date=reference_date).squeeze(), multilook)
-            interf1 = compute_interf_norm(burst1,reference1.sel(acquisition_date=reference_date).squeeze(), multilook)
-    
+            interf0 = compute_interf_norm(burst0, reference0.sel(acquisition_date=reference_date).squeeze(), multilook)
+            interf1 = compute_interf_norm(burst1, reference1.sel(acquisition_date=reference_date).squeeze(), multilook)
+
             # coherence computation #
-            interf_prod = (interf1*interf0.conj()).compute()
-            coherence_ = np.abs(interf0) # based only on one burst
-    
+            interf_prod = (interf1 * interf0.conj()).compute()
+            coherence_ = np.abs(interf0)  # based only on one burst
+
             # mask interferogram
             mask = (coherence_ >= coherence_th).compute()
             n_valid_points = np.count_nonzero(mask)
 
             interf_prod = (interf_prod).where(mask)
-            coherence = coherence_.where(mask, 0).sum(dim=["azimuth_pixel", "slant_range_time"]).compute() / np.sqrt(n_valid_points)
+            coherence = coherence_.where(mask, 0).sum(dim=["azimuth_pixel", "slant_range_time"]).compute() / np.sqrt(
+                n_valid_points
+            )
 
             # phase mean in the overlap area #
-            mean_phase = xr.apply_ufunc(np.angle, interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]), dask='parallelized')
+            mean_phase = xr.apply_ufunc(
+                np.angle, interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]), dask="parallelized"
+            )
             mean_phase = xr.DataArray(
                 data=mean_phase,
                 dims=["acquisition_date"],
@@ -171,7 +176,7 @@ def compute_azimuth_shifts(
     annot1 = burst1.attrs[list(burst1.attrs)[0]]
     coeffs1 = annot1["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"]
     dazm1 = annot0["Grid"]["Col"]["SS"]
-    dazm = (dazm1 + dazm0) / 2.
+    dazm = (dazm1 + dazm0) / 2.0
 
     # compute common area
     sm0, am0 = np.meshgrid(burst0.slant_range_m, burst0.azimuth_m)
@@ -298,7 +303,7 @@ def esd_single_burst(
 
 def get_next_burst_id(burst_id):
     swath, id = burst_id.split("_")
-    next_burst_id = f"{swath}_{int(id)+1}"
+    next_burst_id = f"{swath}_{int(id) + 1}"
     return next_burst_id
 
 
@@ -317,7 +322,7 @@ def estimate(
     for k, v in slcs.bursts.items():
         next_id = get_next_burst_id(k)
         if next_id in list(slcs.bursts):
-            a = (k, v['coreg/measurements'].to_dataset(), slcs[f"bursts/{next_id}/coreg/measurements"].to_dataset())
+            a = (k, v["coreg/measurements"].to_dataset(), slcs[f"bursts/{next_id}/coreg/measurements"].to_dataset())
             args.append(a)
     args = list(zip(*args))
     # Residual azimuth shifts estimation for each bursts
@@ -377,14 +382,14 @@ def optimize_curvature(esd, poly_degree: int):
 
     # fit a polynomial function on the measured valid phases
     A = np.vstack([t**i for i in range(0, poly_degree + 1)]) * 2 * np.pi / w
-    params = np.array([np.arange(-1, 1, np.mean(w)/4) for i in range(poly_degree+1)])
+    params = np.array([np.arange(-1, 1, np.mean(w) / 4) for i in range(poly_degree + 1)])
 
     opt_param = optimize_phase(params, y, A)
     opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
     const = angle_phase(opt_param, y, A)
     y_model = opt_param @ A + const
 
-    # unwrap (1D) the phase 
+    # unwrap (1D) the phase
     phase = wrap(y - y_model) + y_model
 
     # convert phase offset to shift in pixel
@@ -405,7 +410,7 @@ def angle_phase(param, y, A):
     return np.angle(np.sum(np.exp(1j * (y - param @ A))))
 
 
-def optimize_phase(params, y, A, maxcorr: float=3*np.pi):
+def optimize_phase(params, y, A, maxcorr: float = 3 * np.pi):
     n_rows = params.shape[0]
     n_cols = params.shape[1]
     total_combinations = n_cols**n_rows

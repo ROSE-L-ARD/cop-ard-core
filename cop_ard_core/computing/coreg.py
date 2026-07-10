@@ -14,19 +14,15 @@
 import copy
 import datetime
 import os
-from typing import cast
 
 import numpy as np
 import xarray as xr
-from scipy.constants import speed_of_light
 
 import cop_ard_core
-from cop_ard_core.computing.griddata import init_interpolate
 from cop_ard_core.computing.gslc import fix_attributes
-from cop_ard_core.computing.io import get_id_product, get_storage_options, normpath, read, write
-from cop_ard_core.computing.logger import timeit
-from cop_ard_core.computing.slc import extract_orbits, get_margin
-from cop_ard_core.computing.warp import GRID, coreg_qlt, sinc, updateLut, warp_dazdrg, warp_cslc
+from cop_ard_core.computing.io import get_id_product
+from cop_ard_core.computing.slc import extract_orbits
+from cop_ard_core.computing.warp import GRID, coreg_qlt, updateLut
 
 
 def updateOrbits(slc: xr.DataTree) -> xr.Dataset:

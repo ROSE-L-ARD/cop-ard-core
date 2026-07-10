@@ -1,22 +1,27 @@
+import json
+
 import numpy as np
 import xarray as xr
-import cop_ard_core.computing.computation
 
+import cop_ard_core.computing.computation
+import cop_ard_core.utils
 from cop_ard_core.computing.logger import logger, timeit
 
-import cop_ard_core.utils
-import json
 
 # @timeit
 def update_interf_coordinates(interf: xr.Dataset, multilook: dict) -> xr.Dataset:
 
     # compute pixel coordinates
-    y0 = multilook["azimuth_time"] / 2 - 0.5 
-    x0 = multilook["slant_range_time"] / 2 - 0.5 
-    
+    y0 = multilook["azimuth_time"] / 2 - 0.5
+    x0 = multilook["slant_range_time"] / 2 - 0.5
+
     # set multilooked coordinates
-    interf = interf.assign_coords({'y' : (['azimuth_time'], np.round((interf.y - y0) / multilook["azimuth_time"]).values.astype(int)), 
-                                   'x' : (['slant_range_time'], np.round((interf.x - x0) / multilook["slant_range_time"]).values.astype(int))})
+    interf = interf.assign_coords(
+        {
+            "y": (["azimuth_time"], np.round((interf.y - y0) / multilook["azimuth_time"]).values.astype(int)),
+            "x": (["slant_range_time"], np.round((interf.x - x0) / multilook["slant_range_time"]).values.astype(int)),
+        }
+    )
 
     return interf
 
@@ -30,10 +35,12 @@ def compute_interf(
     # complex multiplication and average #
     return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()
 
+
 # @timeit
 def get_power(slc: xr.DataArray, multilook: dict):
     # compute the image power and average
-    return (slc*slc.conj()).real.coarsen(multilook, boundary="trim").mean()
+    return (slc * slc.conj()).real.coarsen(multilook, boundary="trim").mean()
+
 
 # @timeit
 def compute_interf_norm(
@@ -55,10 +62,8 @@ def compute_interf_norm(
     return (num / den).fillna(0j)
 
 
-# @timeit 
-def get_interf_single_burst(
-    cslc: xr.Dataset, reference_date: str, multilook: dict
-) -> xr.Dataset:
+# @timeit
+def get_interf_single_burst(cslc: xr.Dataset, reference_date: str, multilook: dict) -> xr.Dataset:
     """
     Compute the interferometric phase and coherence with respect to a reference date
     applying a boxcar filter
@@ -78,6 +83,7 @@ def get_interf_single_burst(
 
     return interf_ds
 
+
 # @timeit
 def extract_coreg_aoi(coreg: xr.Dataset, a_min: float, r_min: float, multilook: dict):
 
@@ -86,14 +92,14 @@ def extract_coreg_aoi(coreg: xr.Dataset, a_min: float, r_min: float, multilook: 
 
     # add pixel coordinates wrt the AOI
     coreg_sel = cop_ard_core.utils.time_to_pixel(coreg.copy(), a_min, r_min)
-    
-    x_min = np.ceil(coreg_sel.x.min() / multilook['slant_range_time']).astype(int)*multilook['slant_range_time']
-    x_max = np.floor(coreg_sel.x.max() / multilook['slant_range_time']).astype(int)*multilook['slant_range_time']
-    y_min = np.ceil(coreg_sel.y.min() / multilook['azimuth_time']).astype(int)*multilook['azimuth_time']
-    y_max = np.floor(coreg_sel.y.max() / multilook['azimuth_time']).astype(int)*multilook['azimuth_time']
+
+    x_min = np.ceil(coreg_sel.x.min() / multilook["slant_range_time"]).astype(int) * multilook["slant_range_time"]
+    x_max = np.floor(coreg_sel.x.max() / multilook["slant_range_time"]).astype(int) * multilook["slant_range_time"]
+    y_min = np.ceil(coreg_sel.y.min() / multilook["azimuth_time"]).astype(int) * multilook["azimuth_time"]
+    y_max = np.floor(coreg_sel.y.max() / multilook["azimuth_time"]).astype(int) * multilook["azimuth_time"]
 
     # select and force chuncking and swap back coordinates
-    coreg_sel = coreg_sel.sel(x=slice(x_min, x_max+1), y=slice(y_min, y_max+1))
+    coreg_sel = coreg_sel.sel(x=slice(x_min, x_max + 1), y=slice(y_min, y_max + 1))
     coreg_sel = coreg_sel.swap_dims(y="azimuth_time", x="slant_range_time").chunk(chunk_burst)
 
     return coreg_sel
@@ -132,6 +138,7 @@ def extract_coreg_aoi_(coreg: xr.Dataset, bbox: tuple, dt_az: float, dt_rg: floa
 
     return (coreg_sel, y_min, y_max, x_min, x_max)
 
+
 @timeit
 def extract_interf_single(
     burst_id: str,
@@ -148,7 +155,6 @@ def extract_interf_single(
     annot = json.loads(annot)
     # logger.debug(f"processing burst {burst_id}")
     a_min, a_max, r_min, r_max = bbox
-    chunk_burst = {k: v[0] for k, v in coreg.chunksizes.items() if k in ["azimuth_time", "slant_range_time"]}
     # extract aoi
     coreg_sel = extract_coreg_aoi(coreg, a_min, r_min, multilook)
     # extract subbands
@@ -165,25 +171,27 @@ def extract_interf_single(
     # logger.debug(f"extract multilooked interferogram and coherence")
     # extract multilooked interferogram and coherence
     interf = get_interf_single_burst(cslc, reference_date, multilook)
-    
+
     # force coordinates
     interf = update_interf_coordinates(interf, multilook)
 
     # add raw image azimuth times
-    azimuth_time_raw = cop_ard_core.utils.get_azimuth_time_raw(coreg_sel['cstack'], multilook)
-    interf['azimuth_time_raw'] = (['azimuth_time', 'slant_range_time'], azimuth_time_raw.values)
- 
+    azimuth_time_raw = cop_ard_core.utils.get_azimuth_time_raw(coreg_sel["cstack"], multilook)
+    interf["azimuth_time_raw"] = (["azimuth_time", "slant_range_time"], azimuth_time_raw.values)
+
     if y_poly is not None:
         # logger.debug("save phase_ramp")
         # compute multilooked phase corrections
-        ph_ramp_diff_ml = cop_ard_core.utils.get_phramp_diff(interf.drop_vars(interf.data_vars), coreg_sel.drg, coreg_sel.daz, annot, y_poly, multilook)
+        ph_ramp_diff_ml = cop_ard_core.utils.get_phramp_diff(
+            interf.drop_vars(interf.data_vars), coreg_sel.drg, coreg_sel.daz, annot, y_poly, multilook
+        )
         ph_ramp_diff_ml["slant_range_time"] = interf["slant_range_time"]
         ph_ramp_diff_ml["azimuth_time"] = interf["azimuth_time"]
 
         # apply correction
-        interf['phase'] = cop_ard_core.utils.wrap(interf['phase']-ph_ramp_diff_ml)
+        interf["phase"] = cop_ard_core.utils.wrap(interf["phase"] - ph_ramp_diff_ml)
         interf["phase_ramp"] = ph_ramp_diff_ml
-    
+
     return (burst_id, interf.compute())
 
 
@@ -194,12 +202,23 @@ def extract_interf_multi(slcs: xr.DataTree, reference_date: str, enable_dask: bo
     pol = next((p for p in priorities if p in available_pols), None)
     if pol is None:
         raise Exception(f"No polarization has been found {available_pols}")
-    args = [(burst_id, json.dumps({k: v.measurements.slc.attrs[pol] for k,v in slc.orig.items()}), slc.coreg.measurements.ds) for burst_id,slc in slcs.bursts.items() ]
+    args = [
+        (
+            burst_id,
+            json.dumps({k: v.measurements.slc.attrs[pol] for k, v in slc.orig.items()}),
+            slc.coreg.measurements.ds,
+        )
+        for burst_id, slc in slcs.bursts.items()
+    ]
     args = list(zip(*args))
 
-    results = cop_ard_core.computing.computation.map(extract_interf_single, 
-                                                    args=args, kwargs = {'reference_date': reference_date, **kwargs}, 
-                                                    enable_dask = enable_dask, combine=False)
+    results = cop_ard_core.computing.computation.map(
+        extract_interf_single,
+        args=args,
+        kwargs={"reference_date": reference_date, **kwargs},
+        enable_dask=enable_dask,
+        combine=False,
+    )
 
     return results
 
@@ -207,34 +226,39 @@ def extract_interf_multi(slcs: xr.DataTree, reference_date: str, enable_dask: bo
 def mosaic_interf(results: tuple) -> xr.Dataset:
 
     interf = xr.DataTree()
-    for id, (burst_id,ds) in enumerate(results):
-        ds = ds.assign({'id': xr.full_like(ds.phase.isel(polarization=0, acquisition_date=0), fill_value=id, dtype='int8')})
+    for id, (burst_id, ds) in enumerate(results):
+        ds = ds.assign(
+            {"id": xr.full_like(ds.phase.isel(polarization=0, acquisition_date=0), fill_value=id, dtype="int8")}
+        )
         interf[f"bursts/{burst_id}"] = ds
 
-    mosaic = interf.bursts[list(interf.bursts.children)[0]].to_dataset().isel(azimuth_time=slice(10, -10), slant_range_time=slice(10, -30))
-    mosaic = mosaic.swap_dims({'azimuth_time': 'y', 'slant_range_time': 'x'})
+    mosaic = (
+        interf.bursts[list(interf.bursts.children)[0]]
+        .to_dataset()
+        .isel(azimuth_time=slice(10, -10), slant_range_time=slice(10, -30))
+    )
+    mosaic = mosaic.swap_dims({"azimuth_time": "y", "slant_range_time": "x"})
     mosaic = mosaic.reset_coords([e for e in mosaic.coords if e not in mosaic.dims])
 
     for k, layer in interf.bursts.items():
         layer_sel = layer.isel(azimuth_time=slice(10, -10), slant_range_time=slice(10, -30)).to_dataset()
-        layer_sel = layer_sel.swap_dims({'azimuth_time': 'y', 'slant_range_time': 'x'})
+        layer_sel = layer_sel.swap_dims({"azimuth_time": "y", "slant_range_time": "x"})
         layer_sel = layer_sel.reset_coords([e for e in layer_sel.coords if e not in layer_sel.dims]).compute()
 
         mosaic = mosaic.combine_first(layer_sel).compute()
 
-    mosaic = mosaic.swap_dims({'y': 'azimuth_time', 'x': 'slant_range_time'})
+    mosaic = mosaic.swap_dims({"y": "azimuth_time", "x": "slant_range_time"})
     mosaic = mosaic.reset_coords([e for e in mosaic.coords if e not in mosaic.dims])
 
     return mosaic
 
 
 def get_mosaic_interf(slcs: xr.DataTree, reference_date: str, **kwargs) -> xr.Dataset:
-    
+
     # compute interferograms in correspondence of each burst
-    results = extract_interf_multi(slcs, reference_date, **kwargs) 
+    results = extract_interf_multi(slcs, reference_date, **kwargs)
 
     # mosaic all interferograms
     mosaic = mosaic_interf(results)
 
     return mosaic
-
