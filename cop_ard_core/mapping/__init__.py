@@ -59,7 +59,7 @@ from cop_ard_core.computing.io import (
     write,
 )
 from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.orbit import build_orbit_dataset, update_slcs, refit_orbit_coefficients
+from cop_ard_core.computing.orbit import build_orbit_dataset, refit_orbit_coefficients
 from cop_ard_core.computing.simul import (
     SPATIAL_DIMS_,
     compute_simulation,
@@ -1519,6 +1519,59 @@ def overwrite_orbit_coefficients(
         )
     )
     return orbit
+
+
+def update_slcs(slcs: xr.DataTree, multiburst: bool, conditions: list):
+    """
+    Update the main DataTree with newly computed orbit conditions.
+
+    This function takes the results from the `refit_orbit_coefficients` parallel map
+    operation and places each new orbit dataset into the correct location
+    within the `slcs` DataTree structure.
+
+    Parameters
+    ----------
+    slcs : xr.DataTree
+        The main DataTree to be updated.
+    multiburst : bool
+        A boolean flag for multiburst mode, which determines the
+        path structure.
+    conditions : list
+        The list of results from `overwrite_coeffs`, where each item is
+        a tuple (burst_id, acquisition_date, orbit_dataset).
+
+    Returns
+    -------
+    xr.DataTree
+        The updated `slcs` DataTree.
+    """
+    # Iterate through the list of results.
+    for burst_id, acquisition_date, orbit in conditions:
+        if orbit is None:
+            continue
+
+        path_prefix = f"bursts/{burst_id}" if multiburst else ""
+        base_node = f"{path_prefix}/orig/{acquisition_date}"
+
+        # 2. Assign the new orbit dataset to its place in the DataTree
+        slcs[f"{base_node}/conditions/orbit"] = orbit
+
+        # 3. Pre-extract coefficients
+        xyz_coeffs = orbit.coeffs.sel(acquisition_date=acquisition_date)
+
+        # 4. Update the metadata attributes
+        slc_path = f"{base_node}/measurements/slc"
+        attrs = slcs[slc_path].attrs
+
+        for pol in attrs:
+            for axis_idx, tag in enumerate(["X", "Y", "Z"]):
+                # .tolist() safely converts numpy arrays to standard Python lists
+                attrs[pol]["Position"]["ARPPoly"][tag]["Coefs"] = xyz_coeffs.isel(axis=axis_idx).values.tolist()
+
+        # Reassign the updated attributes back to the node
+        slcs[slc_path].attrs = attrs
+
+    return slcs
 
 
 def update_orbit(
