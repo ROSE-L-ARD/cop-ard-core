@@ -19,7 +19,8 @@ from scipy.constants import speed_of_light
 from cop_ard_core.computing.area_projection import (
     compute_chunks,
     compute_geocoded_mask,
-    compute_rasterization_and_rtc_ap,
+    compute_rasterization,
+    compute_rtc_ap,
     compute_shadow,
     initialize_simulation,
     sparse_to_dense,
@@ -529,7 +530,7 @@ def import_slice(
     valid_data_x_idxs: np.ndarray | None = None,
     deramp_flag: bool = False,
     dkcoa_coeffs: np.ndarray | None = None,
-    chunk={},
+    chunk=None,
 ):
     """
     Read, process, and save a single chunk of an SLC image.
@@ -706,7 +707,7 @@ def import_image(
             "save_options": {
                 "skip_read": True,
                 "consolidated": False,
-            },
+            }
         }
         # --- Process Data Slice by Slice ---
         if in_path is not None:
@@ -717,12 +718,14 @@ def import_image(
             args = []
             obj = [image.slc]
             # Define the chunking strategy for `map_blocks`.
+            print(in_path)
             if in_path is not None:
                 chunksizes = {k: v for k, v in chunks.items() if k in image.dims}
                 chunksizes["slant_range_time"] = slant_range_time.size
                 chunksizes["azimuth_time"] = min([azimuth_time.size, chunksizes["azimuth_time"]])
-                annot = ds.sicd_meta[index].to_dict()
+                annot = ds.sicd_meta[index]
                 processed_pol = annot.get_processed_polarization().replace(":", "")
+                annot = annot.to_dict()
                 args.append(slc)
             else:
                 chunksizes = None
@@ -1002,7 +1005,7 @@ def import_slc_stack(
         group_discover,
         or_f,
         kwargs=dict(aoi_wkt=aoi_wkt, multiburst=multiburst, indices=indices, polarizations=polarizations, **kwargs),
-        enable_dask=True if isinstance(base_type, str) else False,
+        enable_dask=True if base_type is str else False,
         combine=False,
     )
 
@@ -2627,16 +2630,17 @@ def coreg_single_burst(
             },
         }
     }
-    orig_slcs = {k: v.measurements.slc for k, v in slc.orig.children.items()}
+    orig_slcs = xr.DataTree.from_dict({f"orig/{k}/slc": v.measurements.slc for k, v in slc.orig.children.items()})
     orig_etad = {}
     for k, v in slc["orig"].children.items():
         if "ETAD" in v.conditions:
             child_etad = v.conditions.ETAD.to_dataset()
-            azcorr = child_etad.azcorr if "azcorr" in child_etad else None
-            rgcorr = child_etad.rgcorr if "rgcorr" in child_etad else None
-            orig_etad[k] = (azcorr, rgcorr)
+            orig_etad[k] = child_etad
         else:
-            orig_etad[k] = (None, None)
+            orig_etad[k] = None
+
+    orig_etad = xr.DataTree.from_dict(orig_etad)
+
     # --- Calculate Grid Spacing and Margins ---
     annotation = measurements.cstack.attrs
     single_pol_annotation = annotation[list(annotation.keys())[0]]
@@ -2679,17 +2683,6 @@ def coreg_single_burst(
         as_type="xr.Dataset",
     )
 
-    list_daz_drg_sel = cast(
-        list,
-        map_blocks(
-            update_LUT,
-            obj=daz_drg,
-            kwargs={"LUT_coords": LUT_coords},
-            combine=False,
-            enable_dask=enable_dask,
-        ),
-    )
-
     store_mapping = {
         0: {
             "data_path": measurements.attrs["store_path"],
@@ -2699,6 +2692,7 @@ def coreg_single_burst(
             },
         },
     }
+
     map_blocks(
         warp_cslc,
         obj=[measurements.cstack, measurements.phase_model, daz_drg.daz, daz_drg.drg, measurements.acquisition_date],
@@ -2722,6 +2716,17 @@ def coreg_single_burst(
         store_mapping=store_mapping,
     )
 
+    list_daz_drg_sel = cast(
+        list,
+        map_blocks(
+            update_LUT,
+            obj=daz_drg,
+            kwargs={"LUT_coords": LUT_coords},
+            combine=False,
+            enable_dask=enable_dask,
+            chunksizes={"acquisition_date": daz_drg.acquisition_date.size},
+        ),
+    )
     # --- Step 3: Update Metadata ---
     # Merge the list of daz/drg offsets computed by each chunk.
     LUT_daz_drg = sum([k for k in list_daz_drg_sel if k is not None])
@@ -3345,7 +3350,7 @@ def map_rasterization_and_rtc_ap(
             "drop_coords": False,
             "drop_attrs": False,
             "save_options": {
-                "consolidated": True,
+                "consolidated": False,
                 "mode": "a",
                 "skip_read": True,
                 "storage_options": get_storage_options(kwargs, "storage_options_static"),
@@ -3353,17 +3358,6 @@ def map_rasterization_and_rtc_ap(
         },
         2: {
             "data_path": normpath(f"{data_path_tmp}/sparse_dir"),
-            "drop_coords": False,
-            "drop_attrs": False,
-            "save_options": {
-                "consolidated": True,
-                "mode": "a",
-                "skip_read": True,
-                "storage_options": get_storage_options(kwargs, "storage_options_dynamic"),
-            },
-        },
-        3: {
-            "data_path": normpath(f"{data_path_tmp}/sparse_dir/A_block"),
             "drop_coords": False,
             "drop_attrs": False,
             "save_options": {
@@ -3396,7 +3390,49 @@ def map_rasterization_and_rtc_ap(
         3: lambda _, __: None,
     }
     map_blocks(
-        func=compute_rasterization_and_rtc_ap,
+        func=compute_rasterization,
+        obj=simulation,
+        args=[
+            xmin_global,
+            ymin_global,
+            xsize_global,
+            dim_x_global,
+            radar_grid_pixel_area,
+            bbox,
+            chunk_length,
+            resolution,
+        ],
+        chunks=chunks,
+        enable_dask=enable_dask,
+        combine=False,
+        store_mapping=store_mapping,
+        region_callback=region_callback,
+    )
+    store_mapping = {
+        0: {
+            "data_path": normpath(f"{data_path_static}/geo_grid"),
+            "dims": ["y", "x"],
+            "save_options": {
+                "skip_read": True,
+                "consolidated": False,
+                "storage_options": get_storage_options(kwargs, "storage_options_static"),
+            },
+        },
+        1: {
+            "data_path": normpath(f"{data_path_tmp}/sparse_dir/A_block"),
+            "drop_coords": False,
+            "drop_attrs": False,
+            "save_options": {
+                "consolidated": True,
+                "mode": "a",
+                "skip_read": True,
+                "storage_options": get_storage_options(kwargs, "storage_options_dynamic"),
+            },
+        }
+    }
+
+    map_blocks(
+        func=compute_rtc_ap,
         obj=simulation,
         args=[
             xmin_global,
@@ -3408,7 +3444,9 @@ def map_rasterization_and_rtc_ap(
             bbox,
             chunk_length,
             resolution,
+            data_path_static,
         ],
+        kwargs=kwargs,
         chunks=chunks,
         enable_dask=enable_dask,
         combine=False,

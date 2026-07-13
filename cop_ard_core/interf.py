@@ -158,7 +158,7 @@ def extract_interf_single(
     # extract aoi
     coreg_sel = extract_coreg_aoi(coreg, a_min, r_min, multilook)
     # extract subbands
-    logger.debug(f"cslc shape: {coreg_sel.cstack.shape}")
+    # logger.debug(f"cslc shape: {coreg_sel.cstack.shape}")
     if (f0 is not None) and (bw is not None):
         # logger.debug("Computing full range spectrum...")
         cslc = cop_ard_core.utils.extract_subband(coreg_sel.cstack, bw, f0)
@@ -167,7 +167,7 @@ def extract_interf_single(
 
     # remove uselsess attributes
     cslc = cslc.drop_attrs()
-    logger.debug(f"cslc shape: {cslc.shape}")
+    # logger.debug(f"cslc shape: {cslc.shape}")
     # logger.debug(f"extract multilooked interferogram and coherence")
     # extract multilooked interferogram and coherence
     interf = get_interf_single_burst(cslc, reference_date, multilook)
@@ -202,14 +202,7 @@ def extract_interf_multi(slcs: xr.DataTree, reference_date: str, enable_dask: bo
     pol = next((p for p in priorities if p in available_pols), None)
     if pol is None:
         raise Exception(f"No polarization has been found {available_pols}")
-    args = [
-        (
-            burst_id,
-            json.dumps({k: v.measurements.slc.attrs[pol] for k, v in slc.orig.items()}),
-            slc.coreg.measurements.ds,
-        )
-        for burst_id, slc in slcs.bursts.items()
-    ]
+    args = [(burst_id, json.dumps({k: v.measurements.slc.attrs[pol] for k,v in slc.orig.items()}), slc.coreg.measurements.ds.unify_chunks()) for burst_id,slc in slcs.bursts.items() ]
     args = list(zip(*args))
 
     results = cop_ard_core.computing.computation.map(
@@ -232,17 +225,13 @@ def mosaic_interf(results: tuple) -> xr.Dataset:
         )
         interf[f"bursts/{burst_id}"] = ds
 
-    mosaic = (
-        interf.bursts[list(interf.bursts.children)[0]]
-        .to_dataset()
-        .isel(azimuth_time=slice(10, -10), slant_range_time=slice(10, -30))
-    )
-    mosaic = mosaic.swap_dims({"azimuth_time": "y", "slant_range_time": "x"})
+    mosaic = interf.bursts[list(interf.bursts.children)[0]].to_dataset().isel(azimuth_time=slice(3, -3), slant_range_time=slice(3, -8))
+    mosaic = mosaic.swap_dims({'azimuth_time': 'y', 'slant_range_time': 'x'})
     mosaic = mosaic.reset_coords([e for e in mosaic.coords if e not in mosaic.dims])
 
     for k, layer in interf.bursts.items():
-        layer_sel = layer.isel(azimuth_time=slice(10, -10), slant_range_time=slice(10, -30)).to_dataset()
-        layer_sel = layer_sel.swap_dims({"azimuth_time": "y", "slant_range_time": "x"})
+        layer_sel = layer.isel(azimuth_time=slice(3, -3), slant_range_time=slice(3, -8)).to_dataset()
+        layer_sel = layer_sel.swap_dims({'azimuth_time': 'y', 'slant_range_time': 'x'})
         layer_sel = layer_sel.reset_coords([e for e in layer_sel.coords if e not in layer_sel.dims]).compute()
 
         mosaic = mosaic.combine_first(layer_sel).compute()

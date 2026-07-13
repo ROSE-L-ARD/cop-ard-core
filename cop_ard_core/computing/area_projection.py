@@ -268,19 +268,18 @@ def triangulate_regular(ysize: int, xsize: int) -> np.ndarray:
     return np.vstack([aa + i * xsize for i in range(ysize - 1)])
 
 
-def compute_rasterization_and_rtc_ap(
+def compute_rasterization(
     simulation: xr.DataArray,
     xmin_global: int,
     ymin_global: int,
     xsize_global: int,
     dim_x_global: int,
     radar_grid_pixel_area: float,
-    normal_order: bool,
     bbox: np.ndarray,
     chunk_length: int,
     resolution: tuple[float, float],
     job_id=None,
-) -> tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None, xr.DataTree | None]:
+) -> tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None]:
     """
     Compute rasterization weights and the accumulated gamma-naught area (RTC-AP)
     for a block of the radar data simulation.
@@ -372,17 +371,119 @@ def compute_rasterization_and_rtc_ap(
     )
 
     # Proceed only if weights were successfully computed
-    ablock_dt = None
     if w is not None:
         # Validate the type of number of looks array
         if not isinstance(nl, np.ndarray):
             raise Exception(f"Expected np.ndarray, got {type(nl)}")
-
         # Reshape nlook: (dim_y, dim_x, 4) -> sum over 4 triangles per quad, div by 2 (2 triangles per geogrid cell)
         nlook = xr.DataArray(nl.reshape(dim_y, dim_x, 4).sum(axis=2), dims=["y", "x"]) / 2
+    else:
+        # If no weights were computed (e.g., empty chunk), create empty arrays
+        nlook = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
 
+    # Combine geogrid results into a single dataset
+    geo_data = xr.Dataset(data_vars={"nlooks": nlook})
+
+    return geo_data, w_dt, layover_dt
+
+
+def compute_rtc_ap(
+    simulation: xr.DataArray,
+    xmin_global: int,
+    ymin_global: int,
+    xsize_global: int,
+    dim_x_global: int,
+    radar_grid_pixel_area: float,
+    normal_order: bool,
+    bbox: np.ndarray,
+    chunk_length: int,
+    resolution: tuple[float, float],
+    data_path_static: str,
+    job_id=None,
+    **kwargs,
+) -> tuple[xr.Dataset | None, xr.DataTree | None]:
+    """
+    Compute rasterization weights and the accumulated gamma-naught area (RTC-AP)
+    for a block of the radar data simulation.
+
+    This function performs triangulation on the geogrid, computes weights
+    for mapping from radar grid to geogrid, and then calculates the
+    Gamma Naught Area (GNA), local incidence angle (lia), and number of looks (nlooks).
+
+    Parameters
+    ----------
+    simulation : xr.DataArray
+        The radar data simulation chunk, containing
+        coordinates (az_px, rg_px) and DEM height (h).
+    data_path_static : str
+        Path to the directory where static results
+        (geo_grid, weights) will be saved.
+    data_path_tmp : str
+        Path to the directory where temporary results
+        (sparse layover/area blocks) will be saved.
+    xmin_global : int
+        Global minimum of the radar x-coordinate (range).
+    ymin_global : int
+        Global minimum of the radar y-coordinate (azimuth).
+    xsize_global : int
+        Total radar grid size along the x-axis (range).
+    dim_x_global : int
+        Total geogrid size along the x-axis.
+    radar_grid_pixel_area : float
+        The area of a single radar grid pixel.
+    normal_order : bool
+        The order needed to compute the surface normal correctly.
+    bbox : np.ndarray
+        Bounding box coordinates of the full radar scene
+        [min_rg, min_az, max_rg, max_az].
+    chunk_length : int
+        Size (dimension) of a square geogrid chunk.
+    resolution : tuple[float, float]
+        Output resolution (az_res, rg_res)
+        used to calculate expected number of looks.
+    job_id : int or None, optional
+        Identifier for the job, used to determine the
+        position of this chunk in the global grid.
+
+    Returns
+    -------
+    tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None, xr.DataTree | None]
+        A tuple containing the computed geogrid data (nlooks, anf, lia) and the temporary sparse area matrices.
+    """
+    so = get_storage_options(kwargs)
+    # Get local geogrid dimensions (number of cells per row and per column)
+    # The size is the number of points, so dimensions are size - 1
+    dim_x, dim_y = simulation.x.size - 1, simulation.y.size - 1
+
+    # Create a regular grid of triangles from the geogrid dimensions
+    triang = triangulate_regular(dim_y + 1, dim_x + 1)
+    #
+    # # Find the local minimum coordinates (floor) in the radar grid for this chunk
+    # ymin, xmin = np.floor(az_px.min().values).astype(int), np.floor(rg_px.min().values).astype(int)
+    #
+    # # Adjust the bounding box to be relative to the local chunk's minimum coordinates
+    # bbox_chunk = bbox.copy()
+    # bbox_chunk = np.array([bbox_chunk[0] - xmin, bbox_chunk[1] - ymin, bbox_chunk[2] - xmin, bbox_chunk[3] - ymin])
+
+    # Determine the chunk's row and column position in the global grid using the job_id
+    row_number = job_id // (np.ceil(dim_x_global / chunk_length).astype(int))
+    column_number = job_id % (np.ceil(dim_x_global / chunk_length).astype(int))
+
+    # dim_x, dim_y = empty_data.x.size - 1, empty_data.y.size - 1
+    #
+    # # Define the region for writing to the output Zarr store
+    # # Slices for pol/acq_date are taken directly, y/x are adjusted for cell centers
+    # region = {"y": slice(chunk["y"].start, chunk["y"].stop - 1), "x": slice(chunk["x"].start, chunk["x"].stop - 1)}
+
+    # Determine the chunk's row/column index from its start position
+
+    # Load the sparse weights file corresponding to this chunk
+    ablock_dt = None
+    f = normpath(f"{data_path_static}/w/{row_number}.{column_number}")
+    if exists(f, storage_options=so):
+        # Read sparse matrix components (CSR format)
+        w = read(f, as_type="xr.Dataset", consolidated=False, storage_options=so)
         # --- Start Radiometric Terrain Correction (RTC) Area Projection (AP) ---
-
         # Get DEM points in ECEF coordinates: (axis, y, x) -> (y, x, axis) -> (n_points, 3)
         points = convert_to_dem_ecef(dem=simulation.h.compute())
         points = np.transpose(points, (1, 2, 0)).reshape(-1, 3)
@@ -406,7 +507,6 @@ def compute_rasterization_and_rtc_ap(
 
         # Define the bounding box for the full radar grid (used by the kernel)
         bbox_radar = np.array([bbox[3], 0, bbox[2], 0])
-
         # Call the high-performance kernel to compute GNA and the sparse area matrix 'A'
         nnz = computeGammaNaughtArea(
             triang_points=triang_points.ravel(),
@@ -416,7 +516,6 @@ def compute_rasterization_and_rtc_ap(
             normal_order=normal_order,
             GNA=GNA,
             lia=cos_theta,
-            nlook=nl,
             data_w=w.data.values,
             indptr_w=w.indptr.values,
             indices_w=w.indices.values,
@@ -458,14 +557,13 @@ def compute_rasterization_and_rtc_ap(
         )
     else:
         # If no weights were computed (e.g., empty chunk), create empty arrays
-        nlook = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
         ANF = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
         lia = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
 
     # Combine geogrid results into a single dataset
-    geo_data = xr.Dataset(data_vars={"nlooks": nlook, "anf": ANF, "lia": lia})
+    geo_data = xr.Dataset(data_vars={"anf": ANF, "lia": lia})
 
-    return geo_data, w_dt, layover_dt, ablock_dt
+    return geo_data, ablock_dt
 
 
 def get_w(

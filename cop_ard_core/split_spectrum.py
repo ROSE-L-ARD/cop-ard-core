@@ -17,8 +17,8 @@ def joint_unwrap(mosaic_l: xr.Dataset, mosaic_h: xr.Dataset, cohe_th: float = 0.
     cohe_th = 0.3
 
     # TO BE MANAGED MULTIPLE POLARIZATIONS AND ACQUISITION DATES
-    mosaic_h_sel = mosaic_h.isel(polarization=1, acquisition_date=1)
-    mosaic_l_sel = mosaic_l.isel(polarization=1, acquisition_date=1)
+    mosaic_h_sel = mosaic_h.isel(polarization=0, acquisition_date=1)
+    mosaic_l_sel = mosaic_l.isel(polarization=0, acquisition_date=1)
 
     # extract the average coherence between the two sub-bands
     cohe_mask = xr.apply_ufunc(np.sqrt, (mosaic_h_sel.cohe) * (mosaic_l_sel.cohe), dask="parallelized")
@@ -127,12 +127,9 @@ def fit_ionosphere(phase_iono: xr.Dataset, H_iono: float, H_orb: float, degree: 
     y_ = scale_azimuth_time(phase_iono.azimuth_time_raw, phase_iono.azimuth_time, H_orb, H_iono)
 
     # compute minimization axis
-    x_ = np.tile(phase_iono.slant_range_time.values, phase_iono.azimuth_time.size).reshape(
-        phase_iono.azimuth_time_raw.shape
-    )
-    y_ = (y_ - y_[0, 0]).astype(float).values
-    data = phase_iono.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
-
+    x_ = np.tile(phase_iono.slant_range_time.values, phase_iono.azimuth_time.size).reshape(phase_iono.azimuth_time_raw.shape)
+    y_ = (y_ - y_[0,0]).astype(float).values
+    data = phase_iono.squeeze().stack(point=['azimuth_time', 'slant_range_time']).values
     # compute polynomial fit coefficients
     coeffs, x_0, x_sc = cop_ard_core.detrend.fit_2d_poly(x_, y_, data, degree=degree, norm=norm)
 
@@ -145,15 +142,34 @@ def fit_ionosphere(phase_iono: xr.Dataset, H_iono: float, H_orb: float, degree: 
     return coeffs
 
 
-def remove_iono_surface_single_burst(
-    burst_id: str,
-    burst: xr.Dataset,
-    coeffs: xr.DataArray,
-    H_iono: float,
-    H_orb: float,
-    outfolder: Path,
-    degree: int = 1,
-):
+def reconstruct_iono_surface(interf: xr.Dataset, coeffs: xr.DataArray, H_iono: float, H_orb: float, degree: int=1) -> xr.DataArray:
+
+    y_ = scale_azimuth_time(interf.azimuth_time_raw, 
+                            interf.azimuth_time,
+                            H_orb,
+                            H_iono)
+
+    # compute minimization axis
+    x_ = np.tile(interf.slant_range_time.values, interf.azimuth_time.size).reshape(interf.azimuth_time_raw.shape)
+    y_ = (y_ - y_[0,0]).astype(float).values    
+    x_full = np.vstack([x_.ravel(), y_.ravel()]).T 
+    x_full = (x_full - coeffs.attrs['offset']) / coeffs.attrs['scale_fact']
+
+    # reconstruct the surface in correspondence of the coordinates x_full
+    surf = cop_ard_core.detrend.fit(cop_ard_core.detrend.get_model_matrix(x_full, degree=degree), coeffs.values)
+    surf = surf.reshape(interf.azimuth_time_raw.shape)
+    surf = xr.DataArray(surf, dims=['azimuth_time', 'slant_range_time'])
+
+    # return coefficients and attributes for rescaling and centering the coordinates
+    return surf
+
+
+def remove_iono_surface_single_burst(burst_id: str,
+                                     burst: xr.Dataset, coeffs: xr.DataArray, 
+                        H_iono: float, H_orb: float, 
+                        outfolder: Path,
+                        degree: int=1, 
+                        ):
 
     # recontruct the surface over all points
     cstack = burst["coreg/measurements/cstack"]
@@ -177,16 +193,8 @@ def remove_iono_surface_single_burst(
     surf = surf.reshape(azimuth_time_raw.shape)
     surf = xr.DataArray(surf, dims=["azimuth_time", "slant_range_time"])
 
-    # return the ionospheric layer
-    burst["coreg/measurements/phase_iono"] = surf
-
-    # remove ionosphere from slc
-    burst["coreg/measurements/cstack"].loc[{"acquisition_date": "2016-02-14"}] *= np.exp(
-        -1j * burst.coreg.measurements.phase_iono
-    )
-
-    write(burst, Path(os.path.join(outfolder, "bursts", burst_id)), mode="w")
-    # return burst_id, burst
+    burst = write(burst, f"{outfolder}/bursts/{burst_id}", mode='w')
+    return burst_id, burst
 
 
 def remove_iono_surface(
@@ -205,16 +213,19 @@ def remove_iono_surface(
     write(outdatatree, data_path=outfolder, skip_read=True)
 
     # update all bursts
-    map(
-        remove_iono_surface_single_burst,
-        args=args,
-        kwargs={"coeffs": coeffs, "H_iono": H_iono, "H_orb": H_orb, "degree": degree, "outfolder": outfolder},
-        enable_dask=True,
-        combine=False,
-    )
+    results = map(remove_iono_surface_single_burst, 
+        args=args, kwargs = {'coeffs': coeffs, 
+                            'H_iono': H_iono, 'H_orb': H_orb, 
+                            'degree': degree,
+                            'outfolder': outfolder}, 
+        enable_dask = True, combine=False)
 
-    # reread updated slcs
-    return read(outfolder, consolidate_metadata=True)
+    update_slcs = xr.DataTree()
+
+    for k,v in results:
+        update_slcs[f"bursts/{k}"] = v
+
+    return update_slcs
 
 
 def split_spectrum_flow(
