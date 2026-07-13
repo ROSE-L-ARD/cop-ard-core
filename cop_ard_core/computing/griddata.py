@@ -289,7 +289,7 @@ def _interpolate(triangles, result, bbox):
     return result
 
 
-def interpolate(points, values, bbox):
+def interpolate(points: np.ndarray, values: np.ndarray, bbox: np.ndarray):
     """
     Perform irregular grid interpolation using a custom triangle-based rasterizer.
 
@@ -345,7 +345,7 @@ def interpolate(points, values, bbox):
     return results
 
 
-def generate_triangles(ysize, xsize):
+def generate_triangles(ysize: int, xsize: int):
     """
     Generate a mesh of triangles for a regular grid.
 
