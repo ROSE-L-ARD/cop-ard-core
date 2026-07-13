@@ -13,7 +13,7 @@
 # limitations under the License.
 from collections import OrderedDict
 
-import defusedxml.ElementTree as ET
+from xml.etree.ElementTree import ElementTree
 import numpy as np
 import sarpy.io.complex.utils
 import xarray as xr
@@ -22,7 +22,7 @@ from cop_ard_core.computing.io import Path, get_storage_options, normpath, write
 from cop_ard_core.computing.logger import logger
 
 
-def read_orbit_file(orbit_paths, **kwargs):
+def build_orbit_dataset(orbits: list[ElementTree]) -> xr.Dataset:
     """
     Parse one or more XML-based orbit files (.EOF) into an xarray Dataset.
 
@@ -44,6 +44,7 @@ def read_orbit_file(orbit_paths, **kwargs):
         primary coordinate. It also includes the orbit type as an attribute.
     """
 
+    # Helper function to read a floating-point value from an XML tag.
     def read_v(osv, tag):
         return float(osv.find(tag).text)
 
@@ -52,16 +53,16 @@ def read_orbit_file(orbit_paths, **kwargs):
         return osv.find(tag).text.split("=")[1]
 
     state_vectors = OrderedDict()
-    otype = []
-    orbit_paths = [orbit_paths] if isinstance(orbit_paths, Path) else orbit_paths
-    for orbit_path in orbit_paths:
-        local_orbit_path = orbit_path.ensure_local()
+    otypes = set()
+    for orbit in orbits:
         # Helper function to read a floating-point value from an XML tag.
-        osvs = ET.parse(local_orbit_path.path).find(".//List_of_OSVs")
-        otype.append(ET.parse(local_orbit_path.path).find(".//File_Type").text)
-
+        osvs = orbit.find(".//List_of_OSVs")
+        otype = orbit.find(".//File_Type")
+        if osvs is None or otype is None:
+            raise ValueError("error reading orbit file")
+        otypes.add(otype.text)
         # Iterate over each OSV element.
-        for osv in osvs.findall("OSV"):
+        for osv in osvs.findall("OSV") or []:
             # Extract the different time standards (UTC, TAI, UT1).
             utc, tai, ut1 = [read_t(osv, tag) for tag in ["UTC", "TAI", "UT1"]]
             # Extract the position (X, Y, Z) and velocity (VX, VY, VZ) components.
@@ -90,11 +91,11 @@ def read_orbit_file(orbit_paths, **kwargs):
     velocity = xr.DataArray(velocity, dims=["azimuth_time", "axis"], coords=coords)
     # Extract the orbit file type (e.g., RESORB, POEORB) from the XML header.
     # Ensure all provided orbit files are of the same type.
-    if np.unique(otype).size > 1:
+    if len(otypes) > 1:
         raise RuntimeError("For the same acquisition date must be used the same orbit type (POE or RES)")
 
     # Create and return the final dataset with the orbit type as an attribute.
-    return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": otype[0]})
+    return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": otypes[0]})
 
 
 def overwrite_coeffs(

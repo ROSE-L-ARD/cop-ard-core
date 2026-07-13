@@ -1,3 +1,5 @@
+from xml.etree.ElementTree import Element, ElementTree
+import defusedxml.ElementTree as ET
 import json
 import os
 import re
@@ -55,7 +57,7 @@ from cop_ard_core.computing.io import (
     write,
 )
 from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.orbit import overwrite_coeffs, read_orbit_file, update_slcs
+from cop_ard_core.computing.orbit import overwrite_coeffs, build_orbit_dataset, update_slcs
 from cop_ard_core.computing.simul import (
     SPATIAL_DIMS_,
     compute_simulation,
@@ -1404,6 +1406,11 @@ def stack_simulation_ml(
     return simulation_ml_tree
 
 
+def read_orbit_file(orbit_path: Path) -> ElementTree:
+    local_orbit_path = orbit_path.ensure_local()
+    return ET.parse(local_orbit_path.path)
+
+
 def import_orbit(
     orbit_paths: list[Path] | None = None,
     start_time: np.datetime64 | None = None,
@@ -1437,7 +1444,7 @@ def import_orbit(
     if (orbit_paths is not None) and all(e is not None for e in orbit_paths):
         logger.info(f"For the time interval {start_time} - {end_time} these orbit files will be used: {orbit_paths}")
         # Read the raw orbit data from the specified file(s).
-        orbit = read_orbit_file(orbit_paths, **kwargs)
+        orbit = build_orbit_dataset([read_orbit_file(orbit_path) for orbit_path in orbit_paths])
     else:
         # If no paths are given, log the information and return None.
         logger.info(f"For the time interval {start_time} - {end_time} no external orbits have been found")
