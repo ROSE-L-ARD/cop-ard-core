@@ -98,16 +98,14 @@ def build_orbit_dataset(orbits: list[ElementTree]) -> xr.Dataset:
     return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": otypes[0]})
 
 
-def overwrite_coeffs(
+def refit_orbit_coefficients(
     burst_id: str,
     acquisition_date: str,
-    slc: xr.DataArray,
     orbit: xr.Dataset | None,
-    wdir_path: str,
+    t0: np.datetime64,
+    reference_time: np.ndarray,
     poly_degree: int,
-    multiburst: bool,
-    **kwargs,
-) -> tuple[str, str, xr.Dataset | None]:
+) -> xr.Dataset | None:
     """
     Refit orbit polynomials using precise orbit data and update SLC metadata.
 
@@ -134,65 +132,40 @@ def overwrite_coeffs(
         A tuple containing the burst_id, acquisition_date, and a new Dataset
         with the refitted orbit coefficients, or None if no update was performed.
     """
-    path = f"bursts/{burst_id}" if multiburst else ""
-    data_path = normpath(f"{wdir_path}/{path}/orig/{acquisition_date}/conditions/orbit")
-
     # Proceed only if precise orbit data is available.
-    if orbit is not None:
-        logger.info(f"Updating orbit of {burst_id} image: {acquisition_date}")
-        attrs = slc.attrs
-        # --- Polynomial Fitting ---
-        annot = attrs[list(attrs)[0]]
-        # Get the reference time from the original annotation.
-        t0 = annot["Timeline"]["CollectStart"][:-1]
-        # Calculate the time vector relative to the reference time for polynomial fitting.
-        times = (orbit.azimuth_time - np.datetime64(t0, "ns")).astype("float64") / 1e9
-        # Use Sarpy's utility to fit new polynomials to the position and velocity data.
-        X, Y, Z = sarpy.io.complex.utils.fit_position_xvalidation(
-            times.values, orbit.position.values, orbit.velocity.values, max_degree=poly_degree
-        )
+    if orbit is None:
+        # If no orbit data was provided, return None.
+        return None
 
-        # --- Create and Save New Orbit Dataset ---
-        attrs = {
-            "reference_time": annot["Timeline"]["CollectStart"],
-            "orbit_files": orbit.orbit_file.values.astype("str"),
-            "orbit_type": orbit.type,
-        }
-        orbit_ = xr.Dataset(
-            data_vars={
-                "coeffs": (
-                    ["acquisition_date", "degree", "axis"],
-                    # Structure the new coefficients into the correct shape.
-                    np.array([v for v in [X, Y, Z]]).T[None, ...],
-                )
-            },
-            coords={
-                "acquisition_date": np.array([acquisition_date], dtype=object),
-                "degree": range(poly_degree + 1),
-                "axis": range(3),
-            },
-            attrs=attrs,
-        )
-        # Write the new orbit dataset to the 'conditions/orbit' group in the Zarr store.
-        orbit_ = write(
-            orbit_,
-            data_path,
-            mode="w",
-            storage_options=get_storage_options(kwargs),
-        )
-        if not isinstance(orbit_, xr.Dataset):
-            raise ValueError(f"Expected xr.Dataset, got {type(orbit_)}")
-        result: tuple[str, str, xr.Dataset | None] = (
-            burst_id,
-            acquisition_date,
-            orbit_,
-        )
-    else:
-        # If no orbit data was provided, log and return None.
-        logger.info(f"No orbit update for the {burst_id} image: {acquisition_date}")
-        result = (burst_id, acquisition_date, None)
+    # Calculate the time vector relative to the reference time for polynomial fitting.
+    times = (orbit.azimuth_time - t0).astype("float64") / 1e9
+    # Use Sarpy's utility to fit new polynomials to the position and velocity data.
+    X, Y, Z = sarpy.io.complex.utils.fit_position_xvalidation(
+        times.values, orbit.position.values, orbit.velocity.values, max_degree=poly_degree
+    )
 
-    return result
+    # --- Create and Save New Orbit Dataset ---
+    attrs = {
+        "reference_time": reference_time,
+        "orbit_files": orbit.orbit_file.values.astype("str"),
+        "orbit_type": orbit.type,
+    }
+    orbit_ = xr.Dataset(
+        data_vars={
+            "coeffs": (
+                ["acquisition_date", "degree", "axis"],
+                # Structure the new coefficients into the correct shape.
+                np.array([v for v in [X, Y, Z]]).T[None, ...],
+            )
+        },
+        coords={
+            "acquisition_date": np.array([acquisition_date], dtype=object),
+            "degree": range(poly_degree + 1),
+            "axis": range(3),
+        },
+        attrs=attrs,
+    )
+    return orbit_
 
 
 def update_slcs(slcs: xr.DataTree, multiburst: bool, conditions: list):

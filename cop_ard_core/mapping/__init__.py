@@ -57,7 +57,7 @@ from cop_ard_core.computing.io import (
     write,
 )
 from cop_ard_core.computing.logger import logger, timeit
-from cop_ard_core.computing.orbit import overwrite_coeffs, build_orbit_dataset, update_slcs
+from cop_ard_core.computing.orbit import build_orbit_dataset, update_slcs, refit_orbit_coefficients
 from cop_ard_core.computing.simul import (
     SPATIAL_DIMS_,
     compute_simulation,
@@ -1463,6 +1463,62 @@ def import_orbit(
     )
 
 
+def overwrite_orbit_coefficients(
+    burst_id: str,
+    acquisition_date: str,
+    orbit: xr.Dataset | None,
+    wdir_path: str,
+    multiburst: bool,
+    **kwargs,
+) -> xr.Dataset | None:
+    """
+    Refit orbit polynomials using precise orbit data and update SLC metadata.
+
+    This worker function takes precise orbit state vectors, fits new polynomials
+    of a specified degree to them, and then overwrites the original orbit
+    polynomial coefficients in the SLC metadata.
+
+    Parameters
+    ----------
+    burst_id : str
+        The identifier of the burst being processed.
+    acquisition_date : str
+        The acquisition date of the SLC.
+    slc : xr.DataTree
+        The DataTree node for the specific burst to be updated.
+    orbit : xr.Dataset | None
+        The precise orbit data as an xarray Dataset. If None, no update is performed.
+    poly_degree : int
+        The degree of the polynomial to fit to the orbit data.
+
+    Returns
+    -------
+    tuple[str, str, xr.Dataset | None]
+        A tuple containing the burst_id, acquisition_date, and a new Dataset
+        with the refitted orbit coefficients, or None if no update was performed.
+    """
+    path = f"bursts/{burst_id}" if multiburst else ""
+    data_path = normpath(f"{wdir_path}/{path}/orig/{acquisition_date}/conditions/orbit")
+
+    # Proceed only if precise orbit data is available.
+    if orbit is None:
+        # If no orbit data was provided, log and return None.
+        logger.info(f"No orbit update for the {burst_id} image: {acquisition_date}")
+        return None
+
+    # Write the new orbit dataset to the 'conditions/orbit' group in the Zarr store.
+    orbit = cast(
+        xr.Dataset,
+        write(
+            orbit,
+            data_path,
+            mode="w",
+            storage_options=get_storage_options(kwargs),
+        )
+    )
+    return orbit
+
+
 def update_orbit(
     slcs: xr.DataTree,
     wdir_path: str,
@@ -1502,6 +1558,10 @@ def update_orbit(
     xr.DataTree
         The updated `slcs` DataTree with new orbit information.
     """
+
+    def get_reference_time_from_attrs(attrs: dict):
+        attrs[list(attrs)[0]]["Timeline"]["CollectStart"]
+
     slcs_info: dict[str, Any] = {}
     # --- Step 1: Collect SLC Time Intervals and Metadata ---
     # Iterate through all original SLCs in the DataTree.
@@ -1562,26 +1622,47 @@ def update_orbit(
     orbits = {d: o for d, o in zip(dates, orbits)}
 
     # --- Step 4: Refit Polynomials and Update Metadata in Parallel ---
-    # Prepare arguments for the `overwrite_coeffs` worker function.
+    # Prepare arguments for the `refit_orbit_coefficients` worker function.
     args = [
-        (k, d, v.measurements.slc, orbits[d])
+        (
+            k,  # kept in order to make downstream coefficient saving easier to maintain
+            d,
+            orbits[d],
+            get_reference_time_from_attrs(v.measurements.slc.attrs)[:-1],
+            get_reference_time_from_attrs(v.measurements.slc.attrs),
+        )
         for k, s in (slcs.bursts if multiburst else {"data": slcs}).items()
         for d, v in s.orig.items()
     ]
     args = list(zip(*args))
-    results = cast(
+    refit_orbits = cast(
+        list[xr.Dataset | None],
+        map(
+            refit_orbit_coefficients,
+            args,
+            kwargs={"poly_degree": poly_degree},
+            combine=False,
+            enable_dask=enable_dask,
+        ),
+    )
+
+    # Prepare arguments for the `overwrite_orbit_coefficients` worker function.
+    args = [
+        (arg[0], arg[1], res) for arg, res in zip(args, refit_orbits)
+    ]
+    refit_orbits = cast(
         list,
         map(
-            overwrite_coeffs,
+            overwrite_orbit_coefficients,
             args,
-            kwargs={"wdir_path": wdir_path, "poly_degree": poly_degree, "multiburst": multiburst, **kwargs},
+            kwargs={"wdir_path": wdir_path, "multiburst": multiburst, **kwargs},
             combine=False,
             enable_dask=enable_dask,
         ),
     )
     # --- Step 5: Integrate Results ---
     # Update the main DataTree with the new orbit condition datasets.
-    slcs = update_slcs(slcs, multiburst, results)
+    slcs = update_slcs(slcs, multiburst, refit_orbits)
     return slcs
 
 
