@@ -534,7 +534,7 @@ def import_slice(
     valid_data_x_idxs: np.ndarray | None = None,
     deramp_flag: bool = False,
     dkcoa_coeffs: np.ndarray | None = None,
-    chunk=None,
+    chunk={},
 ):
     """
     Read, process, and save a single chunk of an SLC image.
@@ -3675,7 +3675,7 @@ def map_rasterization_and_rtc_ap(
         },
     }
 
-    def output_callback(region: dict[str, slice], kwargs: dict) -> dict[str, slice] | None:
+    def output_callback(region: dict[str, slice], kwargs: dict[str, Any]) -> dict[str, slice] | None:
         # Determine the chunk's row and column position in the global grid using the job_id
         row_number = kwargs["job_id"] // (np.ceil(dim_x_global / chunk_length).astype(int))
         column_number = kwargs["job_id"] % (np.ceil(dim_x_global / chunk_length).astype(int))

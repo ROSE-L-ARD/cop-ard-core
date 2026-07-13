@@ -913,7 +913,7 @@ def map_blocks(
     workers: list[str] | str | None = None,
     store_directory: str | None = None,
     store_mapping: Mapping[int, Any] = {},
-    region_callback: Mapping[str, Callable[[Mapping[str, slice], dict[str, Any]], Mapping[str, slice] | None]] = {},
+    region_callback: Mapping[int, Callable[[Mapping[str, slice], dict[str, Any]], Mapping[str, slice] | None]] = {},
     args: Sequence[Any] = (),
     kwargs: Mapping[str, Any] = {},
 ) -> List[Any] | xr.DataArray | xr.Dataset | None:
