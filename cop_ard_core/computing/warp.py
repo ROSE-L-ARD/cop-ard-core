@@ -27,8 +27,13 @@ from scipy.constants import speed_of_light
 from cop_ard_core.computing.etad import apply_etad_corrections
 from cop_ard_core.computing.griddata import init_interpolate, interp_dataset, interpolate
 from cop_ard_core.computing.logger import logger
-from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_position, get_radar_bbox, get_geo_from_radar_bbox
-from cop_ard_core.computing.slc import get_margin, get_coefficients
+from cop_ard_core.computing.simul import (
+    extract_simul_on_radar_chunk,
+    get_geo_from_radar_bbox,
+    get_position,
+    get_radar_bbox,
+)
+from cop_ard_core.computing.slc import get_coefficients
 
 # Define a default grid size for processing
 GRID = 11, 11
@@ -304,7 +309,7 @@ def warp_dazdrg(
     compute_daz_drg: bool,
 ) -> xr.Dataset:
     """
-    Compute the necessary shifts in azimuth (daz) and range (drg) to 
+    Compute the necessary shifts in azimuth (daz) and range (drg) to
     coregister a stack of SAR images onto the reference grid.
 
     Parameters
@@ -346,8 +351,12 @@ def warp_dazdrg(
     shape = cstack.shape[1:]
     dtype = {"daz": "timedelta64[ns]", "drg": "float64"}
     if daz is None or drg is None or daz.recompute:
-        daz = xr.DataArray(da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_})
-        drg = xr.DataArray(da.empty(shape, dtype=dtype["drg"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_})
+        daz = xr.DataArray(
+            da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
+        )
+        drg = xr.DataArray(
+            da.empty(shape, dtype=dtype["drg"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
+        )
     # --- Prepare Data for Interpolation ---
     azimuth_time_ref = daz.azimuth_time[0].values
     slant_range_time_ref = drg.slant_range_time[0].values
@@ -379,9 +388,9 @@ def warp_dazdrg(
             azimuth_grid_spacing,
             range_grid_spacing,
             azimuth_time_ref,
-            slant_range_time_ref
+            slant_range_time_ref,
         )
-    
+
     daz_drg = xr.Dataset({"daz": daz, "drg": drg})
     return daz_drg
 
@@ -390,8 +399,7 @@ def compute_secondary_image_coordinates(
     coreg_azimuth_time: xr.DataArray,
     coreg_slant_range_time: xr.DataArray,
     slc: xr.DataArray,
-    etad_azimuth_correction_grid: xr.DataArray | None,
-    etad_range_correction_grid: xr.DataArray | None,
+    etad_correction_grid: xr.Dataset,
     daz: xr.DataArray,
     drg: xr.DataArray,
     azimuth_grid_spacing: float,
@@ -432,8 +440,7 @@ def compute_secondary_image_coordinates(
     daz, drg = apply_etad_corrections(
         az,
         rg,
-        etad_azimuth_correction_grid,
-        etad_range_correction_grid,
+        etad_correction_grid,
         azimuth_grid_spacing,
         range_grid_spacing,
         rg0,
@@ -464,8 +471,8 @@ def warp_cslc(
     drg: xr.DataArray,
     coreg_acquisition_date: xr.DataArray,
     coregistration_reference_date: np.datetime64,
-    orig_slcs: Mapping[str, xr.DataArray],
-    orig_etad: Mapping[str, tuple[xr.DataArray | None, xr.DataArray | None]],
+    orig_slcs: xr.DataTree,
+    orig_etad: xr.DataTree,
     kernel: dict,
     do_reramp: bool = True,
     do_flattening: bool = True,
@@ -516,7 +523,7 @@ def warp_cslc(
     # --- Main Loop: Process each acquisition date ---
     for i, dd in enumerate(coreg_acquisition_date.values):
         # Extract the original SLC image and its metadata for the current date.
-        slc = orig_slcs[dd]
+        slc = orig_slcs.orig[dd].slc
         single_pol_annotation = slc.attrs[list(slc.attrs.keys())[0]]
         min_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Min"]
         max_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Max"]
@@ -524,17 +531,18 @@ def warp_cslc(
         timeca_polynomial_coeffs = get_coefficients("RMA.INCA.TimeCAPoly.Coefs", single_pol_annotation)
         if dkcoa_polynomial_coeffs is None or timeca_polynomial_coeffs is None:
             raise ValueError(f"Failed to extract polynomial coefficients for acquisition date {dd}")
+
         dtaz = timeca_polynomial_coeffs[1] * single_pol_annotation["Grid"]["Col"]["SS"] * 1e9
         dtrg = 2 * single_pol_annotation["Grid"]["Row"]["SS"] / speed_of_light
         scp_pixel_row = single_pol_annotation["ImageData"]["SCPPixel"]["Row"]
         scp_pixel_col = single_pol_annotation["ImageData"]["SCPPixel"]["Col"]
-        etad_azimuth_correction_grid, etad_range_correction_grid = orig_etad[dd]
+        etad_correction_grid = orig_etad[dd].ds
+
         az, rg, az0, rg0 = compute_secondary_image_coordinates(
             coreg_azimuth_time=coreg_cstack.azimuth_time,
             coreg_slant_range_time=coreg_cstack.slant_range_time,
             slc=slc,
-            etad_azimuth_correction_grid=etad_azimuth_correction_grid,
-            etad_range_correction_grid=etad_range_correction_grid,
+            etad_correction_grid=etad_correction_grid,
             daz=daz.sel(acquisition_date=dd),
             drg=drg.sel(acquisition_date=dd),
             azimuth_grid_spacing=dtaz,
@@ -551,8 +559,7 @@ def warp_cslc(
             (dd == coregistration_reference_date)
             & (y_poly is None)
             & (x_poly is None)
-            & (etad_azimuth_correction_grid is None)
-            & (etad_range_correction_grid is None)
+            & (etad_correction_grid is None)
         ):
             # No warping is required; directly slice the original image.
             y, x = np.round(y).astype(int), np.round(x).astype(int)
@@ -667,7 +674,11 @@ def extract_abs_grid(slc: xr.DataArray, dec: int = 0) -> Tuple[xr.DataArray, xr.
 
 
 def extract_grid(
-    slc: xr.DataArray, scp_idx: tuple[int, int], reference: Dict[str, Any] | None = None, scale: Dict[str, Any] | None = None, dec: int = 0
+    slc: xr.DataArray,
+    scp_idx: tuple[int, int],
+    reference: Dict[str, Any] | None = None,
+    scale: Dict[str, Any] | None = None,
+    dec: int = 0,
 ) -> Tuple[xr.DataArray, xr.DataArray]:
     """
     Extract a relative grid of range and azimuth positions from an input SAR image.
@@ -1072,7 +1083,9 @@ def do_deramp(slc: xr.DataArray, phase_demod: xr.DataArray, scp_idx: tuple[int, 
     return slc * np.exp(-1j * phramp)
 
 
-def extract_rg_az(slc: xr.DataArray, simulation: xr.Dataset | xr.DataArray, dtaz: float, dtrg: float) -> tuple[np.ndarray, np.ndarray]:
+def extract_rg_az(
+    slc: xr.DataArray, simulation: xr.Dataset | xr.DataArray, dtaz: float, dtrg: float
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Extract range and azimuth coordinates from a simulation dataset in the SLC's pixel reference system.
 
@@ -1384,8 +1397,12 @@ def grid_data_block(
         reference_azimuth_time = simulation_azimuth_time.sel(acquisition_date=reference_date)
         reference_slant_range_time = simulation_slant_range_time.sel(acquisition_date=reference_date)
         # Calculate the shifts by subtracting the reference from all other acquisitions.
-        selection_azimuth_time = simulation_azimuth_time.sel(acquisition_date=daz.acquisition_date) - reference_azimuth_time
-        selection_slant_range_time = simulation_slant_range_time.sel(acquisition_date=daz.acquisition_date) - reference_slant_range_time
+        selection_azimuth_time = (
+            simulation_azimuth_time.sel(acquisition_date=daz.acquisition_date) - reference_azimuth_time
+        )
+        selection_slant_range_time = (
+            simulation_slant_range_time.sel(acquisition_date=daz.acquisition_date) - reference_slant_range_time
+        )
         # --- Prepare for Interpolation ---
         # Convert the sparse reference grid coordinates to a pixel-based system.
         points = np.array(
@@ -1490,7 +1507,10 @@ def coreg_qlt(slcs: xr.DataTree, daz_drg: xr.Dataset, **kwargs):
             arp_coeffs = {e: get_coefficients(f"Position.ARPPoly.{e}.Coefs", annot) for e in ["X", "Y", "Z"]}
             if any(coeff is None for coeff in arp_coeffs.values()):
                 raise ValueError("Missing ARP polynomial coefficients in metadata.", "ns")
-            sigma = ((get_position(az, t0, cast(dict[str, np.ndarray], arp_coeffs)).drop_vars("azimuth_time") - position0) ** 2).sum(dim="axis")
+            sigma = (
+                (get_position(az, t0, cast(dict[str, np.ndarray], arp_coeffs)).drop_vars("azimuth_time") - position0)
+                ** 2
+            ).sum(dim="axis")
             # Combine the baseline, height uncertainty, and orbit error to estimate the total coregistration error.
             sigma = np.sqrt(
                 sigma

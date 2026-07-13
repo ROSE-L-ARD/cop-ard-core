@@ -26,8 +26,8 @@ from cop_ard_core.computing.griddata import init_interpolate
 from cop_ard_core.computing.gslc import fix_attributes
 from cop_ard_core.computing.io import get_id_product, get_storage_options, normpath, read, write
 from cop_ard_core.computing.logger import timeit
-from cop_ard_core.computing.slc import extract_orbits, init_single_coreg_stack, get_margin
-from cop_ard_core.computing.warp import GRID, coreg_qlt, sinc, updateLut, warp_dazdrg, warp_cslc
+from cop_ard_core.computing.slc import extract_orbits, get_margin, init_single_coreg_stack
+from cop_ard_core.computing.warp import GRID, coreg_qlt, sinc, updateLut, warp_cslc, warp_dazdrg
 
 
 @timeit
@@ -510,32 +510,35 @@ def coreg_single_burst(
         compute_daz_drg = True
 
     store_mapping = {
-        0 : {
+        0: {
             "data_path": os.path.join(coreg_path, "daz_drg"),
             "dims": ["acquisition_date", "azimuth_time", "slant_range_time"],
             "save_options": {
                 "consolidated": False,
                 "storage_options": get_storage_options(kwargs),
                 "skip_read": True,
-            }
+            },
         }
     }
-    orig_slcs = {k: v.measurements.slc for k, v in slc.orig.children.items()}
+    orig_slcs = xr.DataTree.from_dict({f"orig/{k}/slc": v.measurements.slc for k, v in slc.orig.children.items()})
     orig_etad = {}
     for k, v in slc["orig"].children.items():
         if "ETAD" in v.conditions:
             child_etad = v.conditions.ETAD.to_dataset()
-            azcorr = child_etad.azcorr if "azcorr" in child_etad else None
-            rgcorr = child_etad.rgcorr if "rgcorr" in child_etad else None
-            orig_etad[k] = (azcorr, rgcorr)
+            orig_etad[k] = child_etad
         else:
-            orig_etad[k] = (None, None)
+            orig_etad[k] = None
+
+    orig_etad = xr.DataTree.from_dict(orig_etad)
+
     # --- Calculate Grid Spacing and Margins ---
     annotation = measurements.cstack.attrs
     single_pol_annotation = annotation[list(annotation.keys())[0]]
     # Calculate azimuth and range sampling intervals.
     margin = get_margin(single_pol_annotation)
-    azimuth_grid_spacing = single_pol_annotation["Grid"]["Col"]["SS"] * single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
+    azimuth_grid_spacing = (
+        single_pol_annotation["Grid"]["Col"]["SS"] * single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
+    )
     range_grid_spacing = 2 * single_pol_annotation["Grid"]["Row"]["SS"] / speed_of_light
     map_blocks(
         warp_dazdrg,
@@ -563,27 +566,13 @@ def coreg_single_burst(
         store_mapping=store_mapping,
     )
 
-    daz_drg = cast(
-        xr.Dataset,
-        read(
-            daz_drg_store_path,
-            consolidate_metadata=False,
-            storage_options=get_storage_options(kwargs),
-            as_type="xr.Dataset",
-        ),
+    daz_drg = read(
+        daz_drg_store_path,
+        consolidate_metadata=False,
+        storage_options=get_storage_options(kwargs),
+        as_type="xr.Dataset",
     )
 
-    list_daz_drg_sel = cast(
-        list,
-        map_blocks(
-            update_LUT,
-            obj=daz_drg,
-            kwargs={"LUT_coords": LUT_coords},
-            combine=False,
-            enable_dask=enable_dask,
-        ),
-    )
-    
     store_mapping = {
         0: {
             "data_path": measurements.attrs["store_path"],
@@ -593,15 +582,10 @@ def coreg_single_burst(
             },
         },
     }
+
     map_blocks(
         warp_cslc,
-        obj=[
-            measurements.cstack,
-            measurements.phase_model,
-            daz_drg.daz,
-            daz_drg.drg,
-            measurements.acquisition_date
-        ],
+        obj=[measurements.cstack, measurements.phase_model, daz_drg.daz, daz_drg.drg, measurements.acquisition_date],
         args=(
             measurements.coregistration_reference_date,
             orig_slcs,
@@ -622,7 +606,17 @@ def coreg_single_burst(
         store_mapping=store_mapping,
     )
 
-
+    list_daz_drg_sel = cast(
+        list,
+        map_blocks(
+            update_LUT,
+            obj=daz_drg,
+            kwargs={"LUT_coords": LUT_coords},
+            combine=False,
+            enable_dask=enable_dask,
+            chunksizes={"acquisition_date": daz_drg.acquisition_date.size},
+        ),
+    )
     # --- Step 3: Update Metadata ---
     # Merge the list of daz/drg offsets computed by each chunk.
     LUT_daz_drg = sum([k for k in list_daz_drg_sel if k is not None])

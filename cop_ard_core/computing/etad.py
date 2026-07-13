@@ -265,8 +265,7 @@ def import_etad_stack(
 def apply_etad_corrections(
     az: xr.DataArray,
     rg: xr.DataArray,
-    etad_azimuth_correction_grid: xr.DataArray | None,
-    etad_range_correction_grid: xr.DataArray | None,
+    etad_correction_grid: xr.Dataset,
     dtaz,
     dtrg,
     rg0,
@@ -306,34 +305,27 @@ def apply_etad_corrections(
     daz = np.timedelta64(0, "ns")  # type: Union[np.timedelta64, np.ndarray]
     drg = np.zeros(1)  # type: np.ndarray
 
-    # --- Prepare Coordinates for Interpolation ---
-    # `xi`: The target coordinates where we want to know the correction values, in pixel units.
-    xi = np.vstack(((rg - rg0).values.ravel() / dtrg, (az - az0).astype(float).values.ravel() / dtaz)).T.reshape(-1, 2)
-    # `point`: The source coordinates of the ETAD correction grid, also in pixel units.
-    etad = etad_azimuth_correction_grid if etad_azimuth_correction_grid is not None else etad_range_correction_grid
-    if etad is not None:
+    if len(etad_correction_grid.data_vars) != 0:
+        # --- Prepare Coordinates for Interpolation ---
+        # `xi`: The target coordinates where we want to know the correction values, in pixel units.
+        xi = np.vstack(((rg - rg0).values.ravel() / dtrg, (az - az0).astype(float).values.ravel() / dtaz)).T.reshape(-1, 2)
+        # `point`: The source coordinates of the ETAD correction grid, also in pixel units.
         point = (
-            (etad.slant_range_time - rg0).values / dtrg,
-            (etad.azimuth_time - az0).astype(float).values / dtaz,
+            (etad_correction_grid.slant_range_time - rg0).values / dtrg,
+            (etad_correction_grid.azimuth_time - az0).astype(float).values / dtaz,
         )
-
-    # --- Perform Interpolation ---
-    # Interpolate the azimuth correction grid.
-    # TODO: do a single interpolation
-    if etad_azimuth_correction_grid is not None:
         # Use cubic interpolation for smooth results.
         daz = np.round(
             scipy.interpolate.interpn(
-                point, etad_azimuth_correction_grid.values.T, xi, method="cubic", fill_value=0.0, bounds_error=False
+                point, etad_correction_grid.azcorr.values.T, xi, method="cubic", fill_value=0.0, bounds_error=False
             )
             * 1e9
         ).astype("timedelta64[ns]")
         daz = daz.reshape(az.shape)
 
-    # Interpolate the range correction grid.
-    if etad_range_correction_grid is not None:
+        # Interpolate the range correction grid.
         drg = scipy.interpolate.interpn(
-            point, etad_range_correction_grid.values.T, xi, method="cubic", fill_value=0.0, bounds_error=False
+            point, etad_correction_grid.rgcorr.values.T, xi, method="cubic", fill_value=0.0, bounds_error=False
         )
         drg = drg.reshape(rg.shape)
 
