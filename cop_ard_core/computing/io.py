@@ -30,6 +30,7 @@ import numpy as np
 import s3fs
 import xarray as xr
 import zarr
+import zarr.storage
 
 from cop_ard_core.computing.logger import logger
 
@@ -151,60 +152,6 @@ def fix_string_coords(ds: xr.Dataset | xr.DataTree):
     return
 
 
-def write(
-    data: Union[xr.Dataset, xr.DataArray, xr.DataTree],
-    data_path: str,
-    region: Mapping[str, slice] | None = None,
-    consolidated: bool = True,
-    mode: str = "w",
-    compute: bool = True,
-    skip_read: bool = False,
-    storage_options: dict | None = None,
-    encoding: dict | None = None,
-) -> Union[xr.DataTree, xr.Dataset, xr.DataArray, None]:
-
-    mode, _file_path, _data, _data_type = check_write_arguments(data, data_path, mode, region)
-
-    # 2. DROP inherited encoding
-    if hasattr(_data, "drop_encoding"):
-        _data = _data.drop_encoding()
-    elif isinstance(_data, xr.DataTree):
-        for node in _data.descendants:
-            for v in node.ds.variables.values():
-                v.encoding = {}
-
-    # 3. VALIDATE user-provided encoding
-    safe_encoding = validate_encoding(_data, encoding)
-
-    # 4. Handle region coordinates logic
-    if region is not None:
-        _data = _data.drop_vars(set(_data.dims).intersection(set(_data.coords)))
-
-    so = is_local(_file_path, storage_options)
-    zarr_kwargs = {
-        "store": _file_path,
-        "mode": mode,
-        "region": region,
-        "consolidated": consolidated,
-        "zarr_format": 3,
-        "storage_options": so,
-        "encoding": safe_encoding,
-    }
-
-    # 5. WRITE
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*Consolidated metadata is currently not part.*")
-        if compute:
-            _data.to_zarr(**zarr_kwargs, compute=True)
-        else:
-            _data.to_zarr(**zarr_kwargs, compute=False)
-
-    if not skip_read:
-        return read(_file_path, as_type=_data_type, storage_options=so)
-
-    return None
-
-
 def validate_encoding(data: Union[xr.Dataset, xr.DataTree], encoding: dict | None) -> dict | None:
     """
     Validates a user-provided encoding dictionary against the data object.
@@ -251,119 +198,6 @@ def is_local(path, storage_options):  # TODO rename
         if so is not None:
             so["use_listings_cache"] = False
     return so
-
-
-@overload
-def read(
-    data_path: str,
-    group: str | None = None,
-    as_type: Literal["xr.DataArray"] = ...,
-    consolidated: bool = True,
-    consolidate_metadata: bool = False,
-    storage_options: dict | None = None,
-    **kwargs: Any,
-) -> xr.DataArray: ...
-
-
-@overload
-def read(
-    data_path: str,
-    group: str | None = None,
-    as_type: Literal["xr.Dataset"] = ...,
-    consolidated: bool = True,
-    consolidate_metadata: bool = False,
-    storage_options: dict | None = None,
-    **kwargs: Any,
-) -> xr.Dataset: ...
-
-
-@overload
-def read(
-    data_path: str,
-    group: str | None = None,
-    as_type: None = None,
-    consolidated: bool = True,
-    consolidate_metadata: bool = False,
-    storage_options: dict | None = None,
-    **kwargs: Any,
-) -> xr.DataTree: ...
-
-
-@overload
-def read(
-    data_path: str,
-    group: str | None = None,
-    as_type: str | None = None,
-    consolidated: bool = True,
-    consolidate_metadata: bool = False,
-    storage_options: dict | None = None,
-    **kwargs: Any,
-) -> Union[xr.DataArray, xr.Dataset, xr.DataTree]: ...
-
-
-def read(
-    data_path: str,
-    group: str | None = None,
-    as_type: str | None = None,
-    consolidated: bool = True,
-    consolidate_metadata: bool = False,
-    storage_options: dict | None = None,
-    **kwargs,
-) -> Union[xr.DataArray, xr.Dataset, xr.DataTree]:
-    """
-    Read an xarray object from a Zarr V3 store.
-    """
-    # bypass s3fs cache
-    so = is_local(data_path, storage_options)
-    with zarr.storage.FsspecStore.from_url(url=data_path, storage_options=so) as store:
-        # Consolidate metadata for faster access, especially on cloud storage.
-        with warnings.catch_warnings():
-            # Ignore the specific consolidated metadata warning
-            warnings.filterwarnings("ignore", message=".*Consolidated metadata is currently not part.*")
-            if consolidate_metadata:
-                zarr.consolidate_metadata(store)
-
-    # --- Read Dataset or DataArray ---
-    # If we know we just want a flat Dataset or DataArray, open it directly.
-    # This is faster than building a full DataTree just to extract one node.
-    if as_type in ["xr.Dataset", "xr.DataArray"]:
-        ds = xr.open_dataset(
-            data_path, engine="zarr", consolidated=consolidated, group=group, chunks={}, storage_options=so, **kwargs
-        )
-        ds.attrs["store_path"] = data_path
-        if as_type == "xr.DataArray":
-            if len(ds.data_vars) == 1:
-                # Unpack the single variable back into a DataArray
-                var = list(ds.data_vars)[0]
-                dr = ds[var]
-                dr.attrs["store_path"] = f"{data_path}/{var}"
-                return dr
-            raise ValueError("Cannot cast to DataArray: Store contains multiple variables.")
-        return ds
-
-    # --- Read DataTree (Default) ---
-    # If no specific type is forced, read the entire structure as a DataTree.
-    dt = xr.open_datatree(data_path, engine="zarr", consolidated=consolidated, chunks={}, storage_options=so, **kwargs)
-
-    # Recursively inject the specific store_path into EVERY node
-    for node in dt.subtree:  # .subtree includes the root and all descendants
-        # node.path returns strings like "/", "/coreg", "/coreg/quality"
-        sub_path = node.path.strip("/")
-
-        if sub_path:
-            # Safely combine the base path with the node's relative path
-            node_store_path = f"{data_path.rstrip('/')}/{sub_path}"
-        else:
-            node_store_path = data_path
-
-        # Update the attributes for this specific node
-        node.attrs["store_path"] = node_store_path
-    # If the user requested a specific group from the tree, return just that subtree
-    if group:
-        group_path = group.strip("/")
-        return dt[group_path]
-
-    return dt
 
 
 def build_sparse_array(
@@ -1375,3 +1209,175 @@ def get_id_product(stac, burst_id: str | None = None, tile_name: str | None = No
     if tile_name is not None:
         id = f"{id}_{tile_name}"
     return id.upper()
+
+
+@overload
+def read(
+    data_path: str,
+    group: str | None = None,
+    as_type: Literal["xr.DataArray"] = ...,
+    consolidated: bool = True,
+    consolidate_metadata: bool = False,
+    storage_options: dict | None = None,
+    **kwargs: Any,
+) -> xr.DataArray: ...
+
+
+@overload
+def read(
+    data_path: str,
+    group: str | None = None,
+    as_type: Literal["xr.Dataset"] = ...,
+    consolidated: bool = True,
+    consolidate_metadata: bool = False,
+    storage_options: dict | None = None,
+    **kwargs: Any,
+) -> xr.Dataset: ...
+
+
+@overload
+def read(
+    data_path: str,
+    group: str | None = None,
+    as_type: None = None,
+    consolidated: bool = True,
+    consolidate_metadata: bool = False,
+    storage_options: dict | None = None,
+    **kwargs: Any,
+) -> xr.DataTree: ...
+
+
+@overload
+def read(
+    data_path: str,
+    group: str | None = None,
+    as_type: str | None = None,
+    consolidated: bool = True,
+    consolidate_metadata: bool = False,
+    storage_options: dict | None = None,
+    **kwargs: Any,
+) -> Union[xr.DataArray, xr.Dataset, xr.DataTree]: ...
+
+
+def read(
+    data_path: str | Path,
+    group: str | None = None,
+    as_type: str | None = None,
+    consolidated: bool = True,
+    consolidate_metadata: bool = False,
+    storage_options: dict | None = None,
+    **kwargs,
+) -> Union[xr.DataArray, xr.Dataset, xr.DataTree]:
+    """
+    Read an xarray object from a Zarr V3 store.
+    """
+    if isinstance(data_path, Path):
+        storage_options = data_path.storage_options
+        data_path = str(data_path)
+    # bypass s3fs cache
+    so = is_local(data_path, storage_options)
+    with zarr.storage.FsspecStore.from_url(url=data_path, storage_options=so) as store:
+        # Consolidate metadata for faster access, especially on cloud storage.
+        with warnings.catch_warnings():
+            # Ignore the specific consolidated metadata warning
+            warnings.filterwarnings("ignore", message=".*Consolidated metadata is currently not part.*")
+            if consolidate_metadata:
+                zarr.consolidate_metadata(store)
+
+    # --- Read Dataset or DataArray ---
+    # If we know we just want a flat Dataset or DataArray, open it directly.
+    # This is faster than building a full DataTree just to extract one node.
+    if as_type in ["xr.Dataset", "xr.DataArray"]:
+        ds = xr.open_dataset(
+            data_path, engine="zarr", consolidated=consolidated, group=group, chunks={}, storage_options=so, **kwargs
+        )
+        ds.attrs["store_path"] = data_path
+        if as_type == "xr.DataArray":
+            if len(ds.data_vars) == 1:
+                # Unpack the single variable back into a DataArray
+                var = list(ds.data_vars)[0]
+                dr = ds[var]
+                dr.attrs["store_path"] = f"{data_path}/{var}"
+                return dr
+            raise ValueError("Cannot cast to DataArray: Store contains multiple variables.")
+        return ds
+
+    # --- Read DataTree (Default) ---
+    # If no specific type is forced, read the entire structure as a DataTree.
+    dt = xr.open_datatree(data_path, engine="zarr", consolidated=consolidated, chunks={}, storage_options=so, **kwargs)
+
+    # Recursively inject the specific store_path into EVERY node
+    for node in dt.subtree:  # .subtree includes the root and all descendants
+        # node.path returns strings like "/", "/coreg", "/coreg/quality"
+        sub_path = node.path.strip("/")
+
+        if sub_path:
+            # Safely combine the base path with the node's relative path
+            node_store_path = f"{data_path.rstrip('/')}/{sub_path}"
+        else:
+            node_store_path = data_path
+
+        # Update the attributes for this specific node
+        node.attrs["store_path"] = node_store_path
+    # If the user requested a specific group from the tree, return just that subtree
+    if group:
+        group_path = group.strip("/")
+        return dt[group_path]
+
+    return dt
+
+
+def write(
+    data: Union[xr.Dataset, xr.DataArray, xr.DataTree],
+    data_path: str | Path,
+    region: Mapping[str, slice] | None = None,
+    consolidated: bool = True,
+    mode: str = "w",
+    compute: bool = True,
+    skip_read: bool = False,
+    storage_options: dict | None = None,
+    encoding: dict | None = None,
+) -> Union[xr.DataTree, xr.Dataset, xr.DataArray, None]:
+    if isinstance(data_path, Path):
+        storage_options = data_path.storage_options
+        data_path = str(data_path)
+    mode, _file_path, _data, _data_type = check_write_arguments(data, data_path, mode, region)
+
+    # 2. DROP inherited encoding
+    if hasattr(_data, "drop_encoding"):
+        _data = _data.drop_encoding()
+    elif isinstance(_data, xr.DataTree):
+        for node in _data.descendants:
+            for v in node.ds.variables.values():
+                v.encoding = {}
+
+    # 3. VALIDATE user-provided encoding
+    safe_encoding = validate_encoding(_data, encoding)
+
+    # 4. Handle region coordinates logic
+    if region is not None:
+        _data = _data.drop_vars(set(_data.dims).intersection(set(_data.coords)))
+
+    so = is_local(_file_path, storage_options)
+    zarr_kwargs = {
+        "store": _file_path,
+        "mode": mode,
+        "region": region,
+        "consolidated": consolidated,
+        "zarr_format": 3,
+        "storage_options": so,
+        "encoding": safe_encoding,
+    }
+
+    # 5. WRITE
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*Consolidated metadata is currently not part.*")
+        if compute:
+            _data.to_zarr(**zarr_kwargs, compute=True)
+        else:
+            _data.to_zarr(**zarr_kwargs, compute=False)
+
+    if not skip_read:
+        return read(_file_path, as_type=_data_type, storage_options=so)
+
+    return None
