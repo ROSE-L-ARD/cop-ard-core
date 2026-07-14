@@ -95,7 +95,7 @@ def build_orbit_dataset(orbits: list[ElementTree]) -> xr.Dataset:
         raise RuntimeError("For the same acquisition date must be used the same orbit type (POE or RES)")
 
     # Create and return the final dataset with the orbit type as an attribute.
-    return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": otypes[0]})
+    return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": list(otypes)[0]})
 
 
 def refit_orbit_coefficients(

@@ -26,13 +26,10 @@ from scipy.constants import speed_of_light
 
 import cop_ard_core
 from cop_ard_core.computing.area_projection import (
-    compute_chunks,
     compute_geocoded_mask,
     compute_rasterization,
-    compute_rtc_ap,
     compute_shadow,
-    initialize_simulation,
-    sparse_to_dense,
+    sparse_to_dense, compute_rtc_ap,
 )
 from cop_ard_core.computing.computation import map, map_blocks
 from cop_ard_core.computing.dem import (
@@ -2301,13 +2298,25 @@ def import_ORBIT(
     return slcs, orbit_paths
 
 
-def get_margin(annot, border: int = 10):
+def get_margin(
+    time_ca_polynomial_coefficients: np.ndarray,
+    azimuth_time_spacing: float,
+    slant_range_time_spacing: float, 
+    border: int = 10
+    ):
     step = {
         "azimuth_time": np.timedelta64(
             round((annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"]) * 1e9),
             "ns",
         ),
         "slant_range_time": 2 * annot["Grid"]["Row"]["SS"] / speed_of_light,
+    }
+    step = {
+        "azimuth_time": np.timedelta64(
+            round((time_ca_polynomial_coefficients[1] * azimuth_time_spacing) * 1e9),
+            "ns",
+        ),
+        "slant_range_time": 2 * slant_range_time_spacing / speed_of_light,
     }
     # Define a margin for data selection to avoid edge effects.
     margin = {e: step[e] * border for e in ["azimuth_time", "slant_range_time"]}
@@ -2370,7 +2379,11 @@ def map_geocode_phase(
     annot = cslc.measurements.cstack.attrs
     annot = annot[list(annot.keys())[0]]
     # Calculate grid spacing for margin calculation.
-    margin = get_margin(annot)
+    margin = get_margin(
+        time_ca_polynomial_coefficients=annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"],
+        azimuth_time_spacing=annot["Grid"]["Col"]["SS"],
+        slant_range_time_spacing=annot["Grid"]["Row"]["SS"],
+    )
     # Extract the subset of the simulation grid relevant to this CSLC.
     azimuth_time = cslc.measurements.azimuth_time
     slant_range_time = cslc.measurements.slant_range_time
@@ -3467,7 +3480,11 @@ def coreg_single_burst(
     annotation = measurements.cstack.attrs
     single_pol_annotation = annotation[list(annotation.keys())[0]]
     # Calculate azimuth and range sampling intervals.
-    margin = get_margin(single_pol_annotation)
+    margin = get_margin(
+        time_ca_polynomial_coefficients=single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"],
+        azimuth_time_spacing=single_pol_annotation["Grid"]["Col"]["SS"],
+        slant_range_time_spacing=single_pol_annotation["Grid"]["Row"]["SS"],
+    )
     azimuth_grid_spacing = (
         single_pol_annotation["Grid"]["Col"]["SS"] * single_pol_annotation["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
     )
@@ -3854,7 +3871,11 @@ def map_shadow(
         "slant_range_time": 2 * annot["Grid"]["Row"]["SS"] / speed_of_light,
     }
     # Calculate time steps (used for margins)
-    margin = get_margin(annot)
+    margin = get_margin(
+        time_ca_polynomial_coefficients=annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"],
+        azimuth_time_spacing=annot["Grid"]["Col"]["SS"],
+        slant_range_time_spacing=annot["Grid"]["Row"]["SS"],
+    )
     # Compile Numba functions in griddata
     init_interpolate()
 
@@ -4254,18 +4275,14 @@ def map_rasterization_and_rtc_ap(
     }
 
     map_blocks(
-        func=compute_rtc_ap,
+        func=blockwise_rtc_ap,
         obj=simulation,
         args=[
-            xmin_global,
-            ymin_global,
-            xsize_global,
             dim_x_global,
             radar_grid_pixel_area,
             normal_order,
             bbox,
             chunk_length,
-            resolution,
             data_path_static,
         ],
         kwargs=kwargs,
@@ -5611,4 +5628,289 @@ def update_coreg(slcs: xr.DataTree, external_metadata: dict = {}):
     bursts.attrs = {"stac_discovery": stac_group, "processing_history": history_group}
     slcs.attrs = {"stac_discovery": stac_group, "processing_history": history_group}
     return bursts, slcs
+
+
+def initialize_simulation(
+    slc: xr.DataArray,
+    simulation: xr.Dataset,
+    simulation_ml: dict,
+    chunk_length: int,
+) -> tuple[xr.Dataset, xr.Dataset]:
+    """
+    Initialize and subset simulation data based on SLC extent and calculate global parameters.
+
+    This function determines the relevant geographic subset of the simulation data
+    that corresponds to the spatial extent of a given Single Look Complex (SLC)
+    image. It calculates various global parameters needed for subsequent rasterization
+    and RTC processing, such as grid dimensions, pixel area, and bounding boxes.
+
+    Parameters
+    ----------
+    slc : xr.DataArray
+        The input SLC image DataArray, used to define the
+        radar grid extent.
+    simulation : xr.Dataset
+        The full simulation dataset containing radar geometry
+        (azimuth_time, slant_range_time) mapped onto the geographic grid.
+    simulation_ml : dict
+        A dictionary containing the downsampled ("multilooked")
+        simulation data, used for quickly finding the geographic bounds.
+    chunk_length : int
+        The desired chunk size for the spatial dimensions (x, y)
+        of the processed simulation subset.
+
+    Returns
+    -------
+    tuple[xr.Dataset, xr.Dataset]
+        A tuple containing:
+
+        - **selection** (`xr.Dataset`): The subset of the simulation data relevant to the
+          SLC, re-chunked and with added radar pixel coordinates (``az_px``, ``rg_px``).
+        - **global_values** (`xr.Dataset`): A dataset containing important global parameters
+          and coordinate vectors derived from the SLC and simulation data.
+    """
+    # --- Extract Metadata and Calculate Parameters ---
+    # Get metadata from the first polarization's attributes.
+    annot = slc.attrs[list(slc.attrs.keys())[0]]
+    # Calculate azimuth time step (in seconds) and slant range time step.
+    dt_az = annot["Grid"]["Col"]["SS"] * annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1]
+    dt_rg = 2 * annot["Grid"]["Row"]["SS"] / speed_of_light
+    # Get reference times for coordinate conversion.
+    az_ref, rg_ref = slc.azimuth_time[0].values, slc.slant_range_time[0].values
+    # Calculate the area of a single pixel in the radar grid.
+    radar_grid_pixel_area = annot["Grid"]["Col"]["SS"] * annot["Grid"]["Row"]["SS"]
+    # Calculate time steps as timedelta64 and float for margin calculation.
+    margin = get_margin(
+        time_ca_polynomial_coefficients=annot["RMA"]["INCA"]["TimeCAPoly"],
+        azimuth_time_spacing=annot["Grid"]["Col"]["SS"],
+        slant_range_time_spacing=annot["Grid"]["Row"]["SS"],
+    )
+
+    # --- Select Relevant Simulation Subset ---
+    # Use the helper function to extract the simulation data covering the SLC's footprint plus margin.
+    azimuth_time = slc.azimuth_time
+    slant_range_time = slc.slant_range_time
+    bbox_radar = get_radar_bbox(azimuth_time, slant_range_time, margin)
+    bbox_geo = get_geo_from_radar_bbox(simulation_ml, bbox_radar)
+    if bbox_geo is None:
+        raise ValueError("Could not determine geographic bounding box from radar bounding box.")
+    selection = extract_simul_on_radar_chunk(
+        simulation, simulation.acquisition_date.values[0], bbox_radar, bbox_geo
+    ).squeeze()  # Remove singleton dimensions.
+    # Get the geographic bounding box of the selected simulation subset.
+    bbox_geo = [selection.x.min().values, selection.y.min().values, selection.x.max().values, selection.y.max().values]
+
+    # --- Calculate Radar Pixel Coordinates ---
+    # Convert the simulation's azimuth and range times into pixel coordinates relative to the SLC grid origin.
+    az = (selection.azimuth_time - az_ref).astype(float) / (dt_az * 1e9)
+    rg = (selection.slant_range_time - rg_ref).astype(float) / (dt_rg)
+
+    # --- Clean Up and Rechunk Selection ---
+    # Keep only essential coordinates and variables in the selection.
+    keep_coords = ["x", "y"]
+    keep_vars = ["dem_distance", "h"]
+    selection = selection.drop_vars([i for i in selection.coords if i not in keep_coords])
+    selection = selection.drop_vars([i for i in selection.data_vars if i not in keep_vars])
+    # Assign the calculated radar pixel coordinates.
+    selection = selection.assign(az_px=az, rg_px=rg)
+    # Apply the specified chunking to the selected subset.
+    selection = selection.chunk(chunk_length)
+
+    # --- Calculate Global Grid Dimensions ---
+    # Get geographic grid spacing.
+    spacing_x = abs(selection.x[1] - selection.x[0]).values
+    spacing_y = abs(selection.y[1] - selection.y[0]).values
+    # Calculate the total size of the geographic grid covering the selection.
+    dim_x_global = np.round((bbox_geo[2] - bbox_geo[0]) / spacing_x).astype(int)
+    dim_y_global = np.round((bbox_geo[3] - bbox_geo[1]) / spacing_y).astype(int)
+
+    # Determine the extent of the radar grid covered by the selection in pixel coordinates.
+    az_px = selection.az_px
+    rg_px = selection.rg_px
+    ymin_global, xmin_global = np.floor(az_px.min().values).astype(int), np.floor(rg_px.min().values).astype(int)
+    ymax_global, xmax_global = np.ceil(az_px.max().values).astype(int), np.ceil(rg_px.max().values).astype(int)
+    # Calculate the total size of the relevant radar grid portion.
+    xsize_global = np.ceil(xmax_global - xmin_global).astype(int)
+    ysize_global = np.ceil(ymax_global - ymin_global).astype(int)
+
+    # --- Assemble Global Values Dataset ---
+    # Store all calculated global parameters and coordinate vectors in a separate dataset.
+    global_values = {
+        "radar_grid_pixel_area": {"dims": ("point"), "data": [radar_grid_pixel_area]},
+        "chunk_length": {"dims": ("point"), "data": [chunk_length]},
+        "chunks_slc": {  # Store original SLC chunk sizes
+            "dims": ("chunk"),
+            "data": [slc.chunksizes["azimuth_time"][0], slc.chunksizes["slant_range_time"][0]],
+        },
+        "radar_xsize": {"dims": ("point"), "data": [xsize_global]},
+        "radar_ysize": {"dims": ("point"), "data": [ysize_global]},
+        "radar_xmin": {"dims": ("point"), "data": [xmin_global]},
+        "radar_ymin": {"dims": ("point"), "data": [ymin_global]},
+        "radar_xmax": {"dims": ("point"), "data": [xmax_global]},  # Max extent needed?
+        "geo_xsize": {"dims": ("point"), "data": [dim_x_global]},
+        "geo_ysize": {"dims": ("point"), "data": [dim_y_global]},
+        "bbox": {"dims": ("values"), "data": [0, 0, slc.slant_range_time.size, slc.azimuth_time.size]},  # Full SLC bbox
+        "x_coords": {"dims": ("x"), "data": selection.x.values},
+        "y_coords": {"dims": ("y"), "data": selection.y.values},
+        "rg_coords": {"dims": ("slant_range_time"), "data": slc.slant_range_time.values},
+        "az_coords": {"dims": ("azimuth_time"), "data": slc.azimuth_time.values},
+    }
+    global_values = xr.Dataset.from_dict(global_values).rio.write_crs(simulation.rio.crs)
+    return selection, global_values
+
+
+def compute_chunks(chunks: dict, overlap: dict = {"y": 1, "x": 1}) -> Dict:
+    """
+    Compute overlapping chunk boundaries for use with `map_blocks`.
+
+    Given a dictionary defining the chunk sizes along each dimension, this function
+    calculates the start and end indices for each chunk, adding a specified overlap
+    between adjacent chunks. This is necessary for algorithms that require access
+    to neighboring data during block processing.
+
+    Parameters
+    ----------
+    chunks : dict
+        A dictionary mapping dimension names to tuples representing
+        the size of each chunk along that dimension (e.g., ``{'y': (1024, 1024, 512)}``).
+    overlap : dict, optional
+        A dictionary mapping dimension names (``'x'``, ``'y'``) to
+        the desired overlap size in pixels. Defaults to ``{"y": 1, "x": 1}``.
+
+    Returns
+    -------
+    Dict
+        A dictionary where keys are dimension names and values are lists of
+        ``[start, end]`` index pairs for each overlapping chunk along that dimension.
+        This output format is suitable for the `chunks` argument of `map_blocks`.
+
+    Raises
+    ------
+    Exception
+        If the requested overlap is larger than the chunk size.
+    """
+    # --- Input Validation ---
+    if (overlap["x"] < chunks["x"][0]) is False:
+        raise Exception(f"Overlap {overlap['x']} is bigger than chunk length {chunks['x'][0]}")
+    if (overlap["y"] < chunks["y"][0]) is False:
+        raise Exception(f"Overlap {overlap['y']} is bigger than chunk length {chunks['y'][0]}")
+
+    ch = {}
+    # Iterate through each dimension specified in the input chunks.
+    for k, v in chunks.items():
+        # Calculate the cumulative chunk boundaries.
+        li = list(v)
+        li.insert(0, 0)
+        # Check if overlap should be applied to this dimension and if there's more than one chunk.
+        if k in overlap and len(v) != 1:
+            delta = overlap[k]
+            # Calculate [start, end + overlap] for all chunks except the last one.
+            ch[k] = [[en * s, en * s + e + delta] for en, (s, e) in enumerate(zip(li[0:-2], li[1:-1]))]
+            # Handle the last chunk separately: [previous_end - overlap, previous_end + last_chunk_size].
+            if chunks[k][-1] != 1:  # Avoid issues if the last chunk has size 1
+                ch[k].append([ch[k][-1][1] - delta, ch[k][-1][1] - delta + chunks[k][-1]])
+        else:
+            # If no overlap or only one chunk, calculate simple [start, end] boundaries.
+            ch[k] = [[en * s, en * s + e] for en, (s, e) in enumerate(zip(li[:-1], li[1:]))]
+
+    # --- Generate Product of Chunk Boundaries ---
+    # Use itertools.product to create all combinations of chunk boundaries across dimensions.
+    r = np.array(list(itertools.product(*[v for v in ch.values()])))
+    # Restructure the result into the dictionary format required by `map_blocks`.
+    return {k: r[:, en].tolist() for en, k in enumerate(chunks.keys())}
+
+
+def blockwise_rtc_ap(
+    simulation: xr.DataArray,
+    dim_x_global: int,
+    radar_grid_pixel_area: float,
+    normal_order: bool,
+    bbox: np.ndarray,
+    chunk_length: int,
+    data_path_static: str,
+    job_id=None,
+    **kwargs,
+) -> tuple[xr.Dataset | None, xr.DataTree | None]:
+    """
+    Compute rasterization weights and the accumulated gamma-naught area (RTC-AP)
+    for a block of the radar data simulation.
+
+    This function performs triangulation on the geogrid, computes weights
+    for mapping from radar grid to geogrid, and then calculates the
+    Gamma Naught Area (GNA), local incidence angle (lia), and number of looks (nlooks).
+
+    Parameters
+    ----------
+    simulation : xr.DataArray
+        The radar data simulation chunk, containing
+        coordinates (az_px, rg_px) and DEM height (h).
+    data_path_static : str
+        Path to the directory where static results
+        (geo_grid, weights) will be saved.
+    data_path_tmp : str
+        Path to the directory where temporary results
+        (sparse layover/area blocks) will be saved.
+    xmin_global : int
+        Global minimum of the radar x-coordinate (range).
+    ymin_global : int
+        Global minimum of the radar y-coordinate (azimuth).
+    xsize_global : int
+        Total radar grid size along the x-axis (range).
+    dim_x_global : int
+        Total geogrid size along the x-axis.
+    radar_grid_pixel_area : float
+        The area of a single radar grid pixel.
+    normal_order : bool
+        The order needed to compute the surface normal correctly.
+    bbox : np.ndarray
+        Bounding box coordinates of the full radar scene
+        [min_rg, min_az, max_rg, max_az].
+    chunk_length : int
+        Size (dimension) of a square geogrid chunk.
+    resolution : tuple[float, float]
+        Output resolution (az_res, rg_res)
+        used to calculate expected number of looks.
+    job_id : int or None, optional
+        Identifier for the job, used to determine the
+        position of this chunk in the global grid.
+
+    Returns
+    -------
+    tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None, xr.DataTree | None]
+        A tuple containing the computed geogrid data (nlooks, anf, lia) and the temporary sparse area matrices.
+    """
+    so = get_storage_options(kwargs)
+    # Get local geogrid dimensions (number of cells per row and per column)
+    # The size is the number of points, so dimensions are size - 1
+    dim_x, dim_y = simulation.x.size - 1, simulation.y.size - 1
+
+    # Determine the chunk's row and column position in the global grid using the job_id
+    row_number = job_id // (np.ceil(dim_x_global / chunk_length).astype(int))
+    column_number = job_id % (np.ceil(dim_x_global / chunk_length).astype(int))
+
+    # Load the sparse weights file corresponding to this chunk
+    ablock_dt = None
+    f = normpath(f"{data_path_static}/w/{row_number}.{column_number}")
+    if exists(f, storage_options=so):
+        # Read sparse matrix components (CSR format)
+        w = read(f, as_type="xr.Dataset", consolidated=False, storage_options=so)
+        # --- Start Radiometric Terrain Correction (RTC) Area Projection (AP) ---
+        anf, lia, a_block = compute_rtc_ap(
+            csr_matrix=w,
+            simulation=simulation,
+            radar_grid_pixel_area=radar_grid_pixel_area,
+            normal_order=normal_order,
+            bbox=bbox,
+        )
+        bbox_radar = np.array([bbox[3], 0, bbox[2], 0])
+        ablock_dt = xr.DataTree(children={".".join([str(i) for i in bbox_radar]): xr.DataTree(dataset=a_block)})
+    else:
+        # If no weights were computed (e.g., empty chunk), create empty arrays
+        anf = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
+        lia = xr.DataArray(np.zeros((dim_y, dim_x), dtype="float32"), dims=["y", "x"])
+
+    # Combine geogrid results into a single dataset
+    geo_data = xr.Dataset(data_vars={"anf": anf, "lia": lia})
+
+    return geo_data, ablock_dt
 
