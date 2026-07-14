@@ -1456,6 +1456,62 @@ def update_elevation(
         raise Exception(f"Expected xr.Dataset, got {type(simulation)}")
     return simulation
 
+
+def init_simulation_dataset(
+    acquisition_dates: np.ndarray,
+    crs: CRS,
+    x: np.ndarray,
+    y: np.ndarray,
+    xy_chunks: Dict[str, Any],
+    data_path: str,
+    **kwargs,
+) -> xr.Dataset:
+    """
+    Initialize an empty Zarr store for the DEM-to-radar simulation results.
+
+    This function creates the structure for the simulation output on disk. It sets up
+    an xarray.Dataset with the correct dimensions, coordinates, data types, and
+    chunking for all the variables that will be computed in the simulation
+    (e.g., azimuth_time, slant_range_time, etc.).
+
+    Parameters
+    ----------
+    acquisition_dates : np.ndarray
+        A numpy array of acquisition dates for the stack.
+    crs : CRS
+        The pyproj CRS object of the output grid.
+    x : np.ndarray
+        A numpy array of the x-coordinates for the output grid.
+    y : np.ndarray
+        A numpy array of the y-coordinates for the output grid.
+    xy_chunks : Dict[str, Any]
+        A dictionary defining the chunk sizes for the spatial dimensions ('x', 'y').
+    data_path : str
+        The path where the simulation Zarr store will be created.
+
+    Returns
+    -------
+    xr.Dataset
+        An xarray.Dataset representing the initialized (but mostly empty) simulation data,
+        read back from the newly created Zarr store.
+    """
+    simulation = init_simulation(acquisition_dates, crs, x, y)
+
+    # Apply the specified chunking to the dataset.
+    simulation = simulation.chunk({**xy_chunks, "acquisition_date": 1, "axis": -1})
+
+    # Save the simulation to a Zarr store on disk.
+    simultaion = write(
+        simulation,
+        data_path=normpath(data_path),
+        storage_options=get_storage_options(kwargs),
+    )
+
+    if not isinstance(simulation, xr.Dataset):
+        raise ValueError(f"Expected is xr.Dataset, got {type(simulation)}")
+    return simulation
+
+
 def dem_to_radar(
     dem: xr.DataArray,
     orbits: xr.DataArray,
@@ -1503,7 +1559,7 @@ def dem_to_radar(
     x = dem.x.values
     y = dem.y.values
     # --- Step 1: Initialize Output Storage ---
-    simulation = init_simulation(acquisition_dates, dem.rio.crs, x, y, xy_chunks, data_path, **kwargs)
+    simulation = init_simulation_dataset(acquisition_dates, dem.rio.crs, x, y, xy_chunks, data_path, **kwargs)
 
     if not isinstance(simulation, xr.Dataset):
         raise Exception(f"Expected xr.Dataset, got {type(simulation)}")
