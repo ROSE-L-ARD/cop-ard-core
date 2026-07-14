@@ -1403,6 +1403,59 @@ def import_slc_stack(
     return slcs
 
 
+def update_elevation(
+    simulation: xr.Dataset, resampled_dem: xr.Dataset, xy_chunks: Dict[str, Any], data_path: str, **kwargs
+) -> xr.Dataset:
+    """
+    Update the simulation dataset with elevation data from the DEM.
+
+    Parameters
+    ----------
+    simulation : xr.Dataset
+        The simulation dataset to be updated.
+    resampled_dem : xr.Dataset
+        The Digital Elevation Model (DEM) data, resampled to the
+        simulation grid, as an xarray.Dataset.
+    xy_chunks : Dict[str, Any]
+        A dictionary defining the chunk sizes for spatial dimensions.
+    data_path : str
+        The path to the simulation Zarr store on disk.
+
+    ----------
+    simulation : xr.Dataset
+        The simulation dataset to be updated.
+    resampled_dem : xr.Dataset
+        The Digital Elevation Model (DEM) data, resampled to the
+        simulation grid, as an xarray.Dataset.
+    xy_chunks : Dict[str, Any]
+        A dictionary defining the chunk sizes for spatial dimensions.
+    data_path : str
+        The path to the simulation Zarr store on disk.
+
+    Returns
+    -------
+    xr.Dataset
+        The updated simulation dataset, read back from the Zarr store.
+    """
+    chunks = {**xy_chunks, "acquisition_date": 1, "axis": -1}
+    # Assign the elevation data ('z' from the DEM) to the 'h' variable in the simulation.
+    simulation["h"] = resampled_dem.z
+    # Re-chunk the simulation dataset to ensure consistency.
+    simulation = simulation.chunk(chunks)
+    # Write the updated elevation data ('h') back to the Zarr store.
+    simulation = write(
+        simulation.h.to_dataset(name="h").drop_vars(["spatial_ref"]),
+        data_path=normpath(data_path),
+        consolidated=False,
+        region={"x": slice(None, None), "y": slice(None, None)},  # Write to the full spatial extent.
+        mode="r+",  # Open in read/write mode to update.
+        storage_options=get_storage_options(kwargs),
+    )
+
+    if not isinstance(simulation, xr.Dataset):
+        raise Exception(f"Expected xr.Dataset, got {type(simulation)}")
+    return simulation
+
 def dem_to_radar(
     dem: xr.DataArray,
     orbits: xr.DataArray,
