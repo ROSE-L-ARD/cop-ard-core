@@ -72,7 +72,6 @@ from cop_ard_core.computing.simul import (
     get_radar_bbox,
     init_simulation,
     single_simulation_ml,
-    update_elevation,
 )
 from cop_ard_core.computing.slc import (
     SentinelSarpyObj,

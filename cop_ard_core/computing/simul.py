@@ -132,9 +132,6 @@ def init_simulation(
     crs: CRS,
     x: np.ndarray,
     y: np.ndarray,
-    xy_chunks: Dict[str, Any],
-    data_path: str,
-    **kwargs,
 ) -> xr.Dataset:
     """
     Initialize an empty Zarr store for the DEM-to-radar simulation results.
@@ -154,16 +151,11 @@ def init_simulation(
         A numpy array of the x-coordinates for the output grid.
     y : np.ndarray
         A numpy array of the y-coordinates for the output grid.
-    xy_chunks : Dict[str, Any]
-        A dictionary defining the chunk sizes for the spatial dimensions ('x', 'y').
-    data_path : str
-        The path where the simulation Zarr store will be created.
 
     Returns
     -------
     xr.Dataset
-        An xarray.Dataset representing the initialized (but mostly empty) simulation data,
-        read back from the newly created Zarr store.
+        An xarray.Dataset representing the initialized (but mostly empty) simulation data
     """
     n_dates = acquisition_dates.size
 
@@ -200,18 +192,6 @@ def init_simulation(
     # Set the Coordinate Reference System (CRS) for the spatial dimensions.
     simulation.rio.write_crs(crs, inplace=True)
 
-    # Apply the specified chunking to the dataset.
-    simulation = simulation.chunk({**xy_chunks, "acquisition_date": 1, "axis": -1})
-
-    # Save the empty dataset structure to a Zarr store on disk.
-    write(
-        simulation,
-        data_path=normpath(data_path),
-        compute=False,
-        skip_read=True,
-        storage_options=get_storage_options(kwargs),
-    )
-
     # --- Initialize slant_range_time with Invalid Values ---
     # This is done separately to mark all pixels as unprocessed initially.
     simulation = simulation.assign(
@@ -220,58 +200,6 @@ def init_simulation(
         }
     )
 
-    # Write the initialized slant_range_time array to the Zarr store.
-    simulation = write(
-        simulation.slant_range_time.to_dataset(name="slant_range_time"),
-        data_path=normpath(data_path),
-        mode="a",
-        storage_options=get_storage_options(kwargs),
-    )
-    if not isinstance(simulation, xr.Dataset):
-        raise ValueError(f"Expected is xr.Dataset, got {type(simulation)}")
-    return simulation
-
-
-def update_elevation(
-    simulation: xr.Dataset, resampled_dem: xr.Dataset, xy_chunks: Dict[str, Any], data_path: str, **kwargs
-) -> xr.Dataset:
-    """
-    Update the simulation dataset with elevation data from the DEM.
-
-    Parameters
-    ----------
-    simulation : xr.Dataset
-        The simulation dataset to be updated.
-    resampled_dem : xr.Dataset
-        The Digital Elevation Model (DEM) data, resampled to the
-        simulation grid, as an xarray.Dataset.
-    xy_chunks : Dict[str, Any]
-        A dictionary defining the chunk sizes for spatial dimensions.
-    data_path : str
-        The path to the simulation Zarr store on disk.
-
-    Returns
-    -------
-    xr.Dataset
-        The updated simulation dataset, read back from the Zarr store.
-    """
-    chunks = {**xy_chunks, "acquisition_date": 1, "axis": -1}
-    # Assign the elevation data ('z' from the DEM) to the 'h' variable in the simulation.
-    simulation["h"] = resampled_dem.z
-    # Re-chunk the simulation dataset to ensure consistency.
-    simulation = simulation.chunk(chunks)
-    # Write the updated elevation data ('h') back to the Zarr store.
-    simulation = write(
-        simulation.h.to_dataset(name="h").drop_vars(["spatial_ref"]),
-        data_path=normpath(data_path),
-        consolidated=False,
-        region={"x": slice(None, None), "y": slice(None, None)},  # Write to the full spatial extent.
-        mode="r+",  # Open in read/write mode to update.
-        storage_options=get_storage_options(kwargs),
-    )
-
-    if not isinstance(simulation, xr.Dataset):
-        raise Exception(f"Expected xr.Dataset, got {type(simulation)}")
     return simulation
 
 
@@ -279,7 +207,6 @@ def compute_simulation(
     simulation: xr.Dataset,
     dem: xr.DataArray,
     orbits: xr.DataArray,
-    **kwargs,
 ) -> xr.Dataset:
     """
     Compute radar geometry for a single block of the DEM.
@@ -297,10 +224,6 @@ def compute_simulation(
         The corresponding block of the DEM.
     orbits : xr.DataArray
         The full satellite orbit data.
-    data_path : str
-        The path to the output Zarr store where results will be written.
-    chunk : dict, optional
-        A dictionary describing the specific slice (region) to process.
 
     Returns
     -------
@@ -537,9 +460,7 @@ def extract_simul_on_radar_chunk(
 def extract_simulation_ml(
     simulation: xr.Dataset,
     reference_date: str,
-    working_dir: str,
-    recompute: bool = False,
-    **kwargs,
+    coarsen_config: dict[str, int]
 ):
     """
     Create a downsampled ("multilooked") version of the simulation data.
@@ -566,7 +487,6 @@ def extract_simulation_ml(
     None
         None. The results are written to disk.
     """
-    chunks = dict(x=simulation.chunksizes["x"][0], y=simulation.chunksizes["y"][0])
     # --- Compute Min/Max over Chunks ---
     simulation_ml = {
         # For the 'min' dataset, coarsen the data and take the minimum value in each block.
@@ -575,34 +495,24 @@ def extract_simulation_ml(
             simulation.sel(acquisition_date=reference_date)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
-            .coarsen(chunks, boundary="pad", coord_func="min"),
+            .coarsen(coarsen_config, boundary="pad", coord_func="min"),
         )
-        .min()
-        .chunk(chunks),
+        .min(),
         # For the 'max' dataset, do the same but take the maximum value.
         "max": cast(
             xr.Dataset,
             simulation.sel(acquisition_date=reference_date)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
-            .coarsen(chunks, boundary="pad", coord_func="max"),
+            .coarsen(coarsen_config, boundary="pad", coord_func="max"),
         )
         .max()
-        .chunk(chunks),
     }
     # Ensure the azimuth_time coordinate retains its correct data type.
     simulation_ml["min"]["azimuth_time"] = simulation_ml["min"].azimuth_time.astype("datetime64[ns]")
     simulation_ml["max"]["azimuth_time"] = simulation_ml["max"].azimuth_time.astype("datetime64[ns]")
     # --- Write Results to Disk ---
-    for k, v in simulation_ml.items():
-        write(
-            v,
-            normpath(f"{working_dir}/simulation_ml_{k}"),
-            skip_read=True,
-            storage_options=get_storage_options(kwargs),
-        )
-
-    return
+    return simulation_ml
 
 
 def single_simulation_ml(
@@ -651,13 +561,20 @@ def single_simulation_ml(
         # If recomputing, delete the "done" file.
         delete(simulation_ml_path, allow_non_existent=True, **kwargs)
         # --- Run the Multilooking Extraction ---
-        extract_simulation_ml(
+        chunks = dict(x=simulation.chunksizes["x"][0], y=simulation.chunksizes["y"][0])
+        simulation_ml = extract_simulation_ml(
             simulation=simulation,
             reference_date=reference_date,
-            recompute=recompute,
-            working_dir=data_path,
-            **kwargs,
+            coarsen_config=chunks,
         )
+        for k, v in simulation_ml.items():
+            write(
+                v.chunk(chunks),
+                normpath(f"{data_path}/simulation_ml_{k}"),
+                skip_read=True,
+                storage_options=get_storage_options(kwargs),
+            )
+
         # Create the "done" file to cache the result.
         touch(simulation_ml_path, **kwargs)
     else:
