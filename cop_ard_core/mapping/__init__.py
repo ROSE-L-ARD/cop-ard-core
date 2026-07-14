@@ -35,7 +35,6 @@ from cop_ard_core.computing.area_projection import (
     sparse_to_dense,
 )
 from cop_ard_core.computing.computation import map, map_blocks
-from cop_ard_core.computing.coreg import initialize_LUT_coords, update_conditions, update_LUT, update_quality
 from cop_ard_core.computing.dem import (
     check_available_transformation,
     compute_shape_and_off,
@@ -83,7 +82,7 @@ from cop_ard_core.computing.slc import (
     merge_dict,
     noise_removal,
 )
-from cop_ard_core.computing.warp import sinc, warp_cslc, warp_dazdrg, warp_gslc
+from cop_ard_core.computing.warp import coreg_qlt, sinc, updateLut, warp_cslc, warp_dazdrg, warp_gslc
 
 
 def init_single_coreg_stack(
@@ -3259,6 +3258,80 @@ def stack_dem(
     return dem_tree
 
 
+def initialize_LUT_coords(
+    acquisition_date: xr.DataArray,
+    azimuth_time: xr.DataArray,
+    slant_range_time: xr.DataArray,
+) -> xr.Dataset:
+    """
+    Initialize a coarse coordinate grid for the Lookup Tables (LUTs).
+
+    This function creates a downsampled version of the full-resolution measurement
+    grid. This coarse grid is used as the coordinate system for all the LUTs
+    (e.g., Doppler, noise) to save space and computation time. It also initializes
+    the `daz` and `drg` variables that will be filled in later.
+
+    Parameters
+    ----------
+    measurements
+        The full-resolution coregistered measurements dataset.
+
+    Returns
+    -------
+    xarray.Dataset
+        An xarray.Dataset representing the coarse LUT grid with empty `daz`
+        and `drg` data variables.
+    """
+    # Calculate the step size to achieve the target coarse grid size (e.g., 11x11).
+    az_step, rg_step = (
+        np.ceil(azimuth_time.size / GRID[0]).astype(int),
+        np.ceil(slant_range_time.size / GRID[1]).astype(int),
+    )
+    # Create the coarse grid by decimating the full-resolution coordinates.
+    LUT_coords = xr.Dataset(coords={
+        "acquisition_date": acquisition_date,
+        "azimuth_time": azimuth_time,
+        "slant_range_time": slant_range_time,
+    })
+    LUT_coords = LUT_coords.isel(
+        azimuth_time=slice(None, None, az_step),
+        slant_range_time=slice(None, None, rg_step),
+    )
+
+    # --- Initialize daz and drg Data Variables ---
+    # Assign empty arrays to hold the azimuth and range shift values on this coarse grid.
+    LUT_coords = LUT_coords.assign(
+        {
+            "drg": (
+                ["acquisition_date", "azimuth_time", "slant_range_time"],
+                np.full(
+                    (
+                        LUT_coords.acquisition_date.size,
+                        LUT_coords.azimuth_time.size,
+                        LUT_coords.slant_range_time.size,
+                    ),
+                    0,
+                    dtype=float,
+                ),
+            ),
+            "daz": (
+                ["acquisition_date", "azimuth_time", "slant_range_time"],
+                np.full(
+                    (
+                        LUT_coords.acquisition_date.size,
+                        LUT_coords.azimuth_time.size,
+                        LUT_coords.slant_range_time.size,
+                    ),
+                    0,
+                    dtype="timedelta64[ns]",
+                ),
+            ),
+        }
+    )
+
+    return LUT_coords
+
+
 def coreg_single_burst(
     burst_id: str,
     slc: xr.DataTree,
@@ -3332,7 +3405,11 @@ def coreg_single_burst(
     quality = slc.coreg.quality
 
     # Initialize the coarse grid for the Lookup Tables.
-    LUT_coords = initialize_LUT_coords(measurements)
+    LUT_coords = initialize_LUT_coords(
+        acquisition_date=measurements.acquisition_date,
+        azimuth_time=measurements.azimuth_time,
+        slant_range_time=measurements.slant_range_time,
+    )
 
     # --- Prepare Interpolation Kernel ---
     # Define the parameters for the sinc interpolation kernel.
@@ -4857,3 +4934,681 @@ class GeoEnvPlugin(dask.distributed.WorkerPlugin):
                 )
                 logger.critical(error_msg)
                 raise RuntimeError(error_msg)
+
+
+def update_LUT(daz_drg: xr.Dataset, LUT_coords: xr.Dataset):
+    mask = (
+        (LUT_coords.azimuth_time >= daz_drg.azimuth_time.min())
+        & (LUT_coords.azimuth_time <= daz_drg.azimuth_time.max())
+        & (LUT_coords.slant_range_time >= daz_drg.slant_range_time.min())
+        & (LUT_coords.slant_range_time <= daz_drg.slant_range_time.max())
+    ).values.ravel()
+    (ind,) = np.where(mask)
+    # If there are valid points, update the LUT with the computed daz and drg values.
+    LUT_assign = xr.zeros_like(LUT_coords)
+    if ind.size:
+        az_ind, rg_ind = np.unravel_index(ind, (LUT_coords.azimuth_time.size, LUT_coords.slant_range_time.size))
+        az_ind = xr.DataArray(az_ind, dims="point")
+        rg_ind = xr.DataArray(rg_ind, dims="point")
+        # Update daz values in the LUT for the current acquisition date chunk.
+        LUT_assign.daz[..., az_ind, rg_ind] = daz_drg.daz.sel(
+            azimuth_time=LUT_coords.azimuth_time[az_ind],
+            slant_range_time=LUT_coords.slant_range_time[rg_ind],
+        )
+        # Update drg values in the LUT for the current acquisition date chunk.
+        LUT_assign.drg[..., az_ind, rg_ind] = daz_drg.drg.sel(
+            azimuth_time=LUT_coords.azimuth_time[az_ind],
+            slant_range_time=LUT_coords.slant_range_time[rg_ind],
+        )
+    return LUT_assign
+
+
+def updateOrbits(slc: xr.DataTree) -> xr.Dataset:
+    """
+    Consolidate orbit information from all acquisitions into a single Dataset.
+
+    This function extracts orbit polynomial coefficients from the metadata of
+    each original SLC image and combines them with any externally provided
+    precise orbit data. The result is a clean, unified Dataset of orbit
+    information for the entire stack.
+
+    Parameters
+    ----------
+    slc
+        The DataTree for a single burst, containing the `orig` nodes with
+        source metadata.
+
+    Returns
+    -------
+    xarray.Dataset
+        An xarray.Dataset containing the consolidated orbit coefficients,
+        reference times, and types for all acquisitions.
+    """
+    # --- Extract Orbits from Annotations ---
+    # This provides a baseline set of orbit data from the original product files.
+    orbits = extract_orbits(slc, multiburst=False)
+    orbits = orbits.to_dataset(name="coeffs")
+    num_dates = orbits.sizes["acquisition_date"]
+    orbits["reference_time"] = (
+        "acquisition_date",
+        [orbits.coeffs.reference_times[date] for date in orbits.acquisition_date.values],
+    )
+    orbits["type"] = ("acquisition_date", ["AUX_ANNOTATED"] * num_dates)
+    orbits["orbit_files"] = ("acquisition_date", [""] * num_dates)
+    for date_key, v in slc.orig.items():
+        if ("conditions" in v) and ("orbit" in v.conditions):
+            precise_orbit = v.conditions.orbit
+            # Safely locate the specific date across the DataArray
+            loc_dict = {"acquisition_date": date_key}
+            # Overwrite the coefficients
+            orbits["coeffs"].loc[loc_dict] = precise_orbit.coeffs.loc[loc_dict]
+            # Overwrite the metadata to reflect the precise orbit
+            orbits["type"].loc[loc_dict] = precise_orbit.attrs.get("orbit_type", "AUX_POEORB")
+            # Extract the orbit file name (accounting for lists or strings in the attributes)
+            if "orbit_files" in precise_orbit.attrs:
+                file_attr = precise_orbit.attrs["orbit_files"]
+                file_name = file_attr[0] if isinstance(file_attr, list) else file_attr
+                orbits["orbit_files"].loc[loc_dict] = file_name
+
+            # Overwrite reference time if the precise orbit has a different one
+            if "reference_time" in precise_orbit.attrs:
+                orbits["reference_time"].loc[loc_dict] = precise_orbit.attrs["reference_time"]
+
+    orbits = orbits.chunk(axis=-1, degree=-1, acquisition_date=1)
+
+    return orbits
+
+
+def updateETAD(slc: xr.DataTree) -> xr.Dataset | None:
+    """
+    Consolidate Extended Timing Annotation Data (ETAD) from all acquisitions.
+
+    If ETAD correction files were used during processing, this function gathers
+    the ETAD information from each acquisition's `conditions` group and
+    combines them into a single Dataset for the stack.
+
+    Parameters
+    ----------
+    slc
+        The DataTree for a single burst, containing the `orig` nodes.
+
+    Returns
+    -------
+    xarray.Dataset or None
+        An xarray.Dataset containing the consolidated ETAD corrections, or None
+        if no ETAD data is found.
+    """
+    # Check if ETAD data is present for all acquisitions.
+    if all(("conditions" in v) and ("ETAD" in v.conditions) for _, v in slc.orig.items()):
+        # Create a list of ETAD datasets, one for each acquisition.
+        etads = [
+            v.conditions.ETAD.to_dataset().assign_coords(acquisition_date=k).expand_dims("acquisition_date")
+            for k, v in slc.orig.items()
+        ]
+        # Add the original ETAD filename as a variable.
+        etads = [
+            e.assign({k: (["acquisition_date"], [os.path.basename(e.attrs.get(k, ""))]) for k in ["etad_file"]})
+            for e in etads
+        ]
+        # Concatenate the list of datasets into a single dataset along the acquisition_date dimension.
+        etads = xr.concat(etads, dim="acquisition_date")
+        # Re-chunk the final dataset.
+        etads = etads.chunk({k: 2048 for k in etads.dims})
+    else:
+        # Return None if ETAD data is not consistently available.
+        etads = None
+
+    return etads
+
+
+def update_conditions(slc: xr.DataTree, daz_drg: xr.Dataset, conditions: xr.DataTree) -> xr.DataTree:
+    """
+    Update and populate the 'conditions' group of the coregistered stack.
+
+    This function acts as a high-level manager for updating all ancillary data
+    related to the processing conditions. It calls helper functions to update
+    orbit data, ETAD corrections, and the phase demodulation (Doppler) LUT.
+
+    Parameters
+    ----------
+    slc
+        The DataTree for a single burst, containing the `orig` data.
+    daz_drg
+        The dataset of computed azimuth and range shifts, used for LUT generation.
+    conditions
+        The target `conditions` DataTree node to be updated.
+
+    Returns
+    -------
+    DataTree
+        The updated `conditions` DataTree node.
+    """
+    # Consolidate and update the orbit information.
+    conditions["orbit"] = updateOrbits(slc)
+    # Consolidate and update ETAD information if available.
+    if all(("conditions" in v) and ("ETAD" in v.conditions) for _, v in slc.orig.items()):
+        conditions["ETAD"] = updateETAD(slc)
+    # Generate the updated Doppler (phase_demod) LUT for the coregistered grid.
+    xLUT = updateLut(slc, daz_drg, "Grid.Col.DeltaKCOAPoly.Coefs", "phase_demod")
+    conditions["phase_demod"] = xLUT
+    return conditions
+
+
+def update_quality(slc: xr.DataTree, daz_drg: xr.Dataset, quality: xr.Dataset) -> xr.Dataset:
+    """
+    Update and populate the 'quality' group of the coregistered stack.
+
+    This function computes and stores all data related to the quality of the
+    coregistered product, including the estimated coregistration accuracy and
+    Lookup Tables for radiometric quantities (noise, sigma0, gamma0, etc.).
+
+    Parameters
+    ----------
+    slc
+        The DataTree for a single burst, containing `orig` and `coreg` data.
+    daz_drg
+        The dataset of computed azimuth and range shifts, used for LUT generation.
+    quality
+        The target `quality` Dataset to be updated.
+
+    Returns
+    -------
+    xarray.Dataset
+        The updated `quality` Dataset.
+    """
+    from cop_ard_core.computing.io import path_to_dict
+
+    # Mapping from official calibration names to variable names in the output.
+    name_mapping = {
+        "SigmaZero": "sigma0",
+        "GammaZero": "gamma0",
+        "BetaZero": "beta0",
+        "RCS": "RCS",
+        "NoiseLevel": "noise",
+    }
+    calib_ok = ["SigmaZero", "GammaZero", "BetaZero", "RCS"]
+    NoiseLevel = "NoiseLevel"
+
+    # --- Compute and Assign Quality Metrics ---
+    # Compute the estimated coregistration accuracy.
+    quality = quality.assign(coreg_qlt(slc, daz_drg))
+    # Generate the updated Noise LUT for the coregistered grid.
+
+    annot = slc.coreg.measurements.cstack.attrs
+    annot = annot[list(annot)[0]]
+    if path_to_dict(annot, "Radiometric.NoiseLevel.NoisePoly.Coefs") is not None:
+        quality = quality.assign(
+            updateLut(
+                slc,
+                daz_drg,
+                "Radiometric.NoiseLevel.NoisePoly.Coefs",
+                name_mapping[NoiseLevel],
+            )
+        )
+    # Generate updated LUTs for all specified radiometric calibration types.
+    for calib in calib_ok:
+        if path_to_dict(annot, f"Radiometric.{calib}SFPoly.Coefs") is not None:
+            quality = quality.assign(
+                updateLut(
+                    slc,
+                    daz_drg,
+                    f"Radiometric.{calib}SFPoly.Coefs",
+                    name_mapping[calib],
+                )
+            )
+    return quality
+
+
+def update_cslc_container(bursts: xr.DataTree):
+    attrs = copy.deepcopy(next(iter(bursts.children.values())).attrs)
+    stac = attrs["stac_discovery"]
+    processing_history = attrs["processing_history"]
+    stac["properties"].pop("sat:anx_datetime", None)
+    stac["properties"].pop("sar:pixel_spacing_azimuth", None)
+    stac["properties"].pop("sar:pixel_spacing_range", None)
+    stac["properties"].pop("view:incidence_angle", None)
+    stac.pop("id", None)
+    start = np.datetime64(stac["properties"]["start_datetime"])
+    end = np.datetime64(stac["properties"]["end_datetime"])
+    bbox = stac["bbox"]
+    coords = stac["geometry"]["coordinates"][0][:-1]
+    assets = {}
+    for k, v in bursts.items():
+        stac_product = v.attrs["stac_discovery"]
+        s = np.datetime64(stac_product["properties"]["start_datetime"])
+        e = np.datetime64(stac_product["properties"]["end_datetime"])
+        b = stac_product["bbox"]
+        c = stac_product["geometry"]["coordinates"][0][:-1]
+        bbox = [min(b[0], bbox[0]), min(b[1], bbox[1]), max(b[2], bbox[2]), max(b[3], bbox[3])]
+        start = np.minimum(s, start)
+        end = np.maximum(e, end)
+        for i in range(4):
+            i1, i2 = i // 2, i % 2
+            lon_f = min if i1 == 0 else max
+            lat_f = min if i2 == 0 else max
+            coords[i] = [lon_f(coords[i][0], c[i][0]), lat_f(coords[i][1], c[i][1])]
+        assets[k] = {"href": f"./{k}", "type": "application/vnd+zarr"}
+    coords.append(coords[0])
+
+    datetime = start + round((end.astype(int) - start.astype(int)) / 2)
+    start = str(start) + "Z"
+    end = str(end) + "Z"
+    datetime = str(datetime) + "Z"
+    stac["properties"]["datetime"] = datetime
+    stac["properties"]["start_datetime"] = start
+    stac["properties"]["end_datetime"] = end
+    stac["bbox"] = bbox
+    stac["geometry"]["coordinates"] = [coords]
+    stac["properties"]["sar:beam_ids"] = beam_ids[stac["properties"]["sar:instrument_mode"]]
+    stac["assets"] = assets
+    id = get_id_product(stac)
+    stac["id"] = id
+    processing_history["Sentinel-1 ARD CSLC Product"][0]["outputs"] = id
+
+    return stac, processing_history
+
+
+def stac_discovery_template(burst_id, orig, coreg, external_metadata, stac, processing_start_time):
+    sicd = orig.attrs[list(orig.attrs)[0]]
+    sicd_coreg = coreg.attrs[list(coreg.attrs)[0]]
+    coordinates = []
+    for v in sicd["GeoData"]["ImageCorners"]:
+        coordinates.append([round(v["Lon"], 6), round(v["Lat"], 6)])
+    coordinates.append(coordinates[0])
+    bbox = np.array(coordinates)
+    bbox = [
+        float(min(bbox[:, 0])),
+        float(min(bbox[:, 1])),
+        float(max(bbox[:, 0])),
+        float(max(bbox[:, 1])),
+    ]
+
+    s = orig.azimuth_time.min().values.astype("datetime64[us]").item().isoformat() + "Z"
+    e = orig.azimuth_time.max().values.astype("datetime64[us]").item().isoformat() + "Z"
+    m = orig.azimuth_time[orig.azimuth_time.size // 2].values.astype("datetime64[us]").item().isoformat() + "Z"
+    mode = sicd["CollectionInfo"]["RadarMode"]["ModeID"]
+    pol = ["".join(i.split(":")) for i in orig.polarization.values]
+    if "properties" in stac:
+        datatake_id = stac["properties"]["eopf:datatake_id"]
+        absolute_orbit = stac["properties"]["sat:absolute_orbit"]
+        relative_orbit = stac["properties"]["sat:relative_orbit"]
+        anx_time = stac["properties"]["sat:anx_datetime"]
+        if not anx_time.endswith("Z"):
+            anx_time += "Z"
+        orbit_state = stac["properties"]["sat:orbit_state"]
+        platform_international_designator = stac["properties"]["sat:platform_international_designator"]
+    else:
+        datatake_id = sicd["CollectionInfo"]["CoreName"][10:15]
+        absolute_orbit = 1
+        relative_orbit = 1
+        anx_time = "1970-01-01T00:00:00.000000Z"
+        orbit_state = "n/a"
+        platform_international_designator = "n/a"
+
+    stac_payload = {
+        "type": "Feature",
+        "stac_version": "1.1.0",
+        "stac_extensions": [
+            "https://stac-extensions.github.io/eopf/v1.2.0/schema.json",
+            "https://stac-extensions.github.io/product/v0.1.0/schema.json",
+            "https://stac-extensions.github.io/sat/v1.1.0/schema.json",
+            "https://stac-extensions.github.io/view/v1.0.0/schema.json",
+            "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
+            "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
+            "https://stac-extensions.github.io/sar/v1.2.0/schema.json",
+        ],
+        "bbox": bbox,
+        "geometry": {"type": "Polygon", "coordinates": [coordinates]},
+        "properties": {
+            "title": "Sentinel-1 ARD CSLC Product",
+            "datetime": m,
+            "start_datetime": s,
+            "end_datetime": e,
+            "created": processing_start_time,
+            "constellation": "sentinel-1",
+            "instruments": ["sar"],
+            "platform": sicd["CollectionInfo"]["CollectorName"].replace("S", "sentinel-").lower(),
+            "eopf:datatake_id": datatake_id,
+            "eopf:instrument_mode": mode,
+            "processing:lineage": "systematic",
+            "processing:software": {"Sentinel-1 ARD CORE": f"{cop_ard_core.__version__}"},
+            "processing:version": f"{cop_ard_core.__version__}",
+            "processing:datetime": processing_start_time,
+            "processing:facility": external_metadata["facility"],
+            "product:timeliness": external_metadata["product_timeliness"],
+            "product:timeliness_category": external_metadata["product_timeliness_category"],
+            "product:type": f"S01S{mode}CSL",
+            "providers": external_metadata["providers"],
+            "sar:beam_ids": [sicd["CollectionInfo"]["Parameters"]["SWATH"].upper()],
+            "sar:center_frequency": sicd["RMA"]["INCA"]["FreqZero"],
+            "sar:frequency_band": "C",
+            "sar:instrument_mode": mode,
+            "sar:pixel_spacing_azimuth": round(sicd_coreg["Grid"]["Col"]["SS"], 5),
+            "sar:pixel_spacing_range": round(sicd_coreg["Grid"]["Row"]["SS"], 5),
+            "sar:polarizations": pol,
+            "sat:absolute_orbit": absolute_orbit,
+            "sat:anx_datetime": anx_time,
+            "sat:orbit_state": orbit_state,
+            "sat:platform_international_designator": platform_international_designator,
+            "sat:relative_orbit": relative_orbit,
+            "view:incidence_angle": sicd["SCPCOA"]["IncidenceAng"],
+            "sci:citation": external_metadata["atbd_link"],
+        },
+        "links": [{"href": "./.zattrs.json", "rel": "self", "type": "application/json"}],
+        "assets": {
+            "measurements": {
+                "href": "./measurements",
+                "title": "CSLC Measurements",
+                "description": "Zarr group containing the complex SAR image data",
+                "type": "application/vnd+zarr",
+                "roles": ["data"],
+            },
+            "conditions": {
+                "href": "./conditions",
+                "title": "CSLC Conditions",
+                "description": "Zarr group containing measurement conditions",
+                "type": "application/vnd+zarr",
+                "roles": ["metadata"],
+            },
+            "quality": {
+                "href": "./quality",
+                "title": "CSLC Quality Metrics",
+                "description": "Zarr group containing quality assessment and accuracy metrics",
+                "type": "application/vnd+zarr",
+                "roles": ["qa", "metadata"],
+            },
+        },
+    }
+
+    id = get_id_product(stac_payload, burst_id)
+    stac_payload["id"] = id
+    return stac_payload
+
+
+def get_stac_cslc(slc: xr.DataTree, burst_id: str, external_metadata, processing_start_time):
+    reference_date = slc.coreg.measurements.attrs["coregistration_reference_date"]
+    acquisition_dates = slc.coreg.measurements.cstack.acquisition_date.values
+    date = acquisition_dates[0] if acquisition_dates.size == 1 else reference_date
+    orig = slc.orig[date].measurements.slc
+    coreg = slc.coreg.measurements.cstack
+    stac = slc.orig[date].conditions.attrs.get("stac_discovery", {})
+    stac_discovery = stac_discovery_template(burst_id, orig, coreg, external_metadata, stac, processing_start_time)
+    return stac_discovery
+
+
+def get_processing_history_cslc(slc: xr.DataTree, stac_discovery, external_metadata, processing_start_time):
+    reference_date = slc.coreg.measurements.attrs["coregistration_reference_date"]
+    acquisition_dates = slc.coreg.measurements.cstack.acquisition_date.values
+    date = acquisition_dates[0] if acquisition_dates.size == 1 else reference_date
+    processing_history = slc.orig[date].conditions.attrs.get("processing_history", {})
+    stac = slc.orig[date].conditions.attrs.get("stac_discovery", {})
+    inputs = stac["id"] if "id" in stac else "n/a"
+    if "Level-1 Product" in processing_history:
+        if processing_history["Level-1 Product"][0]["outputs"]:
+            inputs = processing_history["Level-1 Product"][0]["outputs"]
+
+    adfs = [external_metadata["dem"]]
+    for e in ["etad", "orbit"]:
+        if e in external_metadata:
+            adfs.extend(external_metadata[e])
+
+    processing_history["Sentinel-1 ARD CSLC Product"] = [
+        {
+            "adfs": adfs,
+            "inputs": inputs,
+            "facility": external_metadata["facility"],
+            "outputs": stac_discovery["id"],
+            "processor": "Sentinel-1 ARD CORE",
+            "time": processing_start_time,
+            "version": f"{cop_ard_core.__version__}",
+        }
+    ]
+    return processing_history
+
+
+def get_other_metadata_cslc(slc: xr.DataTree, external_metadata):
+    reference_date = slc.coreg.measurements.attrs["coregistration_reference_date"]
+    acquisition_dates = slc.coreg.measurements.cstack.acquisition_date.values
+    date = acquisition_dates[0] if acquisition_dates.size == 1 else reference_date
+
+    other_metadata = {}
+    other_metadata["SICD"] = slc.orig[date].measurements.slc.attrs
+    other_metadata["product_geometry"] = "slant-range"
+    other_metadata["product_pixel_coordinate_convention"] = external_metadata["product_pixel_coordinate_convention"]
+    other_metadata["cslc_status"] = external_metadata["cslc_status"]
+    other_metadata["product_family_specification"] = external_metadata["product_family_specification"]
+    other_metadata["measurement_type"] = external_metadata["measurement_type"]
+    other_metadata["noise_correction_flag"] = external_metadata["noise_removal"]
+
+    return other_metadata
+
+
+def clean_cslc(slc: xr.DataTree):
+    # --- Restructure the DataTree ---
+    # Rename 'cstack' to 'cslc' and drop unnecessary coordinates.
+    cslc = xr.DataTree()
+
+    measurements = (
+        slc.coreg.measurements.to_dataset().rename({"cstack": "cslc"}).drop_vars(["slant_range_m", "azimuth_m"])
+    ).drop_attrs()
+    quality = slc.coreg.quality.to_dataset().rename({"RCS": "rcs", "crg_accuracy": "coregistration_accuracy"})
+    orbit = slc.coreg.conditions.orbit.to_dataset()
+    phase_demod = slc.coreg.conditions.phase_demod.to_dataset()
+    # Ensure ETAD group exists, even if empty.
+    if "ETAD" not in slc.coreg.conditions:
+        etad = xr.Dataset(
+            data_vars={
+                "azcorr": (["slant_range_time", "azimuth_time"], [[np.nan]]),
+                "rgcorr": (["slant_range_time", "azimuth_time"], [[np.nan]]),
+            },
+            coords={
+                "slant_range_time": [0.0],
+                "azimuth_time": [np.datetime64("0", "ns")],
+            },
+        )
+    else:
+        etad = slc.coreg.conditions.ETAD.to_dataset()
+
+    if measurements.acquisition_date.size == 1:
+        measurements = measurements.squeeze("acquisition_date")
+        quality = quality.squeeze("acquisition_date")
+        orbit = orbit.drop_vars(["orbit_files", "reference_time", "type"]).squeeze("acquisition_date")
+        phase_demod = phase_demod.squeeze("acquisition_date")
+        if "etad_file" in etad:
+            etad = etad.drop_vars(["etad_file"]).squeeze("acquisition_date")
+
+    cslc["measurements"] = measurements
+    cslc["quality"] = quality
+    cslc["conditions/orbit"] = orbit
+    cslc["conditions/phase_demodulation"] = phase_demod
+    cslc["conditions/ETAD"] = etad
+
+    return cslc
+
+
+ATTRS_RADAR = {
+    "phase_model": {
+        "description": "Topographic phase model, in rad, removed from the original interferometric phase."
+        "The interferometric phase is evaluated wrt the reference orbit, used for co-registration process.",
+        "long_name": "Interferometric phase model",
+        "units": "rad",
+    },
+    "polarization": {
+        "description": "acquired polarizations",
+        "long_name": "Polarization",
+        "units": "n/a",
+    },
+    "acquisition_date": {
+        "description": "Image acquisition date, espressed as YYYY-MM-DD, data type is string",
+        "long_name": "Acquisition date",
+        "units": "n/a",
+    },
+    "slant_range_time": {
+        "description": "Time across satellite track direction expressed as seconds",
+        "long_name": "Slant range time",
+        "units": "s",
+    },
+    "azimuth_time": {
+        "description": "Time along satellite track direction expressed as a datetime64[ns]",
+        "long_name": "Azimuth time",
+    },
+    "axis": {
+        "description": "Index corresponding to the axis",
+        "long_name": "Axis index",
+        "units": "n/a",
+    },
+    "degree": {
+        "description": "Polynomial coefficient degree",
+        "long_name": "Polynomial coefficient degree",
+        "units": "n/a",
+    },
+    "azcorr": {
+        "description": "Extended Timining Annotation Data: azimuth time correction resampled on the common grid of\
+                            the reference geometry",
+        "long_name": "Azimuth timing correction",
+        "units": "s",
+    },
+    "rgcorr": {
+        "description": "Extended Timining Annotation Data: slant range time corection resampled on the common grid\
+                            of the reference geometry",
+        "long_name": "Slant range timing correction",
+        "units": "s",
+    },
+    "etad_file": {
+        "description": "ETAD file used for each of the images belonging to the cslc stack",
+        "long_name": "Extended Timing Annotation Data file",
+        "units": "n/a",
+    },
+    "orbit_files": {
+        "description": "Orbit files used for each of the images belonging to the cslc stack",
+        "long_name": "Orbit files",
+        "units": "n/a",
+    },
+    "cslc": {
+        "description": "Co-registred single look complex data",
+        "long_name": "Co-registered SLC",
+        "units": "n/a",
+    },
+    "beta0": {
+        "description": "LUT of the beta0 coefficients obtained from input SLC annotations.",
+        "long_name": "Beta nought",
+        "units": "m^2 / m^2",
+    },
+    "gamma0": {
+        "description": "LUT of the gamma0 coefficients obtained from input SLC annotations.",
+        "long_name": "Gamma nought",
+        "units": "m^2 / m^2",
+    },
+    "noise": {
+        "description": "LUT of thermal noise correction obtained from input SLC annotations.",
+        "long_name": "Thermal noise correction",
+        "units": "n/a",
+    },
+    "RCS": {
+        "description": "LUT of the Radar Cross Section (RCS) coefficients obtained from input SLC annotations.",
+        "long_name": "Radar cross section",
+        "units": "m^2 / m^2",
+    },
+    "sigma0": {
+        "description": "LUT of the sigma0 coefficients obtained from input SLC annotations.",
+        "long_name": "Sigma nought",
+        "units": "m^2 / m^2",
+    },
+    "crg_accuracy": {
+        "description": "Estimated co-registration accuracty in correspondence of each image of the cslc stack.",
+        "long_name": "Co-registration accuracy",
+        "units": "m",
+    },
+    "phase_demod": {
+        "description": "Phase to be applied to demodulate each image belonging to the cslc stack.",
+        "long_name": "Demodulation phase",
+        "units": "rad",
+    },
+    "coeffs": {
+        "description": "Polynomial coefficients describing the orbit associated to each input image belonging to\
+                            the cslc stack.",
+        "long_name": "Orbit coefficients",
+        "units": "n/a",
+    },
+    "reference_time": {
+        "description": "Reference time associated to the polynomial coefficients for each input image belonging to\
+                            the cslc stack.",
+        "long_name": "Reference polynomial coefficient time",
+        "units": "s",
+    },
+    "type": {
+        "description": "Type of orbital data used for each of the images belonging to the cslc stack:\
+                            ETAD, POE, POD, RES.",
+        "long_name": "Orbital data accuracy",
+        "units": "n/a",
+    },
+}
+
+beam_ids = {
+    "IW": ["IW1", "IW2", "IW3"],  # Interferometric Wide (3 sub-swaths)
+    "EW": ["EW1", "EW2", "EW3", "EW4", "EW5"],  # Extra Wide (5 sub-swaths)
+    "SM": ["S1", "S2", "S3", "S4", "S5", "S6"],  # Stripmap (6 overlapping beams)
+}
+
+
+def update_coreg(slcs: xr.DataTree, external_metadata: dict = {}):
+    """
+    Finalize the coregistered DataTree by adding product-level metadata.
+
+    This function iterates through the processed bursts, restructures the data
+    (e.g., renaming 'cstack' to 'cslc'), and assigns a comprehensive set of
+    attributes to conform to the final product specification.
+
+    Parameters
+    ----------
+    slcs
+        The DataTree containing all the processed coregistered bursts.
+    external_metadata : dict
+        A dictionary of external metadata to be included in
+        the final product attributes.
+
+    Returns
+    -------
+    DataTree
+        A new DataTree, restructured and fully populated with final metadata.
+    """
+    processing_start_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    bursts = xr.DataTree()
+    multiburst = True if "bursts" in slcs else False
+    # --- Iterate Over Each Burst/Scene ---
+    for k, slc in (slcs.bursts if multiburst else {"data": slcs}).items():
+        name = k if multiburst else "data"
+
+        stac_discovery = get_stac_cslc(
+            slc,
+            name,
+            external_metadata=external_metadata,
+            processing_start_time=processing_start_time,
+        )
+        processing_history = get_processing_history_cslc(
+            slc,
+            stac_discovery,
+            external_metadata=external_metadata,
+            processing_start_time=processing_start_time,
+        )
+        other_metadata = get_other_metadata_cslc(slc, external_metadata)
+        bursts[stac_discovery["id"]] = clean_cslc(slc)
+        # --- Assign Product-Level Metadata ---
+        bursts[stac_discovery["id"]].attrs = {
+            "stac_discovery": stac_discovery.copy(),
+            "other_metadata": other_metadata.copy(),
+            "processing_history": processing_history.copy(),
+        }
+        slc.attrs = {
+            "stac_discovery": stac_discovery.copy(),
+            "other_metadata": other_metadata.copy(),
+            "processing_history": processing_history.copy(),
+        }
+    stac_group, history_group = update_cslc_container(bursts)
+
+    # Apply any final attribute fixes.
+    fix_attributes(bursts, ATTRS_RADAR)
+    bursts.attrs = {"stac_discovery": stac_group, "processing_history": history_group}
+    slcs.attrs = {"stac_discovery": stac_group, "processing_history": history_group}
+    return bursts, slcs
+
