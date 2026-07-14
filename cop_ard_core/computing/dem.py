@@ -173,9 +173,9 @@ def get_default_epsg(dem: xr.DataArray | xr.Dataset) -> str:
     return epsg
 
 
-def download_copdem30m(minx, miny, maxx, maxy):
+def open_copdem30m(minx: float, miny: float, maxx: float, maxy: float) -> xr.Dataset:
     """
-    Download a subset of the Copernicus GLO-30 DEM from a cloud-based Zarr store.
+    Open a subset of the Copernicus GLO-30 DEM from a cloud-based Zarr store.
 
     Parameters
     ----------
@@ -216,6 +216,7 @@ def import_dem(
     working_dir: str | None = None,
     dem_type: str = "Copernicus",
     chunks: Mapping[Any, int] | None = None,
+    border: float = 0.05,
     **kwargs,
 ) -> xr.DataArray:
     """
@@ -226,7 +227,6 @@ def import_dem(
     given bounding box, applies chunking, handles NoData values, and saves
     the result to a Zarr store.
     """
-    border = 0.05
 
     # Expand the bounding box slightly to avoid edge effects during reprojection.
     minx, miny, maxx, maxy = bbox
@@ -238,7 +238,7 @@ def import_dem(
     # --- DEM Source Handling ---
     if dem_type == "Copernicus":
         # Download the Copernicus DEM for the specified bounding box.
-        dem = download_copdem30m(minx, miny, maxx, maxy)
+        dem = open_copdem30m(minx, miny, maxx, maxy)
     else:
         # Open a user-specified DEM from a local or remote path.
         dem = xr.open_dataset(
@@ -281,6 +281,8 @@ def import_dem(
     # Write the processed DEM to a Zarr store in the working directory.
     if (dem_type == "Copernicus") or dem_type.startswith("https://"):
         dem = write(dem, normpath(f"{working_dir}/dem"), storage_options=get_storage_options(kwargs))
+        if not isinstance(dem, xr.DataArray):
+            raise Exception("Error reopening DEM dataarray")
 
     return dem
 
@@ -350,7 +352,7 @@ def interp_dem(
     method: str = "cubic",
     border: int = 10,
     **kwargs,
-):
+) -> xr.Dataset:
     """
     Interpolate a chunk of the input DEM to the output grid.
 
@@ -502,63 +504,3 @@ def convert_to_dem_ecef(dem: xr.DataArray) -> np.ndarray:
 
     # Stack result into a numpy array
     return np.array([X, Y, Z])
-
-
-class GeoEnvPlugin(dask.distributed.WorkerPlugin):
-    name = "patch_gdal_proj_env"
-
-    def __init__(
-        self, in_proj: str = "EPSG:9518", out_proj: str = "EPSG:4979", test_coords: tuple = (12.5, 41.9, 50.0)
-    ):
-        """
-        Initializes the plugin.
-        """
-        self.in_proj = in_proj
-        self.out_proj = out_proj
-        self.test_coords = test_coords
-
-    def setup(self, worker):
-        """Runs on the worker immediately when it starts."""
-
-        # 1. Base Environment Setup (Locking paths)
-        pyproj_dir = datadir.get_data_dir()
-        datadir.set_data_dir(pyproj_dir)
-
-        # STRICTLY OFFLINE: Workers are not allowed to use the internet
-        pyproj.network.set_network_enabled(False)
-
-        rasterio_base = os.path.dirname(rasterio.__file__)
-        rasterio_gdal_dir = os.path.join(rasterio_base, "gdal_data")
-        if os.path.exists(rasterio_gdal_dir):
-            os.environ["GDAL_DATA"] = rasterio_gdal_dir
-
-        # 2. Strict Metadata Check
-        in_crs = CRS(self.in_proj).to_3d()
-        out_crs = CRS(self.out_proj).to_3d()
-        tg = TransformerGroup(in_crs, out_crs)
-
-        if tg.best_available is False:
-            error_msg = (
-                f"Worker {worker.address} is missing required PROJ grids for {self.in_proj} -> {self.out_proj}. "
-                "Ensure the environment was provisioned properly before starting the worker."
-            )
-            logger.critical(error_msg)
-            raise RuntimeError(error_msg)
-
-        in_vertical_crs = extract_vertical_crs(in_crs)
-        out_vertical_crs = extract_vertical_crs(out_crs)
-        if in_vertical_crs != out_vertical_crs:
-            # 3. Strict Mathematical Validation
-            transformer = Transformer.from_crs(in_crs, out_crs, always_xy=True)
-            test_x, test_y, test_z = self.test_coords
-
-            # Execute the transformation; errcheck=True catches missing grid errors
-            _, _, new_z = transformer.transform(test_x, test_y, test_z, errcheck=True)
-
-            if np.allclose(test_z, new_z, atol=1e-5):
-                error_msg = (
-                    f"Worker {worker.address} validation failed! Z coordinate did not change. "
-                    "The geoid grid is missing or being ignored."
-                )
-                logger.critical(error_msg)
-                raise RuntimeError(error_msg)

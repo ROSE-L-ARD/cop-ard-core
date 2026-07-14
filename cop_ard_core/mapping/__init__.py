@@ -1,3 +1,5 @@
+import pyproj
+import rasterio
 import copy
 from xml.etree.ElementTree import Element, ElementTree
 import defusedxml.ElementTree as ET
@@ -11,12 +13,15 @@ from unittest import mock
 
 import botocore.exceptions
 import dask.array as da
+import dask.distributed
 import dateutil
 import numpy as np
 import sarpy.io
 import sarpy.io.general.base
 import xarray as xr
-from pyproj import CRS
+from pyproj import CRS, Transformer, datadir
+from pyproj.transformer import TransformerGroup
+import pyproj.network
 from scipy.constants import speed_of_light
 
 import cop_ard_core
@@ -32,7 +37,6 @@ from cop_ard_core.computing.area_projection import (
 from cop_ard_core.computing.computation import map, map_blocks
 from cop_ard_core.computing.coreg import initialize_LUT_coords, update_conditions, update_LUT, update_quality
 from cop_ard_core.computing.dem import (
-    GeoEnvPlugin,
     check_available_transformation,
     compute_shape_and_off,
     extract_vertical_crs,
@@ -1153,7 +1157,6 @@ def dem_to_radar(
         compute_simulation,
         (simulation, resampled_dem.z),
         args=(orbits,),
-        kwargs=kwargs,
         combine=False,
         enable_dask=enable_dask,
         store_mapping={0: save_options},
@@ -1874,6 +1877,19 @@ def import_ORBIT(
         )
     orbit_paths = [o.path for o in orbit_paths]
     return slcs, orbit_paths
+
+
+def get_margin(annot, border: int = 10):
+    step = {
+        "azimuth_time": np.timedelta64(
+            round((annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"]) * 1e9),
+            "ns",
+        ),
+        "slant_range_time": 2 * annot["Grid"]["Row"]["SS"] / speed_of_light,
+    }
+    # Define a margin for data selection to avoid edge effects.
+    margin = {e: step[e] * border for e in ["azimuth_time", "slant_range_time"]}
+    return margin
 
 
 def map_geocode_phase(
@@ -4360,3 +4376,61 @@ def update_gslcs(gslcs: xr.DataTree, slcs: xr.DataTree, external_metadata: dict 
     bursts.attrs = {"stac_discovery": stac_group, "processing_history": history_group}
     return bursts
 
+class GeoEnvPlugin(dask.distributed.WorkerPlugin):
+    name = "patch_gdal_proj_env"
+
+    def __init__(
+        self, in_proj: str = "EPSG:9518", out_proj: str = "EPSG:4979", test_coords: tuple = (12.5, 41.9, 50.0)
+    ):
+        """
+        Initializes the plugin.
+        """
+        self.in_proj = in_proj
+        self.out_proj = out_proj
+        self.test_coords = test_coords
+
+    def setup(self, worker):
+        """Runs on the worker immediately when it starts."""
+
+        # 1. Base Environment Setup (Locking paths)
+        pyproj_dir = datadir.get_data_dir()
+        datadir.set_data_dir(pyproj_dir)
+
+        # STRICTLY OFFLINE: Workers are not allowed to use the internet
+        pyproj.network.set_network_enabled(False)
+
+        rasterio_base = os.path.dirname(rasterio.__file__)
+        rasterio_gdal_dir = os.path.join(rasterio_base, "gdal_data")
+        if os.path.exists(rasterio_gdal_dir):
+            os.environ["GDAL_DATA"] = rasterio_gdal_dir
+
+        # 2. Strict Metadata Check
+        in_crs = CRS(self.in_proj).to_3d()
+        out_crs = CRS(self.out_proj).to_3d()
+        tg = TransformerGroup(in_crs, out_crs)
+
+        if tg.best_available is False:
+            error_msg = (
+                f"Worker {worker.address} is missing required PROJ grids for {self.in_proj} -> {self.out_proj}. "
+                "Ensure the environment was provisioned properly before starting the worker."
+            )
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+
+        in_vertical_crs = extract_vertical_crs(in_crs)
+        out_vertical_crs = extract_vertical_crs(out_crs)
+        if in_vertical_crs != out_vertical_crs:
+            # 3. Strict Mathematical Validation
+            transformer = Transformer.from_crs(in_crs, out_crs, always_xy=True)
+            test_x, test_y, test_z = self.test_coords
+
+            # Execute the transformation; errcheck=True catches missing grid errors
+            _, _, new_z = transformer.transform(test_x, test_y, test_z, errcheck=True)
+
+            if np.allclose(test_z, new_z, atol=1e-5):
+                error_msg = (
+                    f"Worker {worker.address} validation failed! Z coordinate did not change. "
+                    "The geoid grid is missing or being ignored."
+                )
+                logger.critical(error_msg)
+                raise RuntimeError(error_msg)
