@@ -193,6 +193,13 @@ def remove_iono_surface_single_burst(burst_id: str,
     surf = surf.reshape(azimuth_time_raw.shape)
     surf = xr.DataArray(surf, dims=["azimuth_time", "slant_range_time"])
 
+    burst["coreg/measurements/phase_iono"] = surf
+
+    # remove ionosphere from slc
+    burst["coreg/measurements/cstack"].loc[{"acquisition_date": "2016-02-14"}] *= np.exp(
+        -1j * burst.coreg.measurements.phase_iono
+    )
+
     burst = write(burst, f"{outfolder}/bursts/{burst_id}", mode='w')
     return burst_id, burst
 
