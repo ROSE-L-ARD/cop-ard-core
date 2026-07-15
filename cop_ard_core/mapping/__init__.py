@@ -81,7 +81,7 @@ from cop_ard_core.computing.slc import (
     merge_dict,
     noise_removal,
 )
-from cop_ard_core.computing.warp import coreg_qlt, sinc, warp_cslc, warp_dazdrg, warp_gslc, getLUT
+from cop_ard_core.computing.warp import coreg_qlt, sinc, warp_cslc, warp_dazdrg, warp_gslc, getLUT, GRID
 
 
 def init_single_coreg_stack(
@@ -3268,6 +3268,7 @@ def initialize_LUT_coords(
     acquisition_date: xr.DataArray,
     azimuth_time: xr.DataArray,
     slant_range_time: xr.DataArray,
+    grid: tuple[int, int] = GRID
 ) -> xr.Dataset:
     """
     Initialize a coarse coordinate grid for the Lookup Tables (LUTs).
@@ -3290,8 +3291,8 @@ def initialize_LUT_coords(
     """
     # Calculate the step size to achieve the target coarse grid size (e.g., 11x11).
     az_step, rg_step = (
-        np.ceil(azimuth_time.size / GRID[0]).astype(int),
-        np.ceil(slant_range_time.size / GRID[1]).astype(int),
+        np.ceil(azimuth_time.size / grid[0]).astype(int),
+        np.ceil(slant_range_time.size / grid[1]).astype(int),
     )
     # Create the coarse grid by decimating the full-resolution coordinates.
     LUT_coords = xr.Dataset(coords={
@@ -6550,7 +6551,7 @@ def blockwise_warp_cslc(
     return coreg
 
 
-def updateLut(slcs: xr.DataTree, daz_drg: xr.Dataset, path_to_coeff: str, out_name: str, **kwargs) -> xr.Dataset:
+def updateLut(slcs: xr.DataTree, daz_drg: xr.Dataset, path_to_coeff: str, out_name: str, grid: tuple[int, int] = GRID, **kwargs) -> xr.Dataset:
     """
     Update or create a Lookup Table (LUT) for a specific parameter.
 
@@ -6579,7 +6580,6 @@ def updateLut(slcs: xr.DataTree, daz_drg: xr.Dataset, path_to_coeff: str, out_na
     xr.Dataset
         An xarray.Dataset containing the newly computed LUT.
     """
-    grid = kwargs.get("GRID", GRID)
     # Extract metadata from the coregistered stack.
     annot = slcs.coreg.measurements.cstack.attrs
     pols = slcs.coreg.measurements.polarization.values
