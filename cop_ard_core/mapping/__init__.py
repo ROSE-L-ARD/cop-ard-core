@@ -69,7 +69,7 @@ from cop_ard_core.computing.simul import (
     get_geo_from_radar_bbox,
     get_radar_bbox,
     init_simulation,
-    single_simulation_ml,
+    extract_simulation_ml,
 )
 from cop_ard_core.computing.slc import (
     amplitude_calibration,
@@ -6313,4 +6313,85 @@ def import_dem(
             raise Exception("Error reopening DEM dataarray")
 
     return dem
+
+
+def single_simulation_ml(
+    burst_id: str,
+    simulation: xr.Dataset,
+    multiburst: bool,
+    reference_date: str,
+    working_directory: str,
+    recompute: bool = False,
+    **kwargs,
+):
+    """
+    Create and manage multilooked simulation data for a single burst or scene.
+
+    This function wraps `extract_simulation_ml` and adds logic to check for
+    existing results, allowing it to skip recomputation if the data already exists.
+
+    Parameters
+    ----------
+    burst_id : str
+        The identifier for the burst or scene.
+    simulation : xr.Dataset
+        The full-resolution simulation dataset for this burst.
+    multiburst : bool
+        A boolean flag for multiburst mode.
+    reference_date : str
+        The reference acquisition date.
+    working_directory : str
+        The root directory for outputs.
+    recompute : bool
+        If True, force recomputation.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the burst_id and a dictionary with the 'min' and 'max'
+        multilooked datasets.
+    """
+    # Define the relative path for this burst's data.
+    path = f"bursts/{burst_id}" if multiburst else "data"
+    data_path = normpath(f"{working_directory}/{path}")
+    # Define a path for a "done" file to check for completion.
+    simulation_ml_path = f"{working_directory}/processed_data/{path}/simulation_ml.ok"
+    # --- Check for Existing Results ---
+    if (exists(simulation_ml_path, **kwargs) is False) or recompute:
+        # If recomputing, delete the "done" file.
+        delete(simulation_ml_path, allow_non_existent=True, **kwargs)
+        # --- Run the Multilooking Extraction ---
+        chunks = dict(x=simulation.chunksizes["x"][0], y=simulation.chunksizes["y"][0])
+        simulation_ml = extract_simulation_ml(
+            simulation=simulation,
+            reference_date=reference_date,
+            coarsen_config=chunks,
+        )
+        for k, v in simulation_ml.items():
+            write(
+                v.chunk(chunks),
+                normpath(f"{data_path}/simulation_ml_{k}"),
+                skip_read=True,
+                storage_options=get_storage_options(kwargs),
+            )
+
+        # Create the "done" file to cache the result.
+        touch(simulation_ml_path, **kwargs)
+    else:
+        logger.info(f"Found existing simulation multilook file for {burst_id}")
+
+    # --- Read and Return the Result ---
+    simulation_ml = {
+        "min": read(
+            normpath(f"{data_path}/simulation_ml_min"),
+            as_type="xr.Dataset",
+            storage_options=get_storage_options(kwargs),
+        ),
+        "max": read(
+            normpath(f"{data_path}/simulation_ml_max"),
+            as_type="xr.Dataset",
+            storage_options=get_storage_options(kwargs),
+        ),
+    }
+    return (burst_id, simulation_ml)
 
