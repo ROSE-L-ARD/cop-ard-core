@@ -4,6 +4,7 @@ import rasterio
 import copy
 from xml.etree.ElementTree import Element, ElementTree
 import defusedxml.ElementTree as ET
+import itertools
 import json
 import os
 import re
@@ -2305,13 +2306,6 @@ def get_margin(
     slant_range_time_spacing: float, 
     border: int = 10
     ):
-    step = {
-        "azimuth_time": np.timedelta64(
-            round((annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"]) * 1e9),
-            "ns",
-        ),
-        "slant_range_time": 2 * annot["Grid"]["Row"]["SS"] / speed_of_light,
-    }
     step = {
         "azimuth_time": np.timedelta64(
             round((time_ca_polynomial_coefficients[1] * azimuth_time_spacing) * 1e9),
