@@ -27,25 +27,6 @@ from cop_ard_core.computing.io import (
 from cop_ard_core.computing.logger import logger
 
 
-def get_coefficients(path: str, annot: dict) -> np.ndarray | None:
-    """
-    Utility function to extract polynomial coefficients from the annotation dictionary.
-
-    Args:
-        annot: The annotation dictionary containing the metadata.
-        path: The dot-separated path to the desired coefficients (e.g., "Radiometric.SigmaZeroSFPoly.Coefs").
-    Returns:
-        A numpy array of coefficients if found, otherwise None.
-    """
-    try:
-        coeffs = path_to_dict(annot, path)
-        if coeffs is not None:
-            return np.array(coeffs)
-    except KeyError:
-        return None
-    return None
-
-
 def merge_dict(res: list[dict]) -> dict:
     """
     Merge a list of dictionaries into a single dictionary.

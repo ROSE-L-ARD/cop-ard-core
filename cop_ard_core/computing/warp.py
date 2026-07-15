@@ -406,7 +406,7 @@ def compute_secondary_image_coordinates(
     range_grid_spacing: float,
     y_poly: xr.DataArray | None,
     x_poly: xr.DataArray | None,
-    chunk: dict,
+    offset: dict,
 ):
     """
     Computes final target azimuth and slant-range coordinates by applying
@@ -419,8 +419,8 @@ def compute_secondary_image_coordinates(
         Calculates coordinates for polynomial evaluation based on offsets and scaling.
         """
         if coord_type == "pixels":
-            y = coreg_azimuth_time.size + chunk["azimuth_time"].start
-            x = coreg_slant_range_time.size + chunk["slant_range_time"].start
+            y = coreg_azimuth_time.size + offset["azimuth_time"]
+            x = coreg_slant_range_time.size + offset["slant_range_time"]
         elif coord_type == "times":
             y, x = coreg_azimuth_time, coreg_slant_range_time
         else:
@@ -467,18 +467,28 @@ def compute_secondary_image_coordinates(
 def warp_cslc(
     coreg_cstack: xr.DataArray,
     coreg_phase_model: xr.DataArray,
+    slc: xr.DataArray,
     daz: xr.DataArray,
     drg: xr.DataArray,
-    coreg_acquisition_date: xr.DataArray,
+    acquisition_date: np.datetime64,
+    acquisition_date_index: int,
     coregistration_reference_date: np.datetime64,
-    orig_slcs: xr.DataTree,
-    orig_etad: xr.DataTree,
+    etad_correction_grid: xr.Dataset,
     kernel: dict,
+    azimuth_grid_spacing: float,
+    range_grid_spacing: float,
+    margin: np.ndarray,
+    max_tx_frequency: float,
+    min_tx_frequency: float,
+    scp_pixel_col: int,
+    scp_pixel_row: int,
+    timeca_polynomial_coeffs: np.ndarray,
+    dkcoa_polynomial_coeffs: np.ndarray,
     do_reramp: bool = True,
     do_flattening: bool = True,
     x_poly: xr.DataArray | None = None,
     y_poly: xr.DataArray | None = None,
-    chunk: dict = {},
+    evaluation_offset: dict = {},
 ):
     """
     Perform sinc interpolation and processing of a stack of SAR images.
@@ -509,130 +519,108 @@ def warp_cslc(
         Optional polynomial corrections for the azimuth (y dimension).
     store_path : str or None, optional
         Path to save the processed SAR stack.
-    chunk : object, optional
-        The chunk configuration for saving data.
+    evaluation_offset : dict
+        Offsets in pixels on which to evaluate polynomials
 
     Returns
     -------
-    xr.Dataset
-        The updated coregistered dataset with the warped cstack.
+    None
+        The coregistered dataset is warped inplace.
     """
-    # Define a margin around the processing area based on the kernel size to avoid edge effects.
-    margin = kernel["kernel_shape"] // 2 + 1
 
-    # --- Main Loop: Process each acquisition date ---
-    for i, dd in enumerate(coreg_acquisition_date.values):
-        # Extract the original SLC image and its metadata for the current date.
-        slc = orig_slcs.orig[dd].slc
-        single_pol_annotation = slc.attrs[list(slc.attrs.keys())[0]]
-        min_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Min"]
-        max_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Max"]
-        dkcoa_polynomial_coeffs = get_coefficients("Grid.Col.DeltaKCOAPoly.Coefs", single_pol_annotation)
-        timeca_polynomial_coeffs = get_coefficients("RMA.INCA.TimeCAPoly.Coefs", single_pol_annotation)
-        if dkcoa_polynomial_coeffs is None or timeca_polynomial_coeffs is None:
-            raise ValueError(f"Failed to extract polynomial coefficients for acquisition date {dd}")
-
-        dtaz = timeca_polynomial_coeffs[1] * single_pol_annotation["Grid"]["Col"]["SS"] * 1e9
-        dtrg = 2 * single_pol_annotation["Grid"]["Row"]["SS"] / speed_of_light
-        scp_pixel_row = single_pol_annotation["ImageData"]["SCPPixel"]["Row"]
-        scp_pixel_col = single_pol_annotation["ImageData"]["SCPPixel"]["Col"]
-        etad_correction_grid = orig_etad[dd].ds
-
-        az, rg, az0, rg0 = compute_secondary_image_coordinates(
-            coreg_azimuth_time=coreg_cstack.azimuth_time,
-            coreg_slant_range_time=coreg_cstack.slant_range_time,
-            slc=slc,
-            etad_correction_grid=etad_correction_grid,
-            daz=daz.sel(acquisition_date=dd),
-            drg=drg.sel(acquisition_date=dd),
-            azimuth_grid_spacing=dtaz,
-            range_grid_spacing=dtrg,
-            y_poly=y_poly,
-            x_poly=x_poly,
-            chunk=chunk,
+    az, rg, az0, rg0 = compute_secondary_image_coordinates(
+        coreg_azimuth_time=coreg_cstack.azimuth_time,
+        coreg_slant_range_time=coreg_cstack.slant_range_time,
+        slc=slc,
+        etad_correction_grid=etad_correction_grid,
+        daz=daz,
+        drg=drg,
+        azimuth_grid_spacing=azimuth_grid_spacing,
+        range_grid_spacing=range_grid_spacing,
+        y_poly=y_poly,
+        x_poly=x_poly,
+        offset=evaluation_offset,
+    )
+    # Convert the time-based coordinates to pixel-based coordinates for interpolation.
+    x, y = ((rg - rg0) / range_grid_spacing, (az - az0).astype(float) / azimuth_grid_spacing)
+    # --- Warping Execution ---
+    # Optimization: If it's the reference image with no corrections, just copy the data without warping.
+    if (
+        (acquisition_date == coregistration_reference_date)
+        & (y_poly is None)
+        & (x_poly is None)
+        & (etad_correction_grid is None)
+    ):
+        # No warping is required; directly slice the original image.
+        y, x = np.round(y).astype(int), np.round(x).astype(int)
+        coreg_cstack.loc[:, acquisition_date] = (
+            slc.isel(azimuth_time=slice(y.min(), y.max() + 1), slant_range_time=slice(x.min(), x.max() + 1))
+            .sel(polarization=coreg_cstack.polarization)
+            .squeeze("acquisition_date", drop=True)
         )
-        # Convert the time-based coordinates to pixel-based coordinates for interpolation.
-        x, y = ((rg - rg0) / dtrg, (az - az0).astype(float) / dtaz)
-        # --- Warping Execution ---
-        # Optimization: If it's the reference image with no corrections, just copy the data without warping.
-        if (
-            (dd == coregistration_reference_date)
-            & (y_poly is None)
-            & (x_poly is None)
-            & (etad_correction_grid is None)
-        ):
-            # No warping is required; directly slice the original image.
-            y, x = np.round(y).astype(int), np.round(x).astype(int)
-            coreg_cstack.loc[:, dd] = (
-                slc.isel(azimuth_time=slice(y.min(), y.max() + 1), slant_range_time=slice(x.min(), x.max() + 1))
-                .sel(polarization=coreg_cstack.polarization)
-                .squeeze("acquisition_date", drop=True)
-            )
-        else:
-            # --- Perform Sinc Warping ---
-            # Compute the bounding box of the area to read from the original SLC.
-            xmin, xmax = np.floor(x.min() - margin[1]).astype(int), np.ceil(x.max() + margin[1]).astype(int)
-            ymin, ymax = np.floor(y.min() - margin[0]).astype(int), np.ceil(y.max() + margin[0]).astype(int)
+    else:
+        # --- Perform Sinc Warping ---
+        # Compute the bounding box of the area to read from the original SLC.
+        xmin, xmax = np.floor(x.min() - margin[1]).astype(int), np.ceil(x.max() + margin[1]).astype(int)
+        ymin, ymax = np.floor(y.min() - margin[0]).astype(int), np.ceil(y.max() + margin[0]).astype(int)
 
-            # Ensure bounding box coordinates are not negative.
-            xmin, ymin = (xmin if xmin > 0 else 0, ymin if ymin > 0 else 0)
-            # Translate the target coordinates relative to the selected bounding box origin.
-            x, y = (x - xmin, y - ymin)
+        # Ensure bounding box coordinates are not negative.
+        xmin, ymin = (xmin if xmin > 0 else 0, ymin if ymin > 0 else 0)
+        # Translate the target coordinates relative to the selected bounding box origin.
+        x, y = (x - xmin, y - ymin)
 
-            # Select the input data from the original SLC based on the bounding box.
-            im_in = slc.isel(azimuth_time=slice(ymin, ymax), slant_range_time=slice(xmin, xmax))
-            im_in = im_in.squeeze("acquisition_date", drop=True)
+        # Select the input data from the original SLC based on the bounding box.
+        im_in = slc.isel(azimuth_time=slice(ymin, ymax), slant_range_time=slice(xmin, xmax))
+        im_in = im_in.squeeze("acquisition_date", drop=True)
 
-            # Identify the output indices that are safely inside the input image boundaries.
-            iy, ix = np.where(
-                (x >= margin[1])
-                & (y >= margin[0])
-                & (x < (im_in.slant_range_time.size - margin[1]))
-                & (y < (im_in.azimuth_time.size - margin[0]))
-            )
+        # Identify the output indices that are safely inside the input image boundaries.
+        iy, ix = np.where(
+            (x >= margin[1])
+            & (y >= margin[0])
+            & (x < (im_in.slant_range_time.size - margin[1]))
+            & (y < (im_in.azimuth_time.size - margin[0]))
+        )
 
-            # If no valid output indices are found, skip to the next acquisition.
-            if ix.size == 0:
-                continue
+        # If no valid output indices are found, skip warping.
+        if ix.size == 0:
+            return
 
-            # --- Loop over polarizations and warp ---
-            for polid, pol in enumerate(coreg_cstack.polarization.values):
-                im_out = np.zeros_like(x, dtype=slc.dtype)
-                # Perform the sinc warping on the valid indices.
-                im_out[iy, ix] = sinc_warp(im_in.sel(polarization=pol).values, x[iy, ix], y[iy, ix], kernel)
-                # Assign the warped image to the output coregistered stack.
-                coreg_cstack[polid, i, :, :] = im_out
-        # --- Optional Phase Corrections ---
-        # Optional: Apply phase flattening based on the range displacement.
-        if do_flattening:
-            f0 = (max_tx_frequency + min_tx_frequency) / 2.0
-            flattening_rg = drg.sel(acquisition_date=dd).transpose("azimuth_time", "slant_range_time")
-            coreg_phase_model[i, :, :] = (2 * np.pi * f0) * flattening_rg
-            coreg_cstack[:, i, :, :] *= np.exp(1j * coreg_phase_model[i, :, :])
+        # --- Loop over polarizations and warp ---
+        for polid, pol in enumerate(coreg_cstack.polarization.values):
+            im_out = np.zeros_like(x, dtype=slc.dtype)
+            # Perform the sinc warping on the valid indices.
+            im_out[iy, ix] = sinc_warp(im_in.sel(polarization=pol).values, x[iy, ix], y[iy, ix], kernel)
+            # Assign the warped image to the output coregistered stack.
+            coreg_cstack[polid, acquisition_date_index, :, :] = im_out
+    # --- Optional Phase Corrections ---
+    # Optional: Apply phase flattening based on the range displacement.
+    if do_flattening:
+        f0 = (max_tx_frequency + min_tx_frequency) / 2.0
+        flattening_rg = drg.sel(acquisition_date=acquisition_date).transpose("azimuth_time", "slant_range_time")
+        coreg_phase_model[acquisition_date_index, :, :] = (2 * np.pi * f0) * flattening_rg
+        coreg_cstack[:, acquisition_date_index, :, :] *= np.exp(1j * coreg_phase_model[acquisition_date_index, :, :])
 
-        # Optional: Apply a phase ramp (reramping) to the image.
-        if do_reramp:
-            try:
-                # Get the reference point from the scene center pixel (SCP).
-                rg0 = slc.isel(slant_range_time=scp_pixel_row).slant_range_time.values
-                az0 = slc.isel(azimuth_time=scp_pixel_col).azimuth_time.values
-            except Exception as e:
-                # Fallback for test cases or missing metadata.
-                logger.warning(f"type is: {e.__class__.__name__}, fix for tests")
-                rg0 = slc.slant_range_time[0].values
-                az0 = slc.azimuth_time[0].values
-            # Convert time-based coordinates to a unitless system for polynomial evaluation.
-            az = (az - az0).astype(float) / (1e9 * timeca_polynomial_coeffs[1])
-            rg = (rg - rg0) * speed_of_light / 2
+    # Optional: Apply a phase ramp (reramping) to the image.
+    if do_reramp:
+        try:
+            # Get the reference point from the scene center pixel (SCP).
+            rg0 = slc.isel(slant_range_time=scp_pixel_row).slant_range_time.values
+            az0 = slc.isel(azimuth_time=scp_pixel_col).azimuth_time.values
+        except Exception as e:
+            # Fallback for test cases or missing metadata.
+            logger.warning(f"type is: {e.__class__.__name__}, fix for tests")
+            rg0 = slc.slant_range_time[0].values
+            az0 = slc.azimuth_time[0].values
+        # Convert time-based coordinates to a unitless system for polynomial evaluation.
+        az = (az - az0).astype(float) / (1e9 * timeca_polynomial_coeffs[1])
+        rg = (rg - rg0) * speed_of_light / 2
 
-            # Integrate the Doppler Centroid polynomial to get the phase ramp polynomial.
-            coeff = (2 * np.pi) * np.polynomial.polynomial.polyint(dkcoa_polynomial_coeffs, axis=1)
-            # Evaluate the 2D polynomial to get the phase ramp values.
-            phramp = np.polynomial.polynomial.polyval2d(rg, az, coeff)
-            # Apply the phase ramp to the complex SLC data.
-            coreg_cstack[:, i, :, :] *= np.exp(1j * phramp)
-    coreg = xr.Dataset({"cstack": coreg_cstack, "phase_model": coreg_phase_model})
-    return coreg
+        # Integrate the Doppler Centroid polynomial to get the phase ramp polynomial.
+        coeff = (2 * np.pi) * np.polynomial.polynomial.polyint(dkcoa_polynomial_coeffs, axis=1)
+        # Evaluate the 2D polynomial to get the phase ramp values.
+        phramp = np.polynomial.polynomial.polyval2d(rg, az, coeff)
+        # Apply the phase ramp to the complex SLC data.
+        coreg_cstack[:, acquisition_date_index, :, :] *= np.exp(1j * phramp)
 
 
 def extract_abs_grid(slc: xr.DataArray, dec: int = 0) -> Tuple[xr.DataArray, xr.DataArray]:

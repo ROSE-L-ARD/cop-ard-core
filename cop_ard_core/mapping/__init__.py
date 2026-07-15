@@ -3528,7 +3528,7 @@ def coreg_single_burst(
     }
 
     map_blocks(
-        warp_cslc,
+        blockwise_warp_cslc,
         obj=[measurements.cstack, measurements.phase_model, daz_drg.daz, daz_drg.drg, measurements.acquisition_date],
         args=(
             measurements.coregistration_reference_date,
@@ -6394,4 +6394,127 @@ def single_simulation_ml(
         ),
     }
     return (burst_id, simulation_ml)
+
+
+def get_coefficients(path: str, annot: dict) -> np.ndarray | None:
+    """
+    Utility function to extract polynomial coefficients from the annotation dictionary.
+
+    Args:
+        annot: The annotation dictionary containing the metadata.
+        path: The dot-separated path to the desired coefficients (e.g., "Radiometric.SigmaZeroSFPoly.Coefs").
+    Returns:
+        A numpy array of coefficients if found, otherwise None.
+    """
+    try:
+        coeffs = path_to_dict(annot, path)
+        if coeffs is not None:
+            return np.array(coeffs)
+    except KeyError:
+        return None
+    return None
+
+
+def blockwise_warp_cslc(
+    coreg_cstack: xr.DataArray,
+    coreg_phase_model: xr.DataArray,
+    daz: xr.DataArray,
+    drg: xr.DataArray,
+    coreg_acquisition_date: xr.DataArray,
+    coregistration_reference_date: np.datetime64,
+    orig_slcs: xr.DataTree,
+    orig_etad: xr.DataTree,
+    kernel: dict,
+    do_reramp: bool = True,
+    do_flattening: bool = True,
+    x_poly: xr.DataArray | None = None,
+    y_poly: xr.DataArray | None = None,
+    chunk: dict = {},
+):
+    """
+    Perform sinc interpolation and processing of a stack of SAR images.
+
+    This function iterates through each acquisition in a coregistered SAR
+    dataset, applies geometric and polynomial corrections, and warps the
+    original SLC (Single Look Complex) image to the reference grid using
+    sinc interpolation. It also handles optional phase adjustments like
+    flattening and reramping.
+
+    Parameters
+    ----------
+    coreg : xr.Dataset
+        Coregistered SAR dataset containing the target grid.
+    daz_drg : xr.Dataset
+        A dataset with azimuth and slant-range adjustment values.
+    orig : list
+        The original SAR dataset used as a reference.
+    kernel : dict
+        A dictionary containing parameters for the sinc interpolation kernel.
+    do_reramp : bool, optional
+        If True, apply phase reramping to the warped image. Defaults to True.
+    do_flattening : bool, optional
+        If True, apply phase flattening. Defaults to False.
+    x_poly : xr.DataArray or None, optional
+        Optional polynomial corrections for the range (x dimension).
+    y_poly : xr.DataArray or None, optional
+        Optional polynomial corrections for the azimuth (y dimension).
+    store_path : str or None, optional
+        Path to save the processed SAR stack.
+    chunk : object, optional
+        The chunk configuration for saving data.
+
+    Returns
+    -------
+    xr.Dataset
+        The updated coregistered dataset with the warped cstack.
+    """
+    # Define a margin around the processing area based on the kernel size to avoid edge effects.
+    margin = kernel["kernel_shape"] // 2 + 1
+
+    # --- Main Loop: Process each acquisition date ---
+    for i, acquisition_date in enumerate(coreg_acquisition_date.values):
+        # Extract the original SLC image and its metadata for the current date.
+        slc = orig_slcs.orig[acquisition_date].slc
+        single_pol_annotation = slc.attrs[list(slc.attrs.keys())[0]]
+        min_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Min"]
+        max_tx_frequency = single_pol_annotation["RadarCollection"]["TxFrequency"]["Max"]
+        dkcoa_polynomial_coeffs = get_coefficients("Grid.Col.DeltaKCOAPoly.Coefs", single_pol_annotation)
+        timeca_polynomial_coeffs = get_coefficients("RMA.INCA.TimeCAPoly.Coefs", single_pol_annotation)
+        if dkcoa_polynomial_coeffs is None or timeca_polynomial_coeffs is None:
+            raise ValueError(f"Failed to extract polynomial coefficients for acquisition date {acquisition_date}")
+
+        dtaz = timeca_polynomial_coeffs[1] * single_pol_annotation["Grid"]["Col"]["SS"] * 1e9
+        dtrg = 2 * single_pol_annotation["Grid"]["Row"]["SS"] / speed_of_light
+        scp_pixel_row = single_pol_annotation["ImageData"]["SCPPixel"]["Row"]
+        scp_pixel_col = single_pol_annotation["ImageData"]["SCPPixel"]["Col"]
+        etad_correction_grid = orig_etad[acquisition_date].ds
+        evaluation_offset = {k: v.start for k, v in chunk.items()}
+        warp_cslc(
+            coreg_cstack=coreg_cstack,
+            coreg_phase_model=coreg_phase_model,
+            slc=slc,
+            daz=daz.sel(acquisition_date=acquisition_date),
+            drg=drg.sel(acquisition_date=acquisition_date),
+            acquisition_date=acquisition_date,
+            acquisition_date_index=i,
+            coregistration_reference_date=coregistration_reference_date,
+            etad_correction_grid=etad_correction_grid,
+            kernel=kernel,
+            azimuth_grid_spacing=dtaz,
+            range_grid_spacing=dtrg,
+            margin=margin,
+            max_tx_frequency=max_tx_frequency,
+            min_tx_frequency=min_tx_frequency,
+            scp_pixel_col=scp_pixel_col,
+            scp_pixel_row=scp_pixel_row,
+            timeca_polynomial_coeffs=timeca_polynomial_coeffs,
+            dkcoa_polynomial_coeffs=dkcoa_polynomial_coeffs,
+            do_reramp=do_reramp,
+            do_flattening=do_flattening,
+            x_poly=x_poly,
+            y_poly=y_poly,
+            evaluation_offset=evaluation_offset,
+        )
+    coreg = xr.Dataset({"cstack": coreg_cstack, "phase_model": coreg_phase_model})
+    return coreg
 
