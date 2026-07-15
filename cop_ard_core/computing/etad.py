@@ -15,8 +15,6 @@ import numpy as np
 import scipy.interpolate
 import xarray as xr
 
-from cop_ard_core.computing.io import get_storage_options, normpath, read, write
-
 
 def apply_etad_corrections(
     az: xr.DataArray,

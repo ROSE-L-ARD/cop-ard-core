@@ -25,7 +25,6 @@ from pyproj import CRS, Transformer, datadir
 from pyproj.transformer import TransformerGroup
 
 from cop_ard_core.computing.griddata import interp_dataset
-from cop_ard_core.computing.io import get_storage_options, normpath, write
 from cop_ard_core.computing.logger import logger
 
 rioxarray.__version__
