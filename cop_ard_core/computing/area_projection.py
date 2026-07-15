@@ -448,7 +448,7 @@ def get_w(
         # data_path=f"{data_path_tmp}/sparse_dir/layover_block_{i}/{'.'.join([str(j) for j in b])}",
         # skip_read=True,  # We don't need to read these back
         # storage_options=get_storage_options(kwargs, key="storage_options_static"),
-        layover: list[tuple[str, xr.Dataset]] = {}
+        layover: list[tuple[str, xr.Dataset]] = []
         for i, (ll, b) in enumerate([(l1, bbox_l1), (l2, bbox_l2)]):
             ds = build_sparse_array(
                 data=ll[0].astype("float32"),
