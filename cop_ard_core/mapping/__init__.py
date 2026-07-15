@@ -1,3 +1,4 @@
+from cop_ard_core.computing.kernels import update_dense_array
 import pyproj
 import rasterio
 import copy
@@ -29,7 +30,7 @@ from cop_ard_core.computing.area_projection import (
     compute_geocoded_mask,
     compute_rasterization,
     compute_shadow,
-    sparse_to_dense, compute_rtc_ap,
+    compute_rtc_ap,
 )
 from cop_ard_core.computing.computation import map, map_blocks
 from cop_ard_core.computing.dem import (
@@ -3808,7 +3809,7 @@ def map_shadow_projection(
 
     # Map the `compute_geo_ap` function over all chunks of the `empty_data`
     map_blocks(
-        func=compute_geocoded_mask,
+        func=blockwise_geocoded_mask,
         obj=empty_data,
         args=args,
         kwargs=kwargs,
@@ -4233,7 +4234,7 @@ def map_rasterization_and_rtc_ap(
         3: lambda _, __: None,
     }
     map_blocks(
-        func=compute_rasterization,
+        func=blockwise_rasterization,
         obj=simulation,
         args=[
             xmin_global,
@@ -5913,4 +5914,295 @@ def blockwise_rtc_ap(
     geo_data = xr.Dataset(data_vars={"anf": anf, "lia": lia})
 
     return geo_data, ablock_dt
+
+
+def sparse_to_dense(
+    A: xr.Dataset, files_A, files_l1, files_l2, data_path: str, chunk: dict = {}, **kwargs
+) -> xr.Dataset:
+    """
+    Converts and accumulates sparse matrix blocks into a single dense xr.DataArray
+    for a specified chunk of the radar grid.
+
+    This function is intended to be used with a `map_blocks` operation. It reads
+    multiple sparse files (Area, Layover1, Layover2), finds those that
+    overlap with the target `chunk`, and sums them into a dense array.
+
+    Parameters
+    ----------
+    A : xr.Dataset
+        An empty xr.Dataset, required by the `map_blocks`
+        framework to determine the `chunk` argument.
+    files_A : list of str
+        A list of file paths to the sparse 'A' (Area) blocks.
+    files_l1 : list of str
+        A list of file paths to the sparse 'l1' (layover) blocks.
+    files_l2 : list of str
+        A list of file paths to the sparse 'l2' (layover) blocks.
+    data_path : str
+        The directory where the resulting dense radar grid
+        dataset will be saved.
+    chunk : dict or None, optional
+        The chunk definition (e.g., {'azimuth_time': slice(...),
+        'slant_range_time': slice(...)}) associated with this job.
+
+    Returns
+    -------
+    xr.Dataset
+        The accumulated dense 'anf' and 'layover' arrays as an xr.Dataset.
+    """
+    # Extract the radar grid boundaries for this target dense chunk
+    rg_min = chunk["slant_range_time"].start
+    rg_max = chunk["slant_range_time"].stop
+    az_min = chunk["azimuth_time"].start
+    az_max = chunk["azimuth_time"].stop
+
+    # Initialize empty dense arrays to accumulate results
+    A_blocks = np.zeros((az_max - az_min, rg_max - rg_min), dtype="float32")
+    l1_blocks = np.zeros((az_max - az_min, rg_max - rg_min), dtype="float32")
+    l2_blocks = np.zeros((az_max - az_min, rg_max - rg_min), dtype="float32")
+
+    # Loop over the three file lists and their corresponding destination arrays
+    for list_files, dense_array in zip([files_A, files_l1, files_l2], [A_blocks, l1_blocks, l2_blocks]):
+        # Iterate through each sparse file
+        for f in list_files:
+            file = normpath(f)
+            # Parse the sparse block's bounding box from its file name
+            # Format: .../{az_min}.{az_max}.{rg_min}.{rg_max}
+            line = file.split("/")[-1].split(".")
+            block_az_min = int(line[0])
+            block_az_max = int(line[1])
+            block_rg_min = int(line[2])
+            block_rg_max = int(line[3])
+
+            # Check if the sparse block overlaps with the target dense chunk
+            if (
+                (block_az_max >= az_min)
+                & (block_az_min <= az_max)
+                & (block_rg_max >= rg_min)
+                & (block_rg_min <= rg_max)
+            ):
+                # If it overlaps, read the sparse data
+                ds = read(
+                    file,
+                    consolidated=False,
+                    storage_options=get_storage_options(kwargs, "storage_options_dynamic"),
+                )
+                data = ds.data.values
+                indices = ds.indices.values
+                indptr = ds.indptr.values
+
+                # Call the kernel to efficiently update the dense array with sparse data
+                # This handles adding values to the correct sub-region
+                update_dense_array(
+                    array=dense_array.ravel(),
+                    data=data,
+                    indices=indices,
+                    indptr=indptr,
+                    xmin=rg_min,
+                    xmax=rg_max,
+                    ymin=az_min,
+                    ymax=az_max,
+                )
+
+    # Convert layover contribution counts to boolean masks
+    # Any pixel with a contribution > 1 is considered layover
+    l1_blocks = l1_blocks > 1 + 1e-7  # Use epsilon for float comparison
+    l2_blocks = l2_blocks > 1 + 1e-7
+
+    # Convert the dense ANF array to an xr.DataArray with correct dims
+    A_blocks = xr.DataArray(A_blocks, dims=["azimuth_time", "slant_range_time"])
+    # Combine the two layover masks
+    layover_blocks = xr.DataArray(l1_blocks + l2_blocks, dims=["azimuth_time", "slant_range_time"])
+
+    # Create the final dataset for the radar grid chunk
+    radar_data = xr.Dataset(data_vars={"anf": A_blocks, "layover": layover_blocks})
+
+    # Write the dense dataset to disk for the specified chunk region
+    return radar_data
+
+
+def blockwise_geocoded_mask(
+    empty_data: xr.Dataset,
+    chunk_length: int,
+    xsize_global: int,
+    data_path_static: str,
+    threshold: float = 0.3,
+    chunk: dict = {},
+    **kwargs,
+) -> xr.Dataset:
+    """
+    Computes the geocoded Gamma Naught for a single chunk.
+
+    This is the worker function called by `map_blocks`. It loads the
+    pre-computed sparse weights (`w`) for this chunk, reads the corresponding
+    section of the SLC and radar-grid ANF, normalizes the SLC intensity by
+    the ANF, performs the sparse matrix multiplication (geocoding), and
+    writes the resulting geocoded chunk to the 'geo_grid' Zarr store.
+
+    Parameters
+    ----------
+    empty_data : xr.Dataset
+        The template chunk (used by `map_blocks`
+        to determine dimensions).
+    slc : xr.DataArray
+        The *entire* SLC DataArray. This function will
+        slice the required portion.
+    chunk_length : int
+        The edge size of a square geogrid chunk.
+    xsize_global : int
+        The total global size of the radar grid along
+        the x-axis (range).
+    data_path_static : str
+        Path to static data (weights 'w', 'radar_grid').
+    data_path_tmp : str
+        Path to the output 'geo_grid' Zarr store.
+    recompute : bool, optional
+        If True, triggers re-computation of
+        geogrid masks (layover, shadow).
+        Defaults to False.
+    threshold : float, optional
+        Minimum ANF value; pixels below this
+        are set to 0 to avoid division by zero.
+        Defaults to 1e-3.
+    chunk : dict or None, optional
+        A dictionary injected by `map_blocks`
+        defining the slices for this chunk.
+
+    Returns
+    -------
+    xr.Dataset
+        Geocoded mask data for this chunk.
+    """
+    so = get_storage_options(kwargs)
+    # Get the geogrid dimensions for this chunk (e.g., 512x512)
+    dim_x, dim_y = empty_data.x.size - 1, empty_data.y.size - 1
+
+    # Determine the chunk's row/column index from its start position
+    row_number, column_number = chunk["y"].start // chunk_length, chunk["x"].start // chunk_length
+
+    # Load the sparse weights file corresponding to this chunk
+    f = normpath(f"{data_path_static}/w/{row_number}.{column_number}")
+    if exists(f, storage_options=so):
+        # Read sparse matrix components (CSR format)
+        ds = read(f, as_type="xr.Dataset", consolidated=False, storage_options=so)
+        data = ds.data.values
+        indices = ds.indices.values
+        indptr = ds.indptr.values
+        shape = ds.shape.values
+        # Get the bounding box of the radar pixels this chunk depends on
+        bbox_radar = ds.attrs["radar_bbox"]
+        radar_data = read(
+            normpath(f"{data_path_static}/radar_grid"),
+            mask_and_scale=False,
+            storage_options=so,
+        ).isel(
+            azimuth_time=slice(bbox_radar[0], bbox_radar[1] + 1),
+            slant_range_time=slice(bbox_radar[2], bbox_radar[3] + 1),
+        )
+        geocoded_mask = compute_geocoded_mask(
+            csr_matrix=ds, 
+            layover=radar_data.layover,
+            shadow=radar_data.shadow,
+            xsize_global=xsize_global,
+            bbox_radar=bbox_radar,
+            output_shape=(dim_y, dim_x),
+            threshold=threshold
+        )
+        geocoded_mask = xr.Dataset(data_vars={"mask": (["y", "x"], geocoded_mask)})
+    else:
+        # If no weights were provided, create an empty boolean mask
+        size = {k: v.stop - v.start for k, v in chunk.items()}
+        geocoded_mask = xr.Dataset(
+            data_vars={"mask": (["y", "x"], np.zeros((size["y"] - 1, size["x"] - 1), dtype="int32"))}
+        )
+
+    return geocoded_mask
+
+
+def blockwise_rasterization(
+    simulation: xr.DataArray,
+    xmin_global: int,
+    ymin_global: int,
+    xsize_global: int,
+    dim_x_global: int,
+    radar_grid_pixel_area: float,
+    bbox: np.ndarray,
+    chunk_length: int,
+    resolution: tuple[float, float],
+    job_id=None,
+) -> tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None]:
+    """
+    Compute rasterization weights and the accumulated gamma-naught area (RTC-AP)
+    for a block of the radar data simulation.
+
+    This function performs triangulation on the geogrid, computes weights
+    for mapping from radar grid to geogrid, and then calculates the
+    Gamma Naught Area (GNA), local incidence angle (lia), and number of looks (nlooks).
+
+    Parameters
+    ----------
+    simulation : xr.DataArray
+        The radar data simulation chunk, containing
+        coordinates (az_px, rg_px) and DEM height (h).
+    data_path_static : str
+        Path to the directory where static results
+        (geo_grid, weights) will be saved.
+    data_path_tmp : str
+        Path to the directory where temporary results
+        (sparse layover/area blocks) will be saved.
+    xmin_global : int
+        Global minimum of the radar x-coordinate (range).
+    ymin_global : int
+        Global minimum of the radar y-coordinate (azimuth).
+    xsize_global : int
+        Total radar grid size along the x-axis (range).
+    dim_x_global : int
+        Total geogrid size along the x-axis.
+    radar_grid_pixel_area : float
+        The area of a single radar grid pixel.
+    normal_order : bool
+        The order needed to compute the surface normal correctly.
+    bbox : np.ndarray
+        Bounding box coordinates of the full radar scene
+        [min_rg, min_az, max_rg, max_az].
+    chunk_length : int
+        Size (dimension) of a square geogrid chunk.
+    resolution : tuple[float, float]
+        Output resolution (az_res, rg_res)
+        used to calculate expected number of looks.
+    job_id : int or None, optional
+        Identifier for the job, used to determine the
+        position of this chunk in the global grid.
+
+    Returns
+    -------
+    tuple[xr.Dataset, xr.DataTree | None, xr.DataTree | None, xr.DataTree | None]
+        A tuple containing the computed geogrid data (nlooks, anf, lia) and the temporary sparse area matrices.
+    """
+
+    # Determine the chunk's row and column position in the global grid using the job_id
+    row_number = job_id // (np.ceil(dim_x_global / chunk_length).astype(int))
+    column_number = job_id % (np.ceil(dim_x_global / chunk_length).astype(int))
+    block_id = f"{row_number}.{column_number}"
+    nlooks, w, layover = compute_rasterization(
+        simulation=simulation,
+        xmin_global=xmin_global,
+        ymin_global=ymin_global,
+        xsize_global=xsize_global,
+        radar_grid_pixel_area=radar_grid_pixel_area,
+        bbox=bbox,
+        resolution=resolution,
+        block_id=block_id,
+    )
+    if w is not None:
+        w_dt = xr.DataTree(children={block_id: xr.DataTree(dataset=w)})
+    if layover is not None:
+        layover_dt = xr.DataTree(children={f"layover_block_{i}": xr.DataTree() for i in range(2)})
+        for i, (layover_bbox, layover_matrix) in enumerate(layover):
+            layover_dt[f"layover_block_{i}/{layover_bbox}"] = xr.DataTree(dataset=layover_matrix)
+
+    # Combine geogrid results into a single dataset
+    geo_data = xr.Dataset(data_vars={"nlooks": nlooks})
+
+    return geo_data, w_dt, layover_dt
 
