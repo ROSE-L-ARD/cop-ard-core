@@ -38,6 +38,83 @@ from cop_ard_core.computing.kernels import (
 from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_geo_from_radar_bbox, get_radar_bbox
 
 
+def build_sparse_array(
+    data: np.ndarray,
+    col: np.ndarray,
+    row: np.ndarray,
+    shape: np.ndarray,
+    format: str,
+    chunks: int,
+    attrs: dict = {},
+) -> xr.Dataset:
+    """
+    Save a sparse matrix in COO or CSR format to a Zarr store.
+
+    This function takes the components of a sparse matrix (data, indices, etc.),
+    packages them into an xarray.Dataset, and writes them to a Zarr store.
+    This allows for efficient storage of sparse data.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The non-zero values of the sparse matrix.
+    col : np.ndarray
+        For "COO", the column indices for each value. For "CSR",
+        this corresponds to the `indices` array.
+    row : np.ndarray
+        For "COO", the row indices for each value. For "CSR",
+        this corresponds to the `indptr` array.
+    shape : np.ndarray
+        The shape of the equivalent dense matrix.
+    format : str
+        The sparse format, which must be either "COO" or "CSR".
+    chunks : int
+        The chunk size to be used for the Dask arrays in the dataset.
+    data_path : str
+        The output path for the Zarr store.
+    skip_read : bool, optional
+        If False, the function will read the data back
+        from disk and return it. Defaults to True.
+    attrs : dict, optional
+        Additional attributes to save with the dataset.
+
+    Returns
+    -------
+    xr.Dataset or None
+        The saved dataset if `skip_read` is False, otherwise None.
+
+    Raises
+    ------
+    Exception
+        If the specified format is not "COO" or "CSR".
+    """
+    # Validate that the specified sparse format is supported.
+    if format not in ["COO", "CSR"]:
+        raise Exception(f"Expected COO or CSR format, got {format}")
+    # Initialize a dictionary to hold the data variables for the xarray Dataset.
+    data_vars = {
+        "data": ("point", data),
+        "nnz": data.shape[0],
+        "shape": shape,
+    }
+    # Add format-specific variables.
+    if format == "COO":
+        # For Coordinate format, store column and row index arrays.
+        data_vars["col"] = ("point", col)
+        data_vars["row"] = ("point", row)
+    elif format == "CSR":
+        # For Compressed Sparse Row format, store indices and index pointer arrays.
+        data_vars["indices"] = ("point", col)
+        data_vars["indptr"] = ("indptr", row)
+
+    # Create the xarray Dataset from the prepared data variables and attributes.
+    ds = xr.Dataset(
+        data_vars=data_vars,
+        attrs={"format": format, **attrs},
+    ).chunk(chunks)
+    return ds
+
+
 def triangulate_regular(ysize: int, xsize: int) -> np.ndarray:
     """
     Generate vertex indices for a standard triangulation of a regular grid.
