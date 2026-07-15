@@ -6200,3 +6200,117 @@ def blockwise_rasterization(
 
     return geo_data, w_dt, layover_dt
 
+
+def open_copdem30m(minx: float, miny: float, maxx: float, maxy: float) -> xr.Dataset:
+    """
+    Open a subset of the Copernicus GLO-30 DEM from a cloud-based Zarr store.
+
+    Parameters
+    ----------
+    minx
+        The minimum longitude of the bounding box.
+    miny
+        The minimum latitude of the bounding box.
+    maxx
+        The maximum longitude of the bounding box.
+    maxy
+        The maximum latitude of the bounding box.
+
+    Returns
+    -------
+    xarray.Dataset
+        An xarray.Dataset containing the clipped DEM data.
+    """
+    # Open the remote Copernicus DEM Zarr store.
+    dem = xr.open_dataset(
+        "https://data.earthdatahub.destine.eu/copernicus-dem/GLO-30-v0.zarr",
+        storage_options={"client_kwargs": {"trust_env": True}},
+        chunks={},
+        engine="zarr",
+        decode_coords="all",
+        mask_and_scale=False,
+    )
+    if not isinstance(dem.rio.crs, rasterio.crs.CRS):
+        raise Exception(f"Expected rasterio.crs.CRS, got {type(dem.rio.crs)}")
+    # Clip the global DEM to the specified bounding box.
+    dem = dem.rio.clip_box(minx, miny, maxx, maxy, crs="EPSG:4326")
+    # Rename coordinates to the standard 'y' and 'x'.
+    dem = dem.rename({"lat": "y", "lon": "x"})
+    return dem
+
+
+def import_dem(
+    bbox: Sequence[float],
+    working_dir: str | None = None,
+    dem_type: str = "Copernicus",
+    chunks: Mapping[Any, int] | None = None,
+    border: float = 0.05,
+    **kwargs,
+) -> xr.DataArray:
+    """
+    Import and preprocess a Digital Elevation Model (DEM).
+
+    This function handles the import of a DEM from a specified source (e.g.,
+    Copernicus GLO-30, or a user-provided file path). It clips the DEM to a
+    given bounding box, applies chunking, handles NoData values, and saves
+    the result to a Zarr store.
+    """
+
+    # Expand the bounding box slightly to avoid edge effects during reprojection.
+    minx, miny, maxx, maxy = bbox
+    minx = minx - border
+    miny = miny - border
+    maxx = maxx + border
+    maxy = maxy + border
+
+    # --- DEM Source Handling ---
+    if dem_type == "Copernicus":
+        # Download the Copernicus DEM for the specified bounding box.
+        dem = open_copdem30m(minx, miny, maxx, maxy)
+    else:
+        # Open a user-specified DEM from a local or remote path.
+        dem = xr.open_dataset(
+            dem_type,
+            chunks={},
+            engine="zarr",
+            decode_coords="all",
+            storage_options=get_storage_options(kwargs, key="storage_options_dem"),
+        )
+        if not dem.rio.crs:
+            raise Exception(f"Input DEM projection not defined {dem} {dem.rio.crs}")
+
+        # Standardize coordinate names if the CRS is geographic.
+        if dem.rio.crs.is_geographic:
+            if all([i in dem.coords for i in ["lon", "lat"]]):
+                dem = dem.rename({"lat": "y", "lon": "x"})
+
+        # Preserve original chunking for efficient clipping.
+        chunksize = {e: dem.chunksizes[e][0] for e in dem.coords if e in ["x", "y", "lon", "lat"]}
+
+        # Clip the DEM to the area of interest.
+        dem = dem.rio.clip_box(minx, miny, maxx, maxy, crs="EPSG:4326")
+
+        # Re-apply chunking after clipping.
+        dem = dem.chunk(chunksize)
+
+    # Apply user-specified chunking if provided.
+    if chunks:
+        dem = dem.chunk(chunks)
+        # Drop encoding to prevent issues when writing re-chunked data to Zarr
+        dem = dem.drop_encoding()
+
+    # Convert the Dataset to a DataArray named 'z'.
+    dem = dem.to_array(name="z").squeeze(drop=True)
+
+    # --- NaN Handling ---
+    # Ensure spatial dimensions are strictly recognized
+    dem.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+
+    # Write the processed DEM to a Zarr store in the working directory.
+    if (dem_type == "Copernicus") or dem_type.startswith("https://"):
+        dem = write(dem, normpath(f"{working_dir}/dem"), storage_options=get_storage_options(kwargs))
+        if not isinstance(dem, xr.DataArray):
+            raise Exception("Error reopening DEM dataarray")
+
+    return dem
+
