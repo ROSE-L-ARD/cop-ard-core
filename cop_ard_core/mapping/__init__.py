@@ -1,3 +1,4 @@
+from functools import reduce
 from cop_ard_core.computing.kernels import update_dense_array
 import pyproj
 import rasterio
@@ -74,14 +75,13 @@ from cop_ard_core.computing.simul import (
 from cop_ard_core.computing.slc import (
     amplitude_calibration,
     apply_invalid_mask,
-    get_coefficients,
     get_relative_orbit_number,
     image_deramp,
     intersect,
     merge_dict,
     noise_removal,
 )
-from cop_ard_core.computing.warp import coreg_qlt, sinc, updateLut, warp_cslc, warp_dazdrg, warp_gslc
+from cop_ard_core.computing.warp import coreg_qlt, sinc, warp_cslc, warp_dazdrg, warp_gslc, getLUT
 
 
 def init_single_coreg_stack(
@@ -2497,8 +2497,6 @@ def map_geocode_phase(
             cslc.measurements.phase_model,
             cslc.conditions.phase_demod.phase_demod,
             radar_data.anf,
-            radar_data.layover,
-            radar_data.shadow,
             do_reramp,
             gamma_flattening,
             dtaz,
@@ -5143,11 +5141,44 @@ def update_quality(slc: xr.DataTree, daz_drg: xr.Dataset, quality: xr.Dataset) -
 
     # --- Compute and Assign Quality Metrics ---
     # Compute the estimated coregistration accuracy.
-    quality = quality.assign(coreg_qlt(slc, daz_drg))
+    annot = slc.coreg.measurements.cstack.attrs
+    annot = annot[list(annot.keys())[0]]
+    scpcoa_incidence_angle = annot["SCPCOA"]["IncidenceAng"]
+    coreg_arp_coeffs = {e: get_coefficients(f"Position.ARPPoly.{e}.Coefs", annot) for e in ["X", "Y", "Z"]}
+    if any(coeff is None for coeff in coreg_arp_coeffs.values()):
+        raise ValueError("Missing ARP polynomial coefficients in metadata.")
+    t0 = np.datetime64(annot["Timeline"]["CollectStart"], "ns")
+    acquisition_date_arp_coeffs = {}
+    acquisition_date_t0 = {}
+    acquisition_date_orbit_type = {}
+    for acquisition_date in slc.coreg.measurements.acquisition_date:
+        acquisition_date_annot = slc.orig[str(acquisition_date.values)].measurements.slc.attrs
+        acquisition_date_annot = acquisition_date_annot[list(annot.keys())[0]]
+        acquisition_date_arp_coeffs[acquisition_date] = {e: get_coefficients(f"Position.ARPPoly.{e}.Coefs", acquisition_date_annot) for e in ["X", "Y", "Z"]}
+        acquisition_date_t0[acquisition_date] = np.datetime64(annot["Timeline"]["CollectStart"], "ns")
+        if any(coeff is None for coeff in acquisition_date_arp_coeffs[acquisition_date].values()):
+            raise ValueError("Missing ARP polynomial coefficients in metadata.")
+        # Determine the type of orbit data used for this acquisition.
+        if ("conditions" in slc.orig[str(acquisition_date.values)]) and ("orbit" in slc.orig[str(acquisition_date.values)].conditions):
+            orb_type = slc.orig[str(acquisition_date.values)].conditions.orbit.attrs["orbit_type"]
+        else:
+            orb_type = "AUX_ANNOTATED"
+        acquisition_date_orbit_type[acquisition_date] = orb_type
+
+    quality = quality.assign(
+        coreg_qlt(
+            slc.coreg.measurements.ds,
+            daz_drg,
+            scpcoa_incidence_angle=scpcoa_incidence_angle,
+            coreg_arp_coeffs=coreg_arp_coeffs,
+            t0=t0,
+            acquisition_date_arp_coeffs=acquisition_date_arp_coeffs,
+            acquisition_date_orbit_type=acquisition_date_orbit_type,
+            acquisition_date_t0=acquisition_date_t0,
+        )
+    )
     # Generate the updated Noise LUT for the coregistered grid.
 
-    annot = slc.coreg.measurements.cstack.attrs
-    annot = annot[list(annot)[0]]
     if path_to_dict(annot, "Radiometric.NoiseLevel.NoisePoly.Coefs") is not None:
         quality = quality.assign(
             updateLut(
@@ -6517,4 +6548,111 @@ def blockwise_warp_cslc(
         )
     coreg = xr.Dataset({"cstack": coreg_cstack, "phase_model": coreg_phase_model})
     return coreg
+
+
+def updateLut(slcs: xr.DataTree, daz_drg: xr.Dataset, path_to_coeff: str, out_name: str, **kwargs) -> xr.Dataset:
+    """
+    Update or create a Lookup Table (LUT) for a specific parameter.
+
+    This function orchestrates the creation of a LUT (e.g., for Doppler
+    frequency, sigma0, etc.) for each acquisition in a stack. It retrieves
+    the necessary polynomial coefficients from the metadata, generates the
+    LUT for the coregistered grid using `getLUT`, and stores it in a new
+    xarray.Dataset with appropriate coordinates and attributes.
+
+    Parameters
+    ----------
+    slcs : xr.DataTree
+        The input DataTree containing original and coregistered data.
+    daz_drg : xr.Dataset
+        The dataset with azimuth and range displacement grids.
+    path_to_coeff : str
+        A string path (e.g., "a.b.c") to locate the
+        polynomial coefficients within the metadata dictionary.
+    out_name : str
+        The name for the output data variable in the new Dataset (e.g., "doppler").
+    **kwargs
+        Additional parameters, including `GRID` for decimation.
+
+    Returns
+    -------
+    xr.Dataset
+        An xarray.Dataset containing the newly computed LUT.
+    """
+    grid = kwargs.get("GRID", GRID)
+    # Extract metadata from the coregistered stack.
+    annot = slcs.coreg.measurements.cstack.attrs
+    pols = slcs.coreg.measurements.polarization.values
+    # --- Initialize Output LUT DataArray ---
+    # Handle cases with and without a polarization dimension.
+    if out_name in ["sigma0", "gamma0", "noise"]:
+        xLUT = xr.DataArray(
+            np.zeros((pols.size, slcs.coreg.measurements.acquisition_date.size, *grid)),
+            dims=["polarization", "acquisition_date", "slant_range_time", "azimuth_time"],
+            coords={"acquisition_date": slcs.coreg.measurements.acquisition_date.values, "polarization": pols},
+        )  # type: Union[xr.Dataset,xr.DataArray]
+    else:
+        xLUT = xr.DataArray(
+            np.zeros((slcs.coreg.measurements.acquisition_date.size, *grid)),
+            dims=["acquisition_date", "slant_range_time", "azimuth_time"],
+            coords={"acquisition_date": slcs.coreg.measurements.acquisition_date.values},
+        )
+    # --- Main Loop: Compute LUT for each acquisition ---
+    for i, dd in enumerate(slcs.coreg.measurements.acquisition_date.values):
+        # Handle per-polarization coefficients if necessary.
+        if "polarization" in xLUT.dims:
+            for p, pol in enumerate(xLUT.polarization.values):
+                annot = slcs.orig[dd].measurements.slc.attrs[pol]
+                coeffs = np.array(reduce(dict.get, path_to_coeff.split("."), annot))
+                # compute Doppler on the new reference system
+                xLUT[p, i, :, :], az_ref, rg_ref = getLUT(
+                    slcs.coreg.measurements.sel(acquisition_date=dd),
+                    daz_drg.sel(acquisition_date=dd),
+                    slcs.orig[dd].measurements.to_dataset(),
+                    coeffs,
+                    grid,
+                )
+        else:
+            annot = slcs.orig[dd].measurements.slc.attrs
+            annot = annot[list(annot.keys())[0]]
+            coeffs = np.array(reduce(dict.get, path_to_coeff.split("."), annot))
+            # compute Doppler on the new reference system
+            xLUT[i, :, :], az_ref, rg_ref = getLUT(
+                slcs.coreg.measurements.sel(acquisition_date=dd),
+                daz_drg.sel(acquisition_date=dd),
+                slcs.orig[dd].measurements.to_dataset(),
+                coeffs,
+                grid,
+            )
+    # --- Set Coordinates and Attributes ---
+    # Extract reference point and scaling factors for the coregistered grid.
+    try:
+        rg0 = slcs.coreg.measurements.isel(
+            slant_range_time=annot["ImageData"]["SCPPixel"]["Row"]
+        ).slant_range_time.values
+        az0 = slcs.coreg.measurements.isel(azimuth_time=annot["ImageData"]["SCPPixel"]["Col"]).azimuth_time.values
+    except Exception as e:
+        logger.warning(f"type is: {e.__class__.__name__}, fix for tests")
+        rg0 = slcs.coreg.measurements.slant_range_time[0].values
+        az0 = slcs.coreg.measurements.azimuth_time[0].values
+    # Range scaling (meters).
+    drg = speed_of_light / 2
+    # Azimuth scaling (seconds).
+    daz = 1.0 / (1e9 * annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1])
+
+    # Assign the correct coordinates to the LUT DataArray.
+    xLUT = xLUT.assign_coords({"slant_range_time": rg_ref.values, "azimuth_time": az_ref.values})
+
+    # Store the reference point, scaling factors, and polynomial degree as attributes.
+    xLUT = xLUT.assign_attrs(
+        {
+            "reference": {"azimuth_time": az0.astype(str), "slant_range_time": float(rg0)},
+            "scale": {"azimuth_time": daz, "slant_range_time": drg},
+            "deg": {"azimuth_time": coeffs.shape[1], "slant_range_time": coeffs.shape[0]},
+        }
+    )
+
+    # Convert the final DataArray to a Dataset.
+    xLUT = xLUT.to_dataset(name=out_name)
+    return xLUT
 
