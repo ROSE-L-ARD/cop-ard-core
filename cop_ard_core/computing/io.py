@@ -930,7 +930,7 @@ class Path:
 
     def exists(self):
         """Check if the path exists."""
-        return exists(self._path)
+        return exists(self._path, storage_options=self._storage_options)
 
     def isdir(self):
         """Check if the path is a directory."""
