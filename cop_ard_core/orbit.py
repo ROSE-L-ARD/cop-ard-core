@@ -13,7 +13,7 @@
 # limitations under the License.
 from collections import OrderedDict
 
-from xml.etree.ElementTree import ElementTree
+from xml.etree.ElementTree import ElementTree, Element
 import numpy as np
 import sarpy.io.complex.utils
 import xarray as xr
@@ -21,7 +21,7 @@ import xarray as xr
 from cop_ard_core.computing.logger import logger
 
 
-def build_orbit_dataset(orbits: list[ElementTree]) -> xr.Dataset:
+def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
     """
     Parse one or more XML-based orbit files (.EOF) into an xarray Dataset.
 
