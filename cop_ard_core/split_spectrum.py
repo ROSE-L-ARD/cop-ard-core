@@ -6,6 +6,7 @@ import xarray as xr
 import cop_ard_core.detrend
 import cop_ard_core.esd
 import cop_ard_core.interf
+import cop_ard_core.unwrap
 import cop_ard_core.utils
 from cop_ard_core.computing.computation import map
 from cop_ard_core.computing.io import Path, read, write
@@ -165,11 +166,11 @@ def reconstruct_iono_surface(interf: xr.Dataset, coeffs: xr.DataArray, H_iono: f
 
 
 def remove_iono_surface_single_burst(burst_id: str,
-                                     burst: xr.Dataset, coeffs: xr.DataArray, 
+                                     burst: xr.DataTree, coeffs: xr.DataArray, 
                         H_iono: float, H_orb: float, 
                         outfolder: Path,
                         degree: int=1, 
-                        ):
+                        ) -> tuple[str, xr.DataTree]:
 
     # recontruct the surface over all points
     cstack = burst["coreg/measurements/cstack"]
@@ -203,84 +204,3 @@ def remove_iono_surface_single_burst(burst_id: str,
     burst = write(burst, f"{outfolder}/bursts/{burst_id}", mode='w')
     return burst_id, burst
 
-
-def remove_iono_surface(
-    slcs: xr.DataTree, coeffs: xr.DataArray, H_iono: float, H_orb: float, outfolder: Path, degree: int = 1
-):
-
-    # args = [slc for burst_id,slc in slcs.bursts.items() if burst_id.startswith('iw1_14619') ]
-    args = [(burst_id, slc) for burst_id, slc in slcs.bursts.items()]  # if burst_id.startswith('iw1_14619') ]
-    args = list(zip(*args))
-
-    # init out datatree
-    outdatatree = xr.DataTree()
-    for burst_id in slcs.bursts.keys():
-        outdatatree[f"bursts/{burst_id}"] = xr.DataTree()
-    logger.debug(outfolder)
-    write(outdatatree, data_path=outfolder, skip_read=True)
-
-    # update all bursts
-    results = map(remove_iono_surface_single_burst, 
-        args=args, kwargs = {'coeffs': coeffs, 
-                            'H_iono': H_iono, 'H_orb': H_orb, 
-                            'degree': degree,
-                            'outfolder': outfolder}, 
-        enable_dask = True, combine=False)
-
-    update_slcs = xr.DataTree()
-
-    for k,v in results:
-        update_slcs[f"bursts/{k}"] = v
-
-    return update_slcs
-
-
-def split_spectrum_flow(
-    slcs: xr.DataTree,
-    reference_date: str,
-    multilook: dict,
-    frequency_offset: float,
-    bandwidth: float,
-    cohe_th: float,
-    H_iono: float,
-    H_orb: float,
-    degree: int = 1,
-    norm: int = 1,
-    wdir_path: Path = Path("/tmp"),
-):
-
-    # evaluate bounding box
-    bbox = cop_ard_core.utils.get_bounding_box(slcs.bursts, "coreg/measurements")
-
-    # estimate ESD at full-band
-    logger.debug("estimate ESD at full-band")
-    esd, y_poly = cop_ard_core.esd.estimate(slcs, wdir_path, reference_date, poly_degree=2, enable_dask=True)
-
-    # separate dispersive and non-dispersive components
-    logger.debug("separate dispersive and non-dispersive components")
-    phase_iono, phase_nd = split_spectrum(
-        slcs,
-        reference_date,
-        frequency_offset=frequency_offset,
-        bandwidth=bandwidth,
-        cohe_th=cohe_th,
-        bbox=bbox,
-        y_poly=y_poly,
-        multilook=multilook,
-        wdir_path=wdir_path,
-    )
-
-    logger.debug(f"save phase_iono to file {os.path.join(wdir_path, 'phase_iono')}")
-    phase_iono = write(phase_iono, data_path=os.path.join(wdir_path, "phase_iono"), mode="w")
-
-    # fit surface at ionospheric height
-    logger.debug("fit surface at ionospheric height")
-    coeffs = fit_ionosphere(phase_iono.isel(acquisition_date=1), H_iono, H_orb, degree=degree, norm=norm)
-
-    # remove ionosphere from cslc and update structure
-    logger.debug("remove ionosphere from cslc and update structure")
-    slcs_filt = remove_iono_surface(
-        slcs, coeffs, H_iono, H_orb, degree=degree, outfolder=Path(os.path.join(wdir_path, "slc_filt"))
-    )
-
-    return slcs_filt
