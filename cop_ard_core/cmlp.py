@@ -51,6 +51,7 @@ def stack_cmlp(
             kwargs=dict(
                 reference_database_path=reference_database_path,
                 multilook=multilook,
+                multiburst=multiburst,
                 working_directory=working_directory,
                 revisit_cycle=revisit_cycle,
                 memory_param=memory_param,
@@ -62,23 +63,38 @@ def stack_cmlp(
             enable_dask=enable_dask,
         ),
     )
+
     # --- Assemble Results ---
     cmlp_tree = xr.DataTree()
     current_reference_tree = xr.DataTree()
-    stable_references_tree = xr.DataTree() if results[0][3] is not None else None
 
-    # Reconstruct the DataTree from the list of results returned by the workers.
-    for bid, cmlp, c_ref, s_ref in results:
-        if multiburst:
-            for date,ds in cmlp:
-                cmlp_tree[f"bursts/{bid}/cmlp/{date}"] =ds 
-            current_reference_tree[f"bursts/{bid}/measurements/cstack"] = c_ref
-            if s_ref is not None:
-                stable_references_tree[f"bursts/{bid}/measurements/cstack"] = s_ref
-        else:
-            cmlp_tree = cmlp
-            current_reference_tree = c_ref
-            stable_references_tree = s_ref
+    # Check if stable references exist in the first result to avoid index/NoneType errors
+    has_stable_refs = bool(results and results[0][3] is not None)
+    stable_references_tree = xr.DataTree() if has_stable_refs else None
+
+    # Reconstruct the DataTree from the list of results returned by the workers
+    # Hoisting the `multiburst` check outside the loop improves performance
+    if multiburst:
+        for burst_id, cmlp, c_ref, s_ref in results:
+            # Unpack dates and datasets
+            for date, ds in cmlp:
+                cmlp_tree[f"bursts/{burst_id}/cmlp/{date}"] = ds
+                
+            current_reference_tree[f"bursts/{burst_id}/measurements/cstack"] = c_ref
+            
+            if has_stable_refs and s_ref is not None:
+                stable_references_tree[f"bursts/{burst_id}/measurements/cstack"] = s_ref
+    else:
+        for burst_id, cmlp, c_ref, s_ref in results:
+            # Note: Added loop here to fix the undefined `date` variable issue
+            for date, ds in cmlp:
+                cmlp_tree[f"cmlp/{date}"] = ds
+                
+            current_reference_tree["measurements/cstack"] = c_ref
+            
+            if has_stable_refs and s_ref is not None:
+                stable_references_tree["measurements/cstack"] = s_ref
+
     return (cmlp_tree, current_reference_tree, stable_references_tree)
 
 
@@ -87,6 +103,7 @@ def single_cmlp(
     cstack: xr.DataArray,
     reference_database_path: Path,
     multilook: dict,
+    multiburst:bool,
     working_directory: str,
     revisit_cycle: np.timedelta64,
     memory_param: float = 0.95,
@@ -100,7 +117,7 @@ def single_cmlp(
     if set(multilook) != expected:
         raise ValueError(f"Wrong keys: {set(multilook)}. Expected {expected}")
 
-    path = f"bursts/{burst_id}"
+    path = f"bursts/{burst_id}" if multiburst else burst_id
     last_reference_path = reference_database_path.append(f"{path}/current_reference")
     stable_reference_path = reference_database_path.append(f"{path}/stable_reference")
     data_path = normpath(f"{working_directory}/{path}")
@@ -116,6 +133,7 @@ def single_cmlp(
             ds = read(
                 last_reference_path.path, as_type="xr.Dataset", storage_options=last_reference_path.storage_options
             ).cstack
+            logger.debug("FOUND last Current Reference")
             last_reference = _format_dataset(ds, slices, DIMS)
             starting_date = last_reference.attrs["starting_date"]
         except Exception as e:

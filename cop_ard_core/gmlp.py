@@ -36,7 +36,6 @@ def stack_gmlp(
     simulation_ml_tree: dict,
     spacing: dict,
     working_directory_tmp: str,
-    multiburst: bool = True,
     enable_dask: bool = True,
     chunks: dict = {"acquisition_date": 1, "past_reference_date": 1, "polarization": 1, "y": 2048, "x": 2048},
     **kwargs,
@@ -82,12 +81,13 @@ def stack_gmlp(
     xr.DataTree
         A new DataTree containing the geocoded SLC (GSLC) data for each burst.
     """
+    multiburst = "bursts" in cmlp_tree
     args = []
     # --- Prepare Arguments for Parallel Mapping ---
     for k, v in (cmlp_tree.bursts if multiburst else {"data": cmlp_tree}).items():
         s = (simulation_tree.bursts[k] if multiburst else simulation_tree).to_dataset()
         s_ml = simulation_ml_tree["bursts"][k] if multiburst else simulation_ml_tree
-        a = (k, v.cmlp, s, s_ml, multiburst)
+        a = (k, v.cmlp, s, s_ml)
         args.append(a)
     # Transpose the list of tuples for the map function.
     args = list(zip(*args))
@@ -100,6 +100,7 @@ def stack_gmlp(
             single_gmlp,
             args,
             kwargs=dict(
+                multiburst=multiburst,
                 working_directory_tmp=working_directory_tmp,
                 spacing=spacing,
                 chunks=chunks,
@@ -112,14 +113,14 @@ def stack_gmlp(
     )
 
     # --- Assemble Results ---
-    gslcs = xr.DataTree()
+    gmlp_tree = xr.DataTree()
     # Reconstruct the DataTree from the list of results returned by the workers.
-    for k, gslc in results:
+    for k, gmlp in results:
         if multiburst:
-            gslcs[f"bursts/{k}"] = gslc
+            gmlp_tree[f"bursts/{k}"] = gmlp
         else:
-            gslcs = xr.DataTree(gslc)
-    return gslcs
+            gmlp_tree = gmlp
+    return gmlp_tree
 
 
 def single_gmlp(
