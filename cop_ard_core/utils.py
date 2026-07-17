@@ -3,6 +3,7 @@ import xarray as xr
 import scipy.fft
 from cop_ard_core.computing.io import write, path_to_dict
 from cop_ard_core.computing.logger import logger, timeit
+from cop_ard_core.computing.computation import map
 from scipy.constants import speed_of_light
 
 

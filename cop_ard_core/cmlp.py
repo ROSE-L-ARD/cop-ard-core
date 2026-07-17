@@ -133,12 +133,12 @@ def single_cmlp(
             ds = read(
                 last_reference_path.path, as_type="xr.Dataset", storage_options=last_reference_path.storage_options
             ).cstack
-            logger.debug("FOUND last Current Reference")
             last_reference = _format_dataset(ds, slices, DIMS)
             starting_date = last_reference.attrs["starting_date"]
         except Exception as e:
             raise ValueError(f"Failed to load current reference at {last_reference_path.path}: {e}")
     stable_reference = None
+    past_reference_dates = None
     if stable_reference_path.exists():
         try:
             # Use a list comprehension for cleaner data loading
@@ -150,6 +150,7 @@ def single_cmlp(
             if datasets:
                 concat_ds = xr.concat(datasets, dim="acquisition_date")
                 stable_reference = _format_dataset(concat_ds, slices, DIMS)
+                past_reference_dates = stable_reference.acquisition_date.values
             else:
                 raise ValueError(f"No stable reference files found in {stable_reference_path.path}")
         except Exception as e:
@@ -208,8 +209,6 @@ def single_cmlp(
                 acquisition_date=slice(-max_past_stable_history, None)
             )
 
-            logger.debug(f"stable_reference: {stable_reference.sizes}")
-            logger.debug(f"stable_reference: {stable_reference.acquisition_date.values}")
             current_reference = _correct_drift(
                 stable_reference=stable_reference,
                 current_reference=current_reference,
@@ -228,11 +227,23 @@ def single_cmlp(
         for date in cstack_sel.acquisition_date.values
     ]
 
+    if (stable_reference is not None) and (past_reference_dates is not None):
+        # 1. Filter out only the dates that actually exist in the dataset
+        valid_dates = [d for d in past_reference_dates if d in stable_reference.acquisition_date.values]
+        
+        # 2. Check if we are dropping EVERYTHING
+        if len(valid_dates) == len(stable_reference.acquisition_date):
+            stable_reference = None
+        
+        # 3. Otherwise, check if we have a partial list of valid dates to drop
+        elif valid_dates:
+            stable_reference = stable_reference.drop_sel(acquisition_date=valid_dates)
+            
     return (
         burst_id,
         cmlp,
         current_reference,
-        stable_reference.sel(acquisition_date=stable_reference_dates) if stable_reference is not None else None,
+        stable_reference,
     )
 
 
