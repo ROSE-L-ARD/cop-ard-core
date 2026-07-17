@@ -655,3 +655,34 @@ def time_to_pixel(stack: xr.Dataset, y0: float | None = None, x0: float | None =
 
     stack = stack.assign_coords({"y": (["azimuth_time"], y), "x": (["slant_range_time"], x)})
     return stack.swap_dims(azimuth_time="y", slant_range_time="x")
+
+
+
+
+def save_single_burst(burst_id, current_reference, stable_reference, reference_db_path,multiburst):
+    path = f"bursts/{burst_id}" if multiburst else burst_id
+    current_reference_path = f"{reference_db_path}/{path}/current_reference"
+    stable_reference_path = f"{reference_db_path}/{path}/stable_reference"
+
+    write(current_reference, current_reference_path)
+
+    if stable_reference is not None:
+        for date in stable_reference.acquisition_date.values:
+            write(stable_reference.sel(acquisition_date=date), f"{stable_reference_path}/{date}")
+
+
+def update_reference_database(current_reference_tree, stable_references_tree, reference_db_path):
+    multiburst = "bursts" in current_reference_tree
+    args = []
+    for k, v in (current_reference_tree.bursts if multiburst else {"data": current_reference_tree}).items():
+        c_ref = v.measurements.cstack
+        s_ref = (
+            (stable_references_tree.bursts[k] if multiburst else stable_references_tree).measurements.cstack
+            if stable_references_tree is not None
+            else None
+        )
+        a = (k, c_ref, s_ref)
+        args.append(a)
+
+    args = list(zip(*args))
+    map(save_single_burst, args, kwargs={"reference_db_path": reference_db_path,"multiburst":multiburst}, enable_dask=True)
