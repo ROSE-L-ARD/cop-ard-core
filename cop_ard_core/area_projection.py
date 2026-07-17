@@ -19,16 +19,16 @@ import xarray as xr
 from scipy.constants import speed_of_light
 from scipy.ndimage import median_filter
 
-from cop_ard_core.computing.dem import convert_to_dem_ecef
-from cop_ard_core.computing.griddata import init_interpolate, interpolate
-from cop_ard_core.computing.kernels import (
+from cop_ard_core.dem import convert_to_dem_ecef
+from cop_ard_core.griddata import init_interpolate, interpolate
+from cop_ard_core.kernels import (
     area_proj_triangles,
     compute_incidence_angle_ground,
     computeGammaNaughtArea,
     csr_times_dense,
     update_dense_array,
 )
-from cop_ard_core.computing.simul import extract_simul_on_radar_chunk, get_geo_from_radar_bbox, get_radar_bbox
+from cop_ard_core.simul import extract_simul_on_radar_chunk, get_geo_from_radar_bbox, get_radar_bbox
 
 
 def build_sparse_array(

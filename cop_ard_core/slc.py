@@ -20,7 +20,7 @@ import sarpy.io
 import xarray as xr
 from scipy.constants import speed_of_light
 
-from cop_ard_core.computing.logger import logger
+from cop_ard_core.logger import logger
 
 
 def merge_dict(res: list[dict]) -> dict:
@@ -198,7 +198,7 @@ def intersect(polygon1: str | list[float], polygon2: str | list[float]):
     return poly2.intersects(poly1)
 
 
-def get_relative_orbit_number(sentinel1_manifest: Element, ns: dict):
+def get_relative_orbit_number(sentinel1_manifest: Element, ns: Element[str] | dict):
     """
     Extracts the relative orbit number from the Sentinel-1 manifest file.
 

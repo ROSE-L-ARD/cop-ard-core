@@ -23,10 +23,10 @@ import xarray as xr
 from numba import njit
 from scipy.constants import speed_of_light
 
-from cop_ard_core.computing.etad import apply_etad_corrections
-from cop_ard_core.computing.griddata import init_interpolate, interp_dataset, interpolate
-from cop_ard_core.computing.logger import logger
-from cop_ard_core.computing.simul import (
+from cop_ard_core.etad import apply_etad_corrections
+from cop_ard_core.griddata import init_interpolate, interp_dataset, interpolate
+from cop_ard_core.logger import logger
+from cop_ard_core.simul import (
     extract_simul_on_radar_chunk,
     get_geo_from_radar_bbox,
     get_position,

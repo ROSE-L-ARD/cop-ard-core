@@ -18,7 +18,7 @@ import numpy as np
 import sarpy.io.complex.utils
 import xarray as xr
 
-from cop_ard_core.computing.logger import logger
+from cop_ard_core.logger import logger
 
 
 def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:

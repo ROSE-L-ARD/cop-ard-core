@@ -22,9 +22,9 @@ from numpy.polynomial.polynomial import polyder, polyval
 from pyproj import CRS
 from scipy.constants import speed_of_light
 
-from cop_ard_core.computing.dem import convert_to_dem_ecef
-from cop_ard_core.computing.kernels import main_loop
-from cop_ard_core.computing.logger import logger
+from cop_ard_core.dem import convert_to_dem_ecef
+from cop_ard_core.kernels import main_loop
+from cop_ard_core.logger import logger
 
 rioxarray.__version__
 
