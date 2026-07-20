@@ -3,6 +3,11 @@ import xarray as xr
 from scipy.constants import speed_of_light
 
 
+def wrap(v: np.ndarray, w: float = 2 * np.pi):
+    w_ = w / 2.0
+    return ((v + w_) % w) - w_
+
+
 def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
