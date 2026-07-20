@@ -11,14 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
-from typing import Any, Dict, Mapping, Sequence
+from typing import Any, Dict
 
-import dask.distributed
 import mgrs
 import numpy as np
-import pyproj
-import rasterio
 import rioxarray
 import xarray as xr
 from pyproj import CRS, Transformer, datadir

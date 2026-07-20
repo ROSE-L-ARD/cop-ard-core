@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Container, Dict, Optional, Tuple, cast
+from typing import Container, Optional, Tuple, cast
 
 import dask.array as da
 import numpy as np
@@ -456,11 +456,7 @@ def extract_simul_on_radar_chunk(
     return selection
 
 
-def extract_simulation_ml(
-    simulation: xr.Dataset,
-    reference_date: str,
-    coarsen_config: dict[str, int]
-):
+def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_config: dict[str, int]):
     """
     Create a downsampled ("multilooked") version of the simulation data.
 
@@ -495,8 +491,7 @@ def extract_simulation_ml(
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="min"),
-        )
-        .min(),
+        ).min(),
         # For the 'max' dataset, do the same but take the maximum value.
         "max": cast(
             xr.Dataset,
@@ -504,8 +499,7 @@ def extract_simulation_ml(
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="max"),
-        )
-        .max()
+        ).max(),
     }
     # Ensure the azimuth_time coordinate retains its correct data type.
     simulation_ml["min"]["azimuth_time"] = simulation_ml["min"].azimuth_time.astype("datetime64[ns]")

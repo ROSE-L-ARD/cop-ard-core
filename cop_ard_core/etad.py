@@ -62,7 +62,9 @@ def apply_etad_corrections(
     if len(etad_correction_grid.data_vars) != 0:
         # --- Prepare Coordinates for Interpolation ---
         # `xi`: The target coordinates where we want to know the correction values, in pixel units.
-        xi = np.vstack(((rg - rg0).values.ravel() / dtrg, (az - az0).astype(float).values.ravel() / dtaz)).T.reshape(-1, 2)
+        xi = np.vstack(((rg - rg0).values.ravel() / dtrg, (az - az0).astype(float).values.ravel() / dtaz)).T.reshape(
+            -1, 2
+        )
         # `point`: The source coordinates of the ETAD correction grid, also in pixel units.
         point = (
             (etad_correction_grid.slant_range_time - rg0).values / dtrg,

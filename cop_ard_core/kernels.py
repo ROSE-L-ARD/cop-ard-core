@@ -840,7 +840,7 @@ def computeGammaNaughtArea(
         nlook = 0.0
         for j in range(indptr_w[i], indptr_w[i + 1]):
             nlook += data_w[j]
-        
+
         if nlook > 0.0:
             # Iterate through the non-zero elements (projected areas) for this triangle.
             for k in range(indptr_w[i], indptr_w[i + 1]):

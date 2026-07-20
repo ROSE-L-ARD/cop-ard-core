@@ -33,4 +33,3 @@ def update_recursive_reference(
     new_reference = (memory_param * current_reference) + correction.reshape(slc.shape)
 
     return new_reference
-

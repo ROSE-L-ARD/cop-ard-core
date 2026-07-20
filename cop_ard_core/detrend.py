@@ -4,6 +4,7 @@ from typing import Tuple
 import numpy as np
 import scipy.optimize
 from astropy import stats as ast
+
 from cop_ard_core.logger import logger
 
 

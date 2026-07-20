@@ -6,9 +6,9 @@ import ortools.graph.python.min_cost_flow
 import scipy.sparse
 import scipy.spatial
 import xarray as xr
-from cop_ard_core.logger import logger, timeit
-
 from cop_ard_app.utils import wrap
+
+from cop_ard_core.logger import logger, timeit
 
 MAXJUMP = 1_000
 MAXCOST = 1_000

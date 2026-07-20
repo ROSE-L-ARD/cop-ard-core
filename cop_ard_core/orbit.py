@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import OrderedDict
+from xml.etree.ElementTree import Element, ElementTree
 
-from xml.etree.ElementTree import ElementTree, Element
 import numpy as np
 import sarpy.io.complex.utils
 import xarray as xr
 
-from cop_ard_core.logger import logger
 
 
 def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:

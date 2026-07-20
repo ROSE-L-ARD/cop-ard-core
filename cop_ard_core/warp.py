@@ -1307,7 +1307,7 @@ def coreg_qlt(
     acquisition_date_arp_coeffs: dict[np.datetime64, dict[str, np.ndarray | None]],
     acquisition_date_orbit_type: dict[np.datetime64, str],
     acquisition_date_t0: dict[np.datetime64, np.datetime64],
-    **kwargs
+    **kwargs,
 ):
     """
     Compute the quality assessment of the coregistration.
@@ -1337,7 +1337,6 @@ def coreg_qlt(
     teta = scpcoa_incidence_angle * np.pi / 180.0
     # Assumed topographic height uncertainty squared (in meters^2).
     sigma_h_2 = 1.0
-
 
     # Get the reference acquisition date.
     reference_date = coreg.coregistration_reference_date
@@ -1372,10 +1371,7 @@ def coreg_qlt(
             rg = rg0 + daz_drg.drg.sel(acquisition_date=d).stack(point=["azimuth_time", "slant_range_time"])
             # --- Compute Geometric Error (Sigma) ---
             # Calculate the squared baseline (distance between satellite positions).
-            sigma = (
-                (get_position(az, t0, arp_coeffs).drop_vars("azimuth_time") - position0)
-                ** 2
-            ).sum(dim="axis")
+            sigma = ((get_position(az, t0, arp_coeffs).drop_vars("azimuth_time") - position0) ** 2).sum(dim="axis")
             # Combine the baseline, height uncertainty, and orbit error to estimate the total coregistration error.
             sigma = np.sqrt(
                 sigma

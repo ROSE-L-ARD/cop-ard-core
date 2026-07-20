@@ -1,6 +1,6 @@
-from scipy.constants import speed_of_light
 import numpy as np
 import xarray as xr
+from scipy.constants import speed_of_light
 
 
 def get_coordinates(y, x, alpha, beta):
@@ -71,4 +71,3 @@ def get_phramp_diff(
     )
 
     return ph_ramp_diff_da
-

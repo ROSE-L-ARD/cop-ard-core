@@ -11,12 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import itertools
-from typing import Dict
 
 import numpy as np
 import xarray as xr
-from scipy.constants import speed_of_light
 from scipy.ndimage import median_filter
 
 from cop_ard_core.dem import convert_to_dem_ecef
@@ -26,7 +23,6 @@ from cop_ard_core.kernels import (
     compute_incidence_angle_ground,
     computeGammaNaughtArea,
     csr_times_dense,
-    update_dense_array,
 )
 from cop_ard_core.simul import extract_simul_on_radar_chunk, get_geo_from_radar_bbox, get_radar_bbox
 
@@ -338,7 +334,10 @@ def compute_rtc_ap(
     GNA, cos_theta = np.zeros(triang.shape[0], dtype="float64"), np.zeros(triang.shape[0], dtype="float64")
 
     # Initialize arrays for building the sparse area matrix (CSR format)
-    dense, data = np.zeros(csr_matrix.shape.values[1], dtype="float64"), np.zeros(csr_matrix.nnz.values, dtype="float64")
+    dense, data = (
+        np.zeros(csr_matrix.shape.values[1], dtype="float64"),
+        np.zeros(csr_matrix.nnz.values, dtype="float64"),
+    )
     indices, indptr = np.zeros(csr_matrix.nnz.values, dtype="int64"), np.zeros(bbox[3] + 1, dtype="int64")
 
     # Define the bounding box for the full radar grid (used by the kernel)
@@ -386,8 +385,7 @@ def compute_rtc_ap(
 
     # Compute local incidence angle (lia) from the cosine
     lia = (
-        xr.DataArray(np.arccos(cos_theta).reshape(dim_y, dim_x, 4).sum(axis=2), dims=["y", "x"]).astype("float32")
-        / 4.0
+        xr.DataArray(np.arccos(cos_theta).reshape(dim_y, dim_x, 4).sum(axis=2), dims=["y", "x"]).astype("float32") / 4.0
     )
 
     return anf, lia, a_block
@@ -528,7 +526,7 @@ def get_w(
                 format="CSR",
                 chunks=number_of_triang // 4,
             )
-            layover.append(('.'.join([str(j) for j in b]), ds))
+            layover.append((".".join([str(j) for j in b]), ds))
 
     # Return the weights dataset and the nlook array
     # If no weights were computed, return None
@@ -585,7 +583,7 @@ def compute_geocoded_mask(
     indices = csr_matrix.indices.values
     indptr = csr_matrix.indptr.values
     shape = csr_matrix.shape.values
-    
+
     mask_layover = layover.values.astype("float32")
     mask_shadow = shadow.values.astype("float32")
     # Stack them into a (2, az, rg) array

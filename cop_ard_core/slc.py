@@ -11,14 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
-from typing import Sequence, cast
+from typing import cast
 from xml.etree.ElementTree import Element
 
 import numpy as np
-import sarpy.io
 import xarray as xr
-from scipy.constants import speed_of_light
 
 from cop_ard_core.logger import logger
 
