@@ -314,7 +314,7 @@ def compute_rtc_ap(
     """
     # --- Start Radiometric Terrain Correction (RTC) Area Projection (AP) ---
     # Get DEM points in ECEF coordinates: (axis, y, x) -> (y, x, axis) -> (n_points, 3)
-    points = convert_to_dem_ecef(dem=simulation.h.compute())
+    points = convert_to_dem_ecef(dem=simulation.h)
     points = np.transpose(points, (1, 2, 0)).reshape(-1, 3)
     dim_x, dim_y = simulation.x.size - 1, simulation.y.size - 1
 
@@ -703,7 +703,7 @@ def compute_shadow(
     lia = lia.values
     # --- Calculate Ground Incidence Angle ---
     # Convert DEM points to ECEF
-    points = convert_to_dem_ecef(dem=selection.h.compute())
+    points = convert_to_dem_ecef(dem=selection.h)
     points = np.transpose(points, (1, 2, 0)).reshape(-1, 3)
     # Get sensor-to-target distance vectors
     radar_distance = selection.dem_distance.values.reshape(-1, 3)

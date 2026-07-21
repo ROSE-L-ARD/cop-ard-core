@@ -257,7 +257,7 @@ def polyfit(
         y: xr.DataArray,
     ) -> xr.DataArray:
         o = (i - i.mean()).astype("float64").squeeze()
-        o = convolution_2d(o, kernel).isel(azimuth_time=y, slant_range_time=x).compute()
+        o = convolution_2d(o, kernel).isel(azimuth_time=y, slant_range_time=x)
 
         o1 = o.isel(point=slice(o.point.size // 2))
         o2 = o.isel(point=slice(o.point.size // 2, None))
