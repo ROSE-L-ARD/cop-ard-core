@@ -961,7 +961,7 @@ def do_deramp(slc: xr.DataArray, phase_demod: xr.DataArray, scp_idx: tuple[int, 
 
 
 def extract_rg_az(
-    slc: xr.DataArray, simulation: xr.Dataset | xr.DataArray, dtaz: float, dtrg: float
+    slc: xr.DataArray | xr.Dataset, simulation: xr.Dataset | xr.DataArray, dtaz: float, dtrg: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Extract range and azimuth coordinates from a simulation dataset in the SLC's pixel reference system.
