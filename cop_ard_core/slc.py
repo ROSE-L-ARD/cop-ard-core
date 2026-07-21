@@ -15,6 +15,8 @@ from typing import cast
 from xml.etree.ElementTree import Element
 
 import numpy as np
+import shapely
+import shapely.wkt
 import xarray as xr
 
 from cop_ard_core.logger import logger
@@ -176,9 +178,6 @@ def intersect(polygon1: str | list[float], polygon2: str | list[float]):
     bool
         True if the polygons intersect, False otherwise.
     """
-    import shapely.geometry
-    import shapely.wkt
-
     # Load the first polygon from WKT or a list of coordinates.
     try:
         poly1 = shapely.wkt.loads(polygon1)

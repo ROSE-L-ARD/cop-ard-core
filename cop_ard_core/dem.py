@@ -20,8 +20,8 @@ import xarray as xr
 from pyproj import CRS, Transformer, datadir
 from pyproj.transformer import TransformerGroup
 
-from cop_ard_core.computing.griddata import interp_dataset
-from cop_ard_core.computing.logger import logger
+from cop_ard_core.griddata import interp_dataset
+from cop_ard_core.logger import logger
 
 rioxarray.__version__
 

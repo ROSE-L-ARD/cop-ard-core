@@ -1194,7 +1194,7 @@ def warp_gslc(
 
                 # Apply gamma flattening if enabled.
                 if gamma_flattening:
-                    sqrt_A = np.sqrt(anf)
+                    sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
                     np.divide(slc.values, sqrt_A.values, out=slc.values, where=mask_A.values)
                     # Zero out the invalid pixels
                     slc.values[..., ~mask_A.values] = 0.0
@@ -1363,7 +1363,9 @@ def coreg_qlt(
         # Skip the reference date itself, as its error is zero by definition.
         if d != reference_date:
             orb_type = acquisition_date_orbit_type[d]
-            arp_coeffs = acquisition_date_arp_coeffs[d]
+            arp_coeffs = cast(dict[str, np.ndarray], acquisition_date_arp_coeffs[d])
+            if any(coeff is None for coeff in arp_coeffs.values()):
+                raise ValueError(f"ARP coefficients not found for date {d}")
             t0 = acquisition_date_t0[d]
             # Get metadata for the secondary acquisition.
             # Calculate the coordinates of the secondary image points corresponding to the reference grid.

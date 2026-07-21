@@ -1,9 +1,9 @@
-from cop_ard_core.utils import wrap
-from cop_ard_core.unwrap import unwrap_phase
 import numpy as np
 import xarray as xr
 
 from cop_ard_core.detrend import fit, fit_2d_poly, get_model_matrix
+from cop_ard_core.unwrap import unwrap_phase
+from cop_ard_core.utils import wrap
 
 
 def joint_unwrap(

@@ -19,7 +19,6 @@ import sarpy.io.complex.utils
 import xarray as xr
 
 
-
 def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
     """
     Parse one or more XML-based orbit files (.EOF) into an xarray Dataset.
