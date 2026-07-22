@@ -314,10 +314,185 @@ def compute_shadow_simulation_ml():
 
 
 @pytest.fixture
-def compute_shadow_dt():
-    return {"azimuth_time": 0.01, "slant_range_time": 0.5}
+def compute_shadow_margin():
+    return {"azimuth_time": 0.0, "slant_range_time": 0.0}
+
+
+# ===========================================================================
+# area_projection fixtures
+# ===========================================================================
 
 
 @pytest.fixture
-def compute_shadow_margin():
-    return {"azimuth_time": 0.0, "slant_range_time": 0.0}
+def area_proj_bbox():
+    """Bounding box [min_rg, min_az, max_rg, max_az] for area projection tests."""
+    return np.array([0.0, 0.0, 5.0, 4.0])
+
+
+@pytest.fixture
+def area_proj_bbox_int():
+    """Bounding box with int64 dtype for functions that use bbox values as array sizes."""
+    return np.array([0, 0, 5, 4], dtype=np.int64)
+
+
+@pytest.fixture
+def area_proj_simulation():
+    """Simulation Dataset with all attributes for area_projection tests.
+
+    Contains:
+      - x, y: geogrid coordinates (4x5 grid of points = 3x4 cells)
+      - az_px, rg_px: radar pixel indices (one per cell)
+      - h: DEM elevation (constant, with CRS)
+      - dem_distance: radar distance vectors (3D)
+    """
+    import rioxarray
+
+    y = np.array([0.0, 1.0, 2.0, 3.0])
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    dim_y, dim_x = len(y) - 1, len(x) - 1  # 3, 4
+
+    # DEM elevation: (dim_y+1, dim_x+1) matching geogrid points
+    h = xr.DataArray(
+        np.full((dim_y + 1, dim_x + 1), 100.0, dtype=np.float64),
+        dims=["y", "x"],
+        coords={"y": y, "x": x},
+    )
+    h.rio.write_crs("EPSG:4326", inplace=True)
+
+    # DEM distance: (dim_y+1, dim_x+1, 3) matching geogrid points
+    dem_distance = xr.DataArray(
+        np.full((dim_y + 1, dim_x + 1, 3), 5000.0, dtype=np.float64),
+        dims=["y", "x", "coord"],
+        coords={"y": y, "x": x},
+    )
+    dem_distance.rio.write_crs("EPSG:4326", inplace=True)
+
+    # Radar pixel indices: (dim_y, dim_x) - one per cell
+    az_px = xr.DataArray(
+        np.broadcast_to(np.arange(dim_y).reshape(dim_y, 1), (dim_y, dim_x)),
+        dims=["y", "x"],
+        coords={"y": y[:dim_y], "x": x[:dim_x]},
+    )
+    rg_px = xr.DataArray(
+        np.broadcast_to(np.arange(dim_x).reshape(1, dim_x), (dim_y, dim_x)),
+        dims=["y", "x"],
+        coords={"y": y[:dim_y], "x": x[:dim_x]},
+    )
+
+    # Build simulation as a Dataset to hold all attributes with different dimensions
+    simulation = xr.Dataset(
+        data_vars={
+            "h": h,
+            "dem_distance": dem_distance,
+            "az_px": az_px,
+            "rg_px": rg_px,
+        },
+        coords={"y": y, "x": x},
+    )
+    return simulation
+
+
+@pytest.fixture
+def area_proj_csr_matrix():
+    """Small CSR sparse matrix Dataset for compute_rtc_ap.
+
+    Shape: (12, 10) - 12 triangles (rows), 10 radar pixels (columns)
+    Has 5 non-zero elements.
+    """
+    data = np.array([1.0, 2.0, 1.5, 0.5, 3.0], dtype=np.float64)
+    indices = np.array([0, 3, 5, 7, 9], dtype=np.int64)
+    indptr = np.array([0, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5], dtype=np.int64)
+    shape_arr = np.array([12, 10])
+
+    ds = xr.Dataset(
+        data_vars={
+            "data": ("point", data),
+            "indices": ("point", indices),
+            "indptr": ("indptr", indptr),
+            "nnz": ((), np.int64(data.shape[0])),
+            "shape": ("dim", shape_arr),
+        }
+    )
+    return ds
+
+
+@pytest.fixture
+def area_proj_csr_matrix_empty():
+    """Empty CSR sparse matrix Dataset for edge case testing."""
+    shape_arr = np.array([2, 2])
+
+    ds = xr.Dataset(
+        data_vars={
+            "data": ("point", np.array([], dtype=np.float64)),
+            "indices": ("point", np.array([], dtype=np.int64)),
+            "indptr": ("indptr", np.array([0, 0], dtype=np.int64)),
+            "nnz": ((), np.int64(0)),
+            "shape": ("dim", shape_arr),
+        }
+    )
+    return ds
+
+
+@pytest.fixture
+def area_proj_geocoded_csr_matrix():
+    """CSR matrix for compute_geocoded_mask tests.
+
+    The CSR matrix has n_rows rows which gets reshaped to (dim_y, dim_x, 4).
+    For output_shape=(4, 6): n_rows must equal 4*6*4 = 96.
+    Shape: (96, 10) - 96 rows, 10 columns, 4 non-zero elements.
+    """
+    data = np.array([0.5, 0.3, 0.7, 0.2], dtype=np.float32)
+    indices = np.array([1, 4, 6, 8], dtype=np.int64)
+    # indptr: 97 entries for 96 rows
+    indptr = np.array([0, 1, 2, 3, 4] + [4] * 92, dtype=np.int64)
+    shape_arr = np.array([96, 10])
+
+    ds = xr.Dataset(
+        data_vars={
+            "data": ("point", data),
+            "indices": ("point", indices),
+            "indptr": ("indptr", indptr),
+            "nnz": ((), np.int64(4)),
+            "shape": ("dim", shape_arr),
+        }
+    )
+    return ds
+
+
+@pytest.fixture
+def triang_3x4():
+    """Triangle indices for a 4x5 grid (3x4 cells = 24 triangles)."""
+    from cop_ard_core.area_projection import triangulate_regular
+    return triangulate_regular(ysize=4, xsize=5)
+
+
+@pytest.fixture
+def get_w_simple_inputs():
+    """Inputs for get_w with a simple small radar chunk.
+
+    Uses a 2x3 geogrid (2 y-points, 3 x-points = 6 vertices).
+    The triangulation indices must match the vertex count of x/y arrays.
+    """
+    from cop_ard_core.area_projection import triangulate_regular
+
+    # Radar/geogrid points: 2 y-points, 3 x-points = 6 vertices
+    x = np.array([0.0, 1.0, 2.0, 0.5, 1.5, 2.5], dtype=np.float64)
+    y = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0], dtype=np.float64)
+
+    # Triangulation for 2 rows, 3 columns of points => 1 cell in y, 2 cells in x
+    triang = triangulate_regular(ysize=2, xsize=3).astype(np.int64)
+
+    # bbox must have integer-compatible values for the numba kernel
+    bbox = np.array([0.0, 0.0, 4.0, 2.0])  # [min_x, min_y, max_x, max_y]
+    return {
+        "x": x,
+        "y": y,
+        "triang": triang,
+        "ymin": 0,
+        "ymin_global": 0,
+        "xmin": 0,
+        "xmin_global": 0,
+        "xsize_global": 10,
+        "bbox": bbox,
+        "expected_nlooks": 1,
+    }
