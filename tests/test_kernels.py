@@ -1,30 +1,15 @@
-import pytest
-"""Unit tests for cop_ard_core.kernels.
-
-Tests cover all kernel functions including:
-- gaussian_kernel: 2D Gaussian smoothing kernel generation
-- polyval: Numba-accelerated polynomial evaluation (Horner's method)
-- numba_dot: Numba-accelerated dot product
-- area_proj_integrate_segment: Numba scanline area integration
-- compute_weights: Numba per-step weight computation
-- aggregate_dense_to_sparse: Numba dense-to-sparse aggregation
-- area_proj_triangles: Numba polygon rasterization via area projection
-- get_workspace: Numba workspace size calculation for polygon sets
-- computeGammaNaughtArea: Numba Gamma Naught Area computation
-- update_dense_array: Numba sparse-to-dense accumulation within bounding box
-- csr_times_dense: Numba sparse matrix times dense vector multiplication
-- compute_incidence_angle_ground: Numba incidence angle computation
-"""
+"""Unit tests for cop_ard_core.kernels."""
 
 import numpy as np
+import pytest
 
 from cop_ard_core.kernels import (
     aggregate_dense_to_sparse,
     area_proj_integrate_segment,
     area_proj_triangles,
-    computeGammaNaughtArea,
     compute_incidence_angle_ground,
     compute_weights,
+    computeGammaNaughtArea,
     csr_times_dense,
     gaussian_kernel,
     get_workspace,
@@ -385,14 +370,24 @@ class TestAreaProjIntegrateSegment:
         w_arr_rev = np.zeros(length * width, dtype=np.float64)
 
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr_fwd, plane_orientation=1,
+            y1=0.0,
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr_fwd,
+            plane_orientation=1,
         )
         area_proj_integrate_segment(
-            y1=1.0, y2=0.0, x1=1.0, x2=0.0,
-            length=length, width=width,
-            w_arr=w_arr_rev, plane_orientation=1,
+            y1=1.0,
+            y2=0.0,
+            x1=1.0,
+            x2=0.0,
+            length=length,
+            width=width,
+            w_arr=w_arr_rev,
+            plane_orientation=1,
         )
         # Reverse direction gives opposite sign
         np.testing.assert_array_almost_equal(w_arr_fwd, -w_arr_rev)
@@ -405,14 +400,24 @@ class TestAreaProjIntegrateSegment:
         w_arr_neg = np.zeros(length * width, dtype=np.float64)
 
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr_pos, plane_orientation=1,
+            y1=0.0,
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr_pos,
+            plane_orientation=1,
         )
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr_neg, plane_orientation=-1,
+            y1=0.0,
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr_neg,
+            plane_orientation=-1,
         )
         np.testing.assert_array_almost_equal(w_arr_pos, -w_arr_neg)
 
@@ -423,9 +428,14 @@ class TestAreaProjIntegrateSegment:
         w_arr = np.zeros(length * width, dtype=np.float64)
         initial_sum = w_arr.sum()
         area_proj_integrate_segment(
-            y1=0.0, y2=2.0, x1=1.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=0.0,
+            y2=2.0,
+            x1=1.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
         assert w_arr.sum() == initial_sum
 
@@ -436,9 +446,14 @@ class TestAreaProjIntegrateSegment:
         w_arr = np.zeros(length * width, dtype=np.float64)
         initial_sum = w_arr.sum()
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=-5.0, x2=-3.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=0.0,
+            y2=1.0,
+            x1=-5.0,
+            x2=-3.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
         assert w_arr.sum() == initial_sum
 
@@ -449,9 +464,14 @@ class TestAreaProjIntegrateSegment:
         w_arr = np.zeros(length * width, dtype=np.float64)
         initial_sum = w_arr.sum()
         area_proj_integrate_segment(
-            y1=10.0, y2=12.0, x1=1.0, x2=2.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=10.0,
+            y2=12.0,
+            x1=1.0,
+            x2=2.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
         assert w_arr.sum() == initial_sum
 
@@ -462,9 +482,14 @@ class TestAreaProjIntegrateSegment:
         w_arr = np.zeros(length * width, dtype=np.float64)
         initial_sum = w_arr.sum()
         area_proj_integrate_segment(
-            y1=float('nan'), y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=float("nan"),
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
         assert w_arr.sum() == initial_sum
 
@@ -474,15 +499,24 @@ class TestAreaProjIntegrateSegment:
         length, width = 3, 3
         w_arr = np.zeros(length * width, dtype=np.float64)
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=0.0,
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
-        sum_after_first = w_arr.sum()
         area_proj_integrate_segment(
-            y1=0.0, y2=1.0, x1=0.0, x2=1.0,
-            length=length, width=width,
-            w_arr=w_arr, plane_orientation=1,
+            y1=0.0,
+            y2=1.0,
+            x1=0.0,
+            x2=1.0,
+            length=length,
+            width=width,
+            w_arr=w_arr,
+            plane_orientation=1,
         )
         # Each call adds 0.5 to w_arr[0]
         np.testing.assert_almost_equal(w_arr[0], 1.0, decimal=10)
@@ -822,20 +856,26 @@ class TestAreaProjTriangles:
         bbox_l2 = np.array([99.0, -99.0, 99.0, -99.0], dtype=np.float64)
         bbox_w = np.array([99.0, -99.0, 99.0, -99.0], dtype=np.float64)
 
-        (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook = (
-            area_proj_triangles(
-                y=y, x=x, triangs=triangs, vertexes=vertexes,
-                bbox=bbox,
-                linear_global_index=linear_global_index,
-                length=length, width=width,
-                xsize_global=xsize_global,
-                xmin_global=xmin_global, ymin_global=ymin_global,
-                xmin_chunk=xmin_chunk, ymin_chunk=ymin_chunk,
-                radar_grid_ysize=radar_grid_ysize,
-                plane_orientation=plane_orientation,
-                bbox_l1=bbox_l1, bbox_l2=bbox_l2, bbox_w=bbox_w,
-                expected_nlooks=expected_nlooks,
-            )
+        (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook = area_proj_triangles(
+            y=y,
+            x=x,
+            triangs=triangs,
+            vertexes=vertexes,
+            bbox=bbox,
+            linear_global_index=linear_global_index,
+            length=length,
+            width=width,
+            xsize_global=xsize_global,
+            xmin_global=xmin_global,
+            ymin_global=ymin_global,
+            xmin_chunk=xmin_chunk,
+            ymin_chunk=ymin_chunk,
+            radar_grid_ysize=radar_grid_ysize,
+            plane_orientation=plane_orientation,
+            bbox_l1=bbox_l1,
+            bbox_l2=bbox_l2,
+            bbox_w=bbox_w,
+            expected_nlooks=expected_nlooks,
         )
         assert isinstance(data, np.ndarray)
         assert isinstance(ind_ptr, np.ndarray)
@@ -859,20 +899,26 @@ class TestAreaProjTriangles:
         bbox_l2 = np.array([99.0, -99.0, 99.0, -99.0], dtype=np.float64)
         bbox_w = np.array([99.0, -99.0, 99.0, -99.0], dtype=np.float64)
 
-        (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook = (
-            area_proj_triangles(
-                y=y, x=x, triangs=triangs, vertexes=vertexes,
-                bbox=bbox,
-                linear_global_index=0,
-                length=2, width=2,
-                xsize_global=2,
-                xmin_global=0, ymin_global=0,
-                xmin_chunk=0, ymin_chunk=0,
-                radar_grid_ysize=1,
-                plane_orientation=1,
-                bbox_l1=bbox_l1, bbox_l2=bbox_l2, bbox_w=bbox_w,
-                expected_nlooks=1,
-            )
+        (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook = area_proj_triangles(
+            y=y,
+            x=x,
+            triangs=triangs,
+            vertexes=vertexes,
+            bbox=bbox,
+            linear_global_index=0,
+            length=2,
+            width=2,
+            xsize_global=2,
+            xmin_global=0,
+            ymin_global=0,
+            xmin_chunk=0,
+            ymin_chunk=0,
+            radar_grid_ysize=1,
+            plane_orientation=1,
+            bbox_l1=bbox_l1,
+            bbox_l2=bbox_l2,
+            bbox_w=bbox_w,
+            expected_nlooks=1,
         )
         assert len(data) == 0
         assert len(col) == 0
@@ -887,11 +933,20 @@ class TestComputeGammaNaughtArea:
         """Single triangle should produce non-zero GNA values."""
         # Single triangle: vertices at (0,0,0), (1,0,0), (0,1,0)
         # triang_points: [x0,y0,z0, x1,y1,z1, x2,y2,z2] = 9 values
-        triang_points = np.array([
-            0.0, 0.0, 0.0,
-            1.0, 0.0, 0.0,
-            0.0, 1.0, 0.0,
-        ], dtype=np.float64)
+        triang_points = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ],
+            dtype=np.float64,
+        )
         # radar_distance: vector to first vertex of each triangle
         radar_distance = np.array([0.0, 0.0, 10.0], dtype=np.float64)
         radar_grid_pixel_area = 1.0
@@ -948,11 +1003,20 @@ class TestComputeGammaNaughtArea:
     def test_compute_gamma_naught_area_grazing_angle(self):
         """Grazing angle (cos_theta ~ 0) should give near-zero GNA."""
         # Triangle edge-on to radar: normal perpendicular to radar direction
-        triang_points = np.array([
-            0.0, 0.0, 0.0,
-            1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0,  # normal is in y-direction, radar is in z-direction
-        ], dtype=np.float64)
+        triang_points = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,  # normal is in y-direction, radar is in z-direction
+            ],
+            dtype=np.float64,
+        )
         radar_distance = np.array([0.0, 0.0, 10.0], dtype=np.float64)
         radar_grid_pixel_area = 1.0
         num_triangles = 1
@@ -1000,11 +1064,20 @@ class TestComputeGammaNaughtArea:
     @pytest.mark.unit
     def test_compute_gamma_naught_area_different_normal_order(self):
         """Different normal_order should flip the sign of lia."""
-        triang_points = np.array([
-            0.0, 0.0, 0.0,
-            1.0, 0.0, 0.0,
-            0.0, 1.0, 0.0,
-        ], dtype=np.float64)
+        triang_points = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ],
+            dtype=np.float64,
+        )
         radar_distance = np.array([0.0, 0.0, 10.0], dtype=np.float64)
         radar_grid_pixel_area = 1.0
         num_triangles = 1
@@ -1031,24 +1104,46 @@ class TestComputeGammaNaughtArea:
         indices_w = np.empty(0, dtype=np.int64)
 
         computeGammaNaughtArea(
-            triang_points=triang_points, radar_distance=radar_distance,
+            triang_points=triang_points,
+            radar_distance=radar_distance,
             radar_grid_pixel_area=radar_grid_pixel_area,
-            num_triangles=num_triangles, normal_order=True,
-            GNA=GNA_fwd, lia=lia_fwd,
-            data_w=data_w, indptr_w=indptr_w, indices_w=indices_w,
-            n_rows=1, n_cols=n_cols,
-            dense=dense_fwd, data=data_fwd, indices=indices_fwd,
-            indptr=indptr_fwd, width=2, length=2, bbox=bbox_fwd,
+            num_triangles=num_triangles,
+            normal_order=True,
+            GNA=GNA_fwd,
+            lia=lia_fwd,
+            data_w=data_w,
+            indptr_w=indptr_w,
+            indices_w=indices_w,
+            n_rows=1,
+            n_cols=n_cols,
+            dense=dense_fwd,
+            data=data_fwd,
+            indices=indices_fwd,
+            indptr=indptr_fwd,
+            width=2,
+            length=2,
+            bbox=bbox_fwd,
         )
         computeGammaNaughtArea(
-            triang_points=triang_points, radar_distance=radar_distance,
+            triang_points=triang_points,
+            radar_distance=radar_distance,
             radar_grid_pixel_area=radar_grid_pixel_area,
-            num_triangles=num_triangles, normal_order=False,
-            GNA=GNA_rev, lia=lia_rev,
-            data_w=data_w, indptr_w=indptr_w, indices_w=indices_w,
-            n_rows=1, n_cols=n_cols,
-            dense=dense_rev, data=data_rev, indices=indices_rev,
-            indptr=indptr_rev, width=2, length=2, bbox=bbox_rev,
+            num_triangles=num_triangles,
+            normal_order=False,
+            GNA=GNA_rev,
+            lia=lia_rev,
+            data_w=data_w,
+            indptr_w=indptr_w,
+            indices_w=indices_w,
+            n_rows=1,
+            n_cols=n_cols,
+            dense=dense_rev,
+            data=data_rev,
+            indices=indices_rev,
+            indptr=indptr_rev,
+            width=2,
+            length=2,
+            bbox=bbox_rev,
         )
         # lia should have opposite signs (normal flipped)
         np.testing.assert_almost_equal(lia_fwd[0], -lia_rev[0])
@@ -1223,9 +1318,11 @@ class TestCsrTimesDense:
             indptr=indptr,
             radar_image=radar_image,
             geocoded_image=geocoded_image,
-            ystart=0, xstart=0,
+            ystart=0,
+            xstart=0,
             xsize_global=4,
-            ysize_block=1, xsize_block=4,
+            ysize_block=1,
+            xsize_block=4,
         )
         np.testing.assert_almost_equal(geocoded_image[0], expected)
 
@@ -1254,9 +1351,11 @@ class TestCsrTimesDense:
             indptr=indptr,
             radar_image=radar_image,
             geocoded_image=geocoded_image,
-            ystart=0, xstart=0,
+            ystart=0,
+            xstart=0,
             xsize_global=4,
-            ysize_block=1, xsize_block=4,
+            ysize_block=1,
+            xsize_block=4,
         )
         # Row 0 has no weights => geocoded_image[0] = 0 (unchanged)
         np.testing.assert_almost_equal(geocoded_image[0], 0.0)
@@ -1292,9 +1391,11 @@ class TestCsrTimesDense:
             indptr=indptr,
             radar_image=radar_image,
             geocoded_image=geocoded_image,
-            ystart=0, xstart=0,
+            ystart=0,
+            xstart=0,
             xsize_global=4,
-            ysize_block=1, xsize_block=4,
+            ysize_block=1,
+            xsize_block=4,
         )
         # Layout: [dim0_row0, dim0_row1, dim1_row0, dim1_row1]
         # dim 0, row 0: (10 + 20) / 2 = 15
@@ -1328,9 +1429,11 @@ class TestCsrTimesDense:
             indptr=indptr,
             radar_image=radar_image,
             geocoded_image=geocoded_image,
-            ystart=0, xstart=0,
+            ystart=0,
+            xstart=0,
             xsize_global=4,
-            ysize_block=1, xsize_block=4,
+            ysize_block=1,
+            xsize_block=4,
         )
         np.testing.assert_almost_equal(geocoded_image[0], expected)
 
@@ -1416,14 +1519,28 @@ class TestComputeIncidenceAngleGround:
     @pytest.mark.unit
     def test_compute_incidence_angle_ground_multiple_points(self):
         """Multiple points should all have valid incidence angles."""
-        radar_distance = np.array([
-            0.0, 0.0, 10.0,   # point 0
-            5.0, 0.0, 10.0,   # point 1
-        ], dtype=np.float64)
-        points = np.array([
-            0.0, 0.0, 0.0,    # point 0
-            5.0, 0.0, 0.0,    # point 1
-        ], dtype=np.float64)
+        radar_distance = np.array(
+            [
+                0.0,
+                0.0,
+                10.0,  # point 0
+                5.0,
+                0.0,
+                10.0,  # point 1
+            ],
+            dtype=np.float64,
+        )
+        points = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,  # point 0
+                5.0,
+                0.0,
+                0.0,  # point 1
+            ],
+            dtype=np.float64,
+        )
         num_points = 2
 
         incidence_angle_ground = np.zeros(num_points, dtype=np.float64)
@@ -1475,9 +1592,14 @@ class TestMainLoop:
         conv_th = 1e-3
 
         main_loop(
-            pos=pos, vel=vel, acc=acc, dem=dem,
-            t=t, direction_ecef=direction_ecef,
-            r=r, conv_th=conv_th,
+            pos=pos,
+            vel=vel,
+            acc=acc,
+            dem=dem,
+            t=t,
+            direction_ecef=direction_ecef,
+            r=r,
+            conv_th=conv_th,
         )
         # t should have been modified in-place
         assert t.shape == (2, 2)
@@ -1507,9 +1629,14 @@ class TestMainLoop:
         conv_th = 1e-6
 
         main_loop(
-            pos=pos, vel=vel, acc=acc, dem=dem,
-            t=t, direction_ecef=direction_ecef,
-            r=r, conv_th=conv_th,
+            pos=pos,
+            vel=vel,
+            acc=acc,
+            dem=dem,
+            t=t,
+            direction_ecef=direction_ecef,
+            r=r,
+            conv_th=conv_th,
         )
         # Should have converged
         assert np.isfinite(t[0, 0])
