@@ -80,7 +80,7 @@ doc = [
 ]
 complexity = ["eopf[complexity] >= 3.0.0rc2"]
 doc-cov = ["eopf[doc-cov] >= 3.0.0rc2"]
-dev = ["ipykernel","matplotlib"]
+dev = ["ipykernel","matplotlib","pytest-env"]
 
 [tool.ruff]
 line-length = 120
@@ -91,6 +91,9 @@ target-version = "py311"
 markers = ["integration", "unit", "need_files"]
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
+
+[tool.pytest_env]
+NUMBA_DISABLE_JIT=1
 
 # Add the gitlab token in your `.netrc` file to allow `uv lock`
 # s1-ard-core
