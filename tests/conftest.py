@@ -200,3 +200,124 @@ def daz_drg_data():
         coords={"azimuth_time": np.arange(2), "slant_range_time": np.arange(2)},
     )
     return daz, drg
+
+
+@pytest.fixture
+def triang_4x4():
+    """Triangle indices for a 4x4 grid (3x3 cells = 36 triangles)."""
+    from cop_ard_core.area_projection import triangulate_regular
+    return triangulate_regular(ysize=4, xsize=4)
+
+
+@pytest.fixture
+def compute_shadow_radar_grid():
+    import rioxarray
+    data = np.zeros((2, 3), dtype=np.float64)
+    az = np.array([0.0, 1.0], dtype=np.float64)
+    sr = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+    grid = xr.DataArray(data, dims=["azimuth_time", "slant_range_time"],
+                        coords={"azimuth_time": az, "slant_range_time": sr})
+    grid.rio.write_crs("EPSG:4326", inplace=True)
+    return grid
+
+
+@pytest.fixture
+def compute_shadow_h():
+    import rioxarray
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    h = xr.DataArray(np.full((len(y), len(x)), 100.0), dims=["y", "x"],
+                     coords={"y": y, "x": x})
+    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h.rio.write_crs("EPSG:4326", inplace=True)
+    return h
+
+
+@pytest.fixture
+def compute_shadow_dem_distance():
+    import rioxarray
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.full((len(y), len(x), 3), 5000.0, dtype=np.float64)
+    dem_dist = xr.DataArray(data, dims=["y", "x", "coord"], coords={"y": y, "x": x})
+    dem_dist = dem_dist.expand_dims(acquisition_date=["2020-01-01"])
+    dem_dist.rio.write_crs("EPSG:4326", inplace=True)
+    return dem_dist
+
+
+@pytest.fixture
+def compute_shadow_azimuth_time():
+    """Azimuth times must vary across y so pixels span the 2D grid.
+    
+    Azimuth times are in nanoseconds (datetime64[ns] values), so the
+    pixel coordinate is:
+        az_pixel = (az_time - az_ref) / (dt_az * 1e9)
+    
+    With dt_az=0.01s=10ms, each 10ms step gives 1 pixel step.
+    """
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.zeros((len(y), len(x)), dtype=np.float64)
+    for j in range(len(y)):
+        data[j, :] = float(j) * 0.01  # 0.01s = 1 pixel step
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+
+
+@pytest.fixture
+def compute_shadow_slant_range_time():
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.zeros((len(y), len(x)), dtype=np.float64)
+    for i in range(len(x)):
+        data[:, i] = float(i) * 0.5
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+
+
+@pytest.fixture
+def compute_shadow_dt():
+    return {"azimuth_time": 0.01, "slant_range_time": 0.5}
+
+
+@pytest.fixture
+def compute_shadow_local_incidence_angle():
+    import rioxarray
+    y = np.array([0.0, 1.0, 2.0, 3.0])
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    data = np.full((len(y), len(x)), 0.3, dtype=np.float64)
+    arr = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    arr.rio.write_crs("EPSG:4326", inplace=True)
+    return arr
+
+
+@pytest.fixture
+def compute_shadow_simulation_ml():
+    """Simulation_ml with coarse radar times matching radar_grid (az=[0,1], sr=[0,1,2])."""
+    coarse_y = np.array([-0.5, 3.5])
+    coarse_x = np.array([-0.5, 5.5])
+    # Radar times must cover the radar_grid's extent so all coarse cells pass the mask
+    az_min = np.array([[0.0, 0.0], [0.0, 0.0]])
+    sr_min = np.array([[0.0, 0.0], [0.0, 0.0]])
+    az_max = np.array([[1.0, 1.0], [1.0, 1.0]])
+    sr_max = np.array([[2.0, 2.0], [2.0, 2.0]])
+    min_ds = xr.Dataset({
+        "azimuth_time": xr.DataArray(az_min, dims=["y", "x"]),
+        "slant_range_time": xr.DataArray(sr_min, dims=["y", "x"]),
+    }, coords={"y": coarse_y, "x": coarse_x,
+               "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")})
+    max_ds = xr.Dataset({
+        "azimuth_time": xr.DataArray(az_max, dims=["y", "x"]),
+        "slant_range_time": xr.DataArray(sr_max, dims=["y", "x"]),
+    }, coords={"y": coarse_y, "x": coarse_x,
+               "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")})
+    return {"acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]"),
+            "min": min_ds, "max": max_ds}
+
+
+@pytest.fixture
+def compute_shadow_dt():
+    return {"azimuth_time": 0.01, "slant_range_time": 0.5}
+
+
+@pytest.fixture
+def compute_shadow_margin():
+    return {"azimuth_time": 0.0, "slant_range_time": 0.0}
