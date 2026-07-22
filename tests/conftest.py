@@ -206,28 +206,29 @@ def daz_drg_data():
 def triang_4x4():
     """Triangle indices for a 4x4 grid (3x3 cells = 36 triangles)."""
     from cop_ard_core.area_projection import triangulate_regular
+
     return triangulate_regular(ysize=4, xsize=4)
 
 
 @pytest.fixture
 def compute_shadow_radar_grid():
-    import rioxarray
+
     data = np.zeros((2, 3), dtype=np.float64)
     az = np.array([0.0, 1.0], dtype=np.float64)
     sr = np.array([0.0, 1.0, 2.0], dtype=np.float64)
-    grid = xr.DataArray(data, dims=["azimuth_time", "slant_range_time"],
-                        coords={"azimuth_time": az, "slant_range_time": sr})
+    grid = xr.DataArray(
+        data, dims=["azimuth_time", "slant_range_time"], coords={"azimuth_time": az, "slant_range_time": sr}
+    )
     grid.rio.write_crs("EPSG:4326", inplace=True)
     return grid
 
 
 @pytest.fixture
 def compute_shadow_h():
-    import rioxarray
+
     y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
-    h = xr.DataArray(np.full((len(y), len(x)), 100.0), dims=["y", "x"],
-                     coords={"y": y, "x": x})
+    h = xr.DataArray(np.full((len(y), len(x)), 100.0), dims=["y", "x"], coords={"y": y, "x": x})
     h = h.expand_dims(acquisition_date=["2020-01-01"])
     h.rio.write_crs("EPSG:4326", inplace=True)
     return h
@@ -235,7 +236,7 @@ def compute_shadow_h():
 
 @pytest.fixture
 def compute_shadow_dem_distance():
-    import rioxarray
+
     y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
     data = np.full((len(y), len(x), 3), 5000.0, dtype=np.float64)
@@ -248,11 +249,11 @@ def compute_shadow_dem_distance():
 @pytest.fixture
 def compute_shadow_azimuth_time():
     """Azimuth times must vary across y so pixels span the 2D grid.
-    
+
     Azimuth times are in nanoseconds (datetime64[ns] values), so the
     pixel coordinate is:
         az_pixel = (az_time - az_ref) / (dt_az * 1e9)
-    
+
     With dt_az=0.01s=10ms, each 10ms step gives 1 pixel step.
     """
     y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
@@ -280,7 +281,7 @@ def compute_shadow_dt():
 
 @pytest.fixture
 def compute_shadow_local_incidence_angle():
-    import rioxarray
+
     y = np.array([0.0, 1.0, 2.0, 3.0])
     x = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     data = np.full((len(y), len(x)), 0.3, dtype=np.float64)
@@ -299,18 +300,21 @@ def compute_shadow_simulation_ml():
     sr_min = np.array([[0.0, 0.0], [0.0, 0.0]])
     az_max = np.array([[1.0, 1.0], [1.0, 1.0]])
     sr_max = np.array([[2.0, 2.0], [2.0, 2.0]])
-    min_ds = xr.Dataset({
-        "azimuth_time": xr.DataArray(az_min, dims=["y", "x"]),
-        "slant_range_time": xr.DataArray(sr_min, dims=["y", "x"]),
-    }, coords={"y": coarse_y, "x": coarse_x,
-               "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")})
-    max_ds = xr.Dataset({
-        "azimuth_time": xr.DataArray(az_max, dims=["y", "x"]),
-        "slant_range_time": xr.DataArray(sr_max, dims=["y", "x"]),
-    }, coords={"y": coarse_y, "x": coarse_x,
-               "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")})
-    return {"acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]"),
-            "min": min_ds, "max": max_ds}
+    min_ds = xr.Dataset(
+        {
+            "azimuth_time": xr.DataArray(az_min, dims=["y", "x"]),
+            "slant_range_time": xr.DataArray(sr_min, dims=["y", "x"]),
+        },
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+    )
+    max_ds = xr.Dataset(
+        {
+            "azimuth_time": xr.DataArray(az_max, dims=["y", "x"]),
+            "slant_range_time": xr.DataArray(sr_max, dims=["y", "x"]),
+        },
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+    )
+    return {"acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]"), "min": min_ds, "max": max_ds}
 
 
 @pytest.fixture
@@ -345,7 +349,6 @@ def area_proj_simulation():
       - h: DEM elevation (constant, with CRS)
       - dem_distance: radar distance vectors (3D)
     """
-    import rioxarray
 
     y = np.array([0.0, 1.0, 2.0, 3.0])
     x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
@@ -463,6 +466,7 @@ def area_proj_geocoded_csr_matrix():
 def triang_3x4():
     """Triangle indices for a 4x5 grid (3x4 cells = 24 triangles)."""
     from cop_ard_core.area_projection import triangulate_regular
+
     return triangulate_regular(ysize=4, xsize=5)
 
 
@@ -496,3 +500,168 @@ def get_w_simple_inputs():
         "bbox": bbox,
         "expected_nlooks": 1,
     }
+
+
+# ===========================================================================
+# esd fixtures
+# ===========================================================================
+
+
+@pytest.fixture
+def esd_acquisition_date():
+    """1D acquisition_date DataArray for ESD tests."""
+    return xr.DataArray(
+        data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
+        dims=["acquisition_date"],
+    )
+
+
+@pytest.fixture
+def esd_burst():
+    """Minimal burst DataArray with required attrs for compute_azimuth_shifts.
+
+    Required attrs keys:
+      - burst.attrs["burst_meta"]["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"] : 1D array of poly coeffs
+      - burst.attrs["burst_meta"]["Grid"]["Col"]["SS"] : sweep speed (float)
+      - burst.slant_range_m : 1D coordinate array
+      - burst.azimuth_m : 1D coordinate array
+    """
+    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    data = np.array(
+        [[[(i + 1) * (j + 1) * (k + 1) * (1 + 0.1j) for k in range(3)] for j in range(3)] for i in range(3)],
+        dtype=np.complex128,
+    )
+    slant_range_m = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+    azimuth_m = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+    annot = {
+        "Grid": {
+            "Col": {
+                "DeltaKCOAPoly": {"Coefs": np.array([1e3, 2e3, 0.0])},
+                "SS": 0.01,
+            }
+        }
+    }
+    burst = xr.DataArray(
+        data,
+        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        coords={
+            "acquisition_date": dates,
+            "azimuth_pixel": np.arange(3),
+            "slant_range_time": np.arange(3),
+            "slant_range_m": ("slant_range_time", slant_range_m),
+            "azimuth_m": ("azimuth_pixel", azimuth_m),
+        },
+    )
+    burst = burst.assign_attrs({"meta": annot})
+    burst.attrs = {"burst_meta": annot}
+    return burst
+
+
+@pytest.fixture
+def esd_reference_pair(esd_burst):
+    """Two reference DataArrays with acquisition_date coordinate.
+
+    The acquisition_date dimension contains the same dates as the burst so
+    that `all(reference_date in e.acquisition_date)` returns True.
+    """
+    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    data0 = np.array(
+        [[[(i + 1) * (j + 1) * (k + 1) * (1 + 0.1j) for k in range(3)] for j in range(3)] for i in range(3)],
+        dtype=np.complex128,
+    )
+    data1 = np.array(
+        [[[(i + 1) * (j + 1) * (k + 1) * (1 - 0.1j) for k in range(3)] for j in range(3)] for i in range(3)],
+        dtype=np.complex128,
+    )
+    ref0 = xr.DataArray(
+        data0,
+        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        coords={
+            "acquisition_date": dates,
+            "azimuth_pixel": np.arange(3),
+            "slant_range_time": np.arange(3),
+        },
+    )
+    ref1 = xr.DataArray(
+        data1,
+        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        coords={
+            "acquisition_date": dates,
+            "azimuth_pixel": np.arange(3),
+            "slant_range_time": np.arange(3),
+        },
+    )
+    return ref0, ref1
+
+
+@pytest.fixture
+def esd_dataset():
+    """Small ESD dataset for find_global_shift and optimize_curvature.
+
+    Shape: acquisition_date=5, reference_date=5, stacked=(5,).
+    mean_shift is NaN on the diagonal (self-interferogram) and valid elsewhere.
+    """
+    acquisition_dates = np.array(
+        ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"],
+        dtype="datetime64[ns]",
+    )
+    n = len(acquisition_dates)
+    stacked_ids = np.arange(n)
+    stacked_dates = acquisition_dates.copy()
+
+    # Use empty object array then assign tuples to keep 1D shape
+    stacked = np.empty(n, dtype=object)
+    for i in range(n):
+        stacked[i] = (int(stacked_ids[i]), stacked_dates[i])
+
+    az_times = np.array([1_000_000_000 * i for i in range(n)], dtype="timedelta64[ns]")
+    sr_times = np.array([500_000_000 * i for i in range(n)], dtype="timedelta64[ns]")
+
+    # Build mean_shift: NaN on diagonal, valid off-diagonal
+    mean_shift_data = np.full((n, n), np.nan)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                mean_shift_data[i, j] = float(i - j) * 0.5
+
+    mean_phase_data = np.full((n, n), np.nan)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                mean_phase_data[i, j] = float(i - j) * np.pi / 4
+
+    coherence_data = np.full((n, n), 0.8)
+
+    wrap_cycle_data = np.full((n, n), 0.002)
+
+    esd = xr.Dataset(
+        data_vars={
+            "mean_shift": (
+                ["acquisition_date", "reference_date"],
+                mean_shift_data,
+            ),
+            "mean_phase": (
+                ["acquisition_date", "reference_date"],
+                mean_phase_data,
+            ),
+            "coherence": (
+                ["acquisition_date", "reference_date"],
+                coherence_data,
+            ),
+            "wrap_cycle": (
+                ["acquisition_date", "reference_date"],
+                wrap_cycle_data,
+            ),
+            "azimuth_time": (["acquisition_date"], np.array(az_times, dtype="timedelta64[ns]")),
+            "slant_range_time": (["acquisition_date"], np.array(sr_times, dtype="timedelta64[ns]")),
+        },
+        coords={
+            "acquisition_date": acquisition_dates,
+            "reference_date": acquisition_dates,
+            "stacked": ("stacked", stacked),
+        },
+        attrs={
+            "coregistration_reference_date": np.datetime64("2020-01-01", "ns"),
+        }
+    )
+    return esd
