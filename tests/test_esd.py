@@ -1,8 +1,6 @@
 """Unit tests for cop_ard_core.esd."""
 
 import numpy as np
-import pytest
-import xarray as xr
 
 from cop_ard_core.esd import (
     angle_phase,

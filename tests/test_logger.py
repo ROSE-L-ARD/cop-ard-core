@@ -13,22 +13,27 @@ class TestTimeit:
 
     def test_timeit_returns_value(self):
         """Decorated function should return the original value."""
+
         @timeit
         def add(a, b):
             return a + b
+
         result = add(2, 3)
         assert result == 5
 
     def test_timeit_preserves_metadata(self):
         """Decorated function should preserve original metadata."""
+
         @timeit
         def my_func(x):
             """Original docstring."""
             return x * 2
+
         assert my_func.__name__ == "my_func"
 
     def test_timeit_measures_time(self):
         """Decorated function should log execution time."""
+
         @timeit
         def sleep_and_return():
             tt.sleep(0.01)
@@ -43,6 +48,7 @@ class TestTimeit:
 
     def test_timeit_with_kwargs(self):
         """Should work with keyword arguments."""
+
         @timeit
         def greet(name, greeting="Hello"):
             return f"{greeting}, {name}"
@@ -53,6 +59,7 @@ class TestTimeit:
 
     def test_timeit_with_args_kwargs(self):
         """Should work with both positional and keyword arguments."""
+
         @timeit
         def multiply(a, b=1):
             return a * b
@@ -63,6 +70,7 @@ class TestTimeit:
 
     def test_timeit_exception_propagation(self):
         """Exceptions should propagate through the decorator."""
+
         @timeit
         def raises():
             raise ValueError("test error")
@@ -72,16 +80,18 @@ class TestTimeit:
 
     def test_timeit_multiple_calls(self):
         """Multiple calls should each log execution time."""
+
         @timeit
         def counter():
             return counter._count + 1
+
         counter._count = 0
 
         with patch("cop_ard_core.logger.logger.info"):
             counter()
             counter()
             counter()
-            assert counter.logger.info.call_count == 3 if hasattr(counter, 'logger') else True
+            assert counter.logger.info.call_count == 3 if hasattr(counter, "logger") else True
 
 
 class TestLogger:

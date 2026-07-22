@@ -1,7 +1,6 @@
 """Unit tests for cop_ard_core.griddata."""
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.griddata import (
@@ -58,31 +57,35 @@ class TestInterpDataset:
 
     def _make_2d_xi(self, ny, nx):
         """Create 2D xi arrays for interpolation."""
-        x_2d, y_2d = np.meshgrid(np.arange(nx), np.arange(ny), indexing='xy')
+        x_2d, y_2d = np.meshgrid(np.arange(nx), np.arange(ny), indexing="xy")
         return (y_2d, x_2d)
 
     def test_interp_dataset_basic(self):
         """Basic interpolation should return dataset."""
-        data = xr.Dataset({
-            "z": xr.DataArray(
-                np.random.rand(5, 5),
-                dims=["y", "x"],
-                coords={"y": np.arange(5), "x": np.arange(5)},
-            )
-        })
+        data = xr.Dataset(
+            {
+                "z": xr.DataArray(
+                    np.random.rand(5, 5),
+                    dims=["y", "x"],
+                    coords={"y": np.arange(5), "x": np.arange(5)},
+                )
+            }
+        )
         xi = self._make_2d_xi(3, 3)
         result = interp_dataset(data, xi, common_dims=("y", "x"))
         assert isinstance(result, xr.Dataset)
 
     def test_interp_dataset_output_shape(self):
         """Output shape should match xi shapes."""
-        data = xr.Dataset({
-            "z": xr.DataArray(
-                np.random.rand(10, 10),
-                dims=["y", "x"],
-                coords={"y": np.arange(10), "x": np.arange(10)},
-            )
-        })
+        data = xr.Dataset(
+            {
+                "z": xr.DataArray(
+                    np.random.rand(10, 10),
+                    dims=["y", "x"],
+                    coords={"y": np.arange(10), "x": np.arange(10)},
+                )
+            }
+        )
         xi = self._make_2d_xi(7, 9)
         result = interp_dataset(data, xi, common_dims=("y", "x"))
         assert "z" in result
@@ -90,12 +93,16 @@ class TestInterpDataset:
 
     def test_interp_dataset_multiple_variables(self):
         """Multiple variables should all be interpolated."""
-        data = xr.Dataset({
-            "z1": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"],
-                               coords={"y": np.arange(5), "x": np.arange(5)}),
-            "z2": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"],
-                               coords={"y": np.arange(5), "x": np.arange(5)}),
-        })
+        data = xr.Dataset(
+            {
+                "z1": xr.DataArray(
+                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
+                ),
+                "z2": xr.DataArray(
+                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
+                ),
+            }
+        )
         xi = self._make_2d_xi(3, 3)
         result = interp_dataset(data, xi, common_dims=("y", "x"))
         assert "z1" in result
@@ -103,22 +110,27 @@ class TestInterpDataset:
 
     def test_interp_dataset_with_extra_dims(self):
         """Variables with extra dimensions should be handled."""
-        data = xr.Dataset({
-            "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"],
-                              coords={"y": np.arange(5), "x": np.arange(5)}),
-            "extra": xr.DataArray(np.random.rand(3, 5, 5), dims=["layer", "y", "x"],
-                                  coords={"y": np.arange(5), "x": np.arange(5), "layer": [0, 1, 2]}),
-        })
+        data = xr.Dataset(
+            {
+                "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
+                "extra": xr.DataArray(
+                    np.random.rand(3, 5, 5),
+                    dims=["layer", "y", "x"],
+                    coords={"y": np.arange(5), "x": np.arange(5), "layer": [0, 1, 2]},
+                ),
+            }
+        )
         xi = self._make_2d_xi(3, 3)
         result = interp_dataset(data, xi, common_dims=("y", "x"))
         assert isinstance(result, xr.Dataset)
 
     def test_interp_dataset_fill_value(self):
         """Fill value should be used for out-of-bounds points."""
-        data = xr.Dataset({
-            "z": xr.DataArray(np.ones((5, 5)), dims=["y", "x"],
-                              coords={"y": np.arange(5), "x": np.arange(5)}),
-        })
+        data = xr.Dataset(
+            {
+                "z": xr.DataArray(np.ones((5, 5)), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
+            }
+        )
         # Interpolate inside bounds (1,1) to (3,3)
         xi = self._make_2d_xi(3, 3)
         result = interp_dataset(data, xi, common_dims=("y", "x"), fill_value=0.0)
@@ -126,10 +138,13 @@ class TestInterpDataset:
 
     def test_interp_dataset_cubic(self):
         """Cubic interpolation should work."""
-        data = xr.Dataset({
-            "z": xr.DataArray(np.random.rand(10, 10), dims=["y", "x"],
-                              coords={"y": np.arange(10), "x": np.arange(10)}),
-        })
+        data = xr.Dataset(
+            {
+                "z": xr.DataArray(
+                    np.random.rand(10, 10), dims=["y", "x"], coords={"y": np.arange(10), "x": np.arange(10)}
+                ),
+            }
+        )
         xi = self._make_2d_xi(5, 5)
         result = interp_dataset(data, xi, common_dims=("y", "x"), method="cubic")
         assert isinstance(result, xr.Dataset)

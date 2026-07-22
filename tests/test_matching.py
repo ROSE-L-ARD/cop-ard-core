@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.matching import (
@@ -139,24 +138,36 @@ class TestInitializePatches:
     def test_initialize_patches_basic(self):
         """Basic patch initialization should create dataset."""
         result = initialize_patches(
-            y_size=10, y_width=4, y_step=5,
-            x_size=10, x_width=4, x_step=5,
+            y_size=10,
+            y_width=4,
+            y_step=5,
+            x_size=10,
+            x_width=4,
+            x_step=5,
         )
         assert isinstance(result, xr.Dataset)
 
     def test_initialize_patches_coordinates(self):
         """Should have 'patch' coordinate."""
         result = initialize_patches(
-            y_size=10, y_width=4, y_step=5,
-            x_size=10, x_width=4, x_step=5,
+            y_size=10,
+            y_width=4,
+            y_step=5,
+            x_size=10,
+            x_width=4,
+            x_step=5,
         )
         assert "patch" in result.coords
 
     def test_initialize_patches_variables(self):
         """Should have x_start, x_end, y_start, y_end variables."""
         result = initialize_patches(
-            y_size=10, y_width=4, y_step=5,
-            x_size=10, x_width=4, x_step=5,
+            y_size=10,
+            y_width=4,
+            y_step=5,
+            x_size=10,
+            x_width=4,
+            x_step=5,
         )
         assert "x_start" in result.data_vars
         assert "x_end" in result.data_vars
@@ -166,8 +177,12 @@ class TestInitializePatches:
     def test_initialize_patches_count(self):
         """Number of patches should match expected count."""
         result = initialize_patches(
-            y_size=10, y_width=4, y_step=5,
-            x_size=10, x_width=4, x_step=5,
+            y_size=10,
+            y_width=4,
+            y_step=5,
+            x_size=10,
+            x_width=4,
+            x_step=5,
         )
         # 2 y elements * 2 x elements = 4 patches
         assert result.patch.size == 4
@@ -175,8 +190,12 @@ class TestInitializePatches:
     def test_initialize_patches_exact_division(self):
         """Exact division should not add offset."""
         result = initialize_patches(
-            y_size=10, y_width=4, y_step=5,
-            x_size=10, x_width=4, x_step=5,
+            y_size=10,
+            y_width=4,
+            y_step=5,
+            x_size=10,
+            x_width=4,
+            x_step=5,
         )
         assert result.patch.size == 4
 
@@ -206,9 +225,14 @@ class TestComputePearsonCoefficient:
         pixel_to_time = np.array([1.0, 1.0, 1.0])
         peak_window_size = (1, 1)
         result = compute_pearson_coefficient(
-            patch_ds, stack, reference, pixel_to_time,
-            peak_window_size, forward=True,
-            y_dim="y", x_dim="x",
+            patch_ds,
+            stack,
+            reference,
+            pixel_to_time,
+            peak_window_size,
+            forward=True,
+            y_dim="y",
+            x_dim="x",
             correlation_kernel_size=None,
         )
         assert isinstance(result, xr.DataArray)
@@ -233,9 +257,14 @@ class TestComputePearsonCoefficient:
 
         with patch("cop_ard_core.matching.logger.warning") as mock_warn:
             result = compute_pearson_coefficient(
-                patch_ds, stack, reference, pixel_to_time,
-                peak_window_size, forward=True,
-                y_dim="y", x_dim="x",
+                patch_ds,
+                stack,
+                reference,
+                pixel_to_time,
+                peak_window_size,
+                forward=True,
+                y_dim="y",
+                x_dim="x",
                 correlation_kernel_size=None,
             )
             mock_warn.assert_called_once()

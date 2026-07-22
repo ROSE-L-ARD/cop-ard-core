@@ -1,17 +1,15 @@
 """Unit tests for cop_ard_core.warp."""
 
-from unittest.mock import patch, MagicMock
-
 import numpy as np
 import pytest
 import xarray as xr
 
 from cop_ard_core.warp import (
     extract_abs_grid,
-    extract_rg_az,
     extract_rg0_az0,
-    getLUT,
+    extract_rg_az,
     getCoeffFromLut,
+    getLUT,
     poly_fit_2d,
     sinc,
     sinc_warp,
@@ -167,17 +165,24 @@ class TestExtractRg0Az0:
                 "azimuth_time": np.arange(3),
                 "slant_range_time": np.arange(3),
             },
-            attrs={"dummy": {"RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0, 1.0, 0]}}}, "Grid": {"Col": {"SS": 1.0}, "Row": {"SS": 1.0}}}},
+            attrs={
+                "dummy": {
+                    "RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0, 1.0, 0]}}},
+                    "Grid": {"Col": {"SS": 1.0}, "Row": {"SS": 1.0}},
+                }
+            },
         )
         phase_demod = xr.DataArray(
             np.random.rand(3, 3),
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
         )
-        phase_demod = phase_demod.assign_attrs({
-            "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-            "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-        })
+        phase_demod = phase_demod.assign_attrs(
+            {
+                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
+                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
+            }
+        )
         result = extract_rg0_az0(slc, phase_demod)
         assert len(result) == 4
 
@@ -190,20 +195,27 @@ class TestExtractRg0Az0:
                 "azimuth_time": np.arange(3),
                 "slant_range_time": np.arange(3),
             },
-            attrs={"dummy": {"RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0, 1.0, 0]}}}, "Grid": {"Col": {"SS": 1.0}, "Row": {"SS": 1.0}}}},
+            attrs={
+                "dummy": {
+                    "RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0, 1.0, 0]}}},
+                    "Grid": {"Col": {"SS": 1.0}, "Row": {"SS": 1.0}},
+                }
+            },
         )
         phase_demod = xr.DataArray(
             np.random.rand(3, 3),
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
         )
-        phase_demod = phase_demod.assign_attrs({
-            "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-            "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-        })
+        phase_demod = phase_demod.assign_attrs(
+            {
+                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
+                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
+            }
+        )
         rg0, az0, rg, az = extract_rg0_az0(slc, phase_demod)
-        assert np.isscalar(rg0) or hasattr(rg0, 'item')
-        assert np.isscalar(az0) or hasattr(az0, 'item')
+        assert np.isscalar(rg0) or hasattr(rg0, "item")
+        assert np.isscalar(az0) or hasattr(az0, "item")
 
 
 class TestExtractRgAz:
@@ -215,16 +227,20 @@ class TestExtractRgAz:
             np.ones((3, 3), dtype=np.complex128),
             dims=["azimuth_time", "slant_range_time"],
         )
-        sim = xr.Dataset({
-            "azimuth_time": xr.DataArray(
-                np.arange(3), dims=["azimuth_time"],
-                coords={"azimuth_time": np.arange(3)},
-            ),
-            "slant_range_time": xr.DataArray(
-                np.arange(3), dims=["slant_range_time"],
-                coords={"slant_range_time": np.arange(3)},
-            ),
-        })
+        sim = xr.Dataset(
+            {
+                "azimuth_time": xr.DataArray(
+                    np.arange(3),
+                    dims=["azimuth_time"],
+                    coords={"azimuth_time": np.arange(3)},
+                ),
+                "slant_range_time": xr.DataArray(
+                    np.arange(3),
+                    dims=["slant_range_time"],
+                    coords={"slant_range_time": np.arange(3)},
+                ),
+            }
+        )
         dtaz = 1.0
         dtrg = 1.0
         result = extract_rg_az(slc, sim, dtaz, dtrg)
@@ -255,11 +271,11 @@ class TestGetCoeffFromLut:
             np.ones((3, 3)),
             dims=["azimuth_time", "slant_range_time"],
             coords={
-                "azimuth_time": np.arange(3).astype('datetime64[ns]'),
+                "azimuth_time": np.arange(3).astype("datetime64[ns]"),
                 "slant_range_time": np.arange(3) * 0.1,
             },
         )
-        xLut.attrs["reference"] = {"slant_range_time": 0.0, "azimuth_time": np.datetime64('2020-01-01')}
+        xLut.attrs["reference"] = {"slant_range_time": 0.0, "azimuth_time": np.datetime64("2020-01-01")}
         xLut.attrs["scale"] = {"slant_range_time": 1.0, "azimuth_time": 1.0}
         xLut.attrs["deg"] = {"slant_range_time": 1, "azimuth_time": 1}
         result = getCoeffFromLut(xLut)
@@ -271,17 +287,23 @@ class TestGetLUT:
 
     def test_getLUT_returns_tuple(self):
         """Should return tuple of 3 DataArrays."""
-        coreg = xr.Dataset({
-            "azimuth_time": xr.DataArray(np.arange(3), dims=["azimuth_time"]),
-            "slant_range_time": xr.DataArray(np.arange(3), dims=["slant_range_time"]),
-        })
-        daz_drg = xr.Dataset({
-            "daz": xr.DataArray(np.arange(9).reshape(3, 3), dims=["azimuth_time", "slant_range_time"]),
-            "drg": xr.DataArray(np.arange(9, 18).reshape(3, 3), dims=["azimuth_time", "slant_range_time"]),
-        })
-        slc = xr.Dataset({
-            "slc": xr.DataArray(np.ones((3, 3)), dims=["azimuth_time", "slant_range_time"]),
-        })
+        coreg = xr.Dataset(
+            {
+                "azimuth_time": xr.DataArray(np.arange(3), dims=["azimuth_time"]),
+                "slant_range_time": xr.DataArray(np.arange(3), dims=["slant_range_time"]),
+            }
+        )
+        daz_drg = xr.Dataset(
+            {
+                "daz": xr.DataArray(np.arange(9).reshape(3, 3), dims=["azimuth_time", "slant_range_time"]),
+                "drg": xr.DataArray(np.arange(9, 18).reshape(3, 3), dims=["azimuth_time", "slant_range_time"]),
+            }
+        )
+        slc = xr.Dataset(
+            {
+                "slc": xr.DataArray(np.ones((3, 3)), dims=["azimuth_time", "slant_range_time"]),
+            }
+        )
         slc["slc"].attrs["dummy"] = {
             "RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0, 1.0, 0]}}},
             "ImageData": {"SCPPixel": {"Row": 1, "Col": 1}},

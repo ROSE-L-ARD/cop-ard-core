@@ -1,7 +1,6 @@
 """Unit tests for cop_ard_core.split_spectrum."""
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.split_spectrum import (
@@ -95,13 +94,20 @@ class TestFitIonosphere:
                 "slant_range_time": np.arange(sr_size),
             },
         )
-        phase_iono = phase_iono.assign_coords({
-            "azimuth_time_raw": (["azimuth_time", "slant_range_time"],
-                                 np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float)),
-        })
+        phase_iono = phase_iono.assign_coords(
+            {
+                "azimuth_time_raw": (
+                    ["azimuth_time", "slant_range_time"],
+                    np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float),
+                ),
+            }
+        )
         result = fit_ionosphere(
-            phase_iono, azimuth_time_raw,
-            H_iono=300000.0, H_orb=800000.0, degree=1,
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
         )
         assert isinstance(result, xr.DataArray)
 
@@ -124,13 +130,20 @@ class TestFitIonosphere:
                 "slant_range_time": np.arange(sr_size),
             },
         )
-        phase_iono = phase_iono.assign_coords({
-            "azimuth_time_raw": (["azimuth_time", "slant_range_time"],
-                                 np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float)),
-        })
+        phase_iono = phase_iono.assign_coords(
+            {
+                "azimuth_time_raw": (
+                    ["azimuth_time", "slant_range_time"],
+                    np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float),
+                ),
+            }
+        )
         result = fit_ionosphere(
-            phase_iono, azimuth_time_raw,
-            H_iono=300000.0, H_orb=800000.0, degree=1,
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
         )
         assert "offset" in result.attrs
 
@@ -165,8 +178,12 @@ class TestReconstructIonoSurface:
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
         result = reconstruct_iono_surface(
-            interf, azimuth_time_raw, coeffs,
-            H_iono=300000.0, H_orb=800000.0, degree=1,
+            interf,
+            azimuth_time_raw,
+            coeffs,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
         )
         assert isinstance(result, xr.DataArray)
 
@@ -190,12 +207,18 @@ class TestReconstructIonoSurface:
         )
         # degree=1 gives 3 coefficients (const, x, y) for 2D linear fit
         coeffs = xr.DataArray(
-            np.array([0.0, 1.0, -0.5]), dims=["degree"], coords={"degree": np.arange(3)},
+            np.array([0.0, 1.0, -0.5]),
+            dims=["degree"],
+            coords={"degree": np.arange(3)},
         )
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
         result = reconstruct_iono_surface(
-            interf, azimuth_time_raw, coeffs,
-            H_iono=300000.0, H_orb=800000.0, degree=1,
+            interf,
+            azimuth_time_raw,
+            coeffs,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
         )
         assert result.shape == (3, 5)

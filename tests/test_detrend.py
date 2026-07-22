@@ -168,5 +168,3 @@ class TestFit2dPoly:
         data = np.array([0.0, 1.0, 1.0, 2.0])
         result = fit_2d_poly(x, y, data, degree=1)
         assert isinstance(result, tuple)
-
-  

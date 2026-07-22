@@ -3,7 +3,6 @@
 from xml.etree.ElementTree import Element
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.slc import (
@@ -98,8 +97,7 @@ class TestAmplitudeCalibration:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = amplitude_calibration(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -109,8 +107,7 @@ class TestAmplitudeCalibration:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = amplitude_calibration(slc_with_coords, coeffs)
         assert np.iscomplexobj(result.values)
@@ -120,8 +117,7 @@ class TestAmplitudeCalibration:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = amplitude_calibration(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -140,8 +136,7 @@ class TestNoiseRemoval:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = noise_removal(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -151,8 +146,7 @@ class TestNoiseRemoval:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = noise_removal(slc_with_coords, coeffs)
         assert np.iscomplexobj(result.values)
@@ -162,8 +156,7 @@ class TestNoiseRemoval:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = noise_removal(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -182,8 +175,7 @@ class TestImageDeramp:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = image_deramp(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -193,8 +185,7 @@ class TestImageDeramp:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = image_deramp(slc_with_coords, coeffs)
         assert np.iscomplexobj(result.values)
@@ -204,8 +195,7 @@ class TestImageDeramp:
         coeffs = np.ones((2, 2))
         slc_with_coords = complex_3x3.copy()
         slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)),
-             "azimuth_m": (["azimuth_time"], np.arange(3))}
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
         )
         result = image_deramp(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
@@ -228,8 +218,8 @@ class TestIntersect:
 
     def test_intersect_list_coords(self):
         """Polygons as coordinate lists should work."""
-        poly1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
-        poly2 = [(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)]
+        poly1 = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        poly2 = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5]]
         assert intersect(poly1, poly2) is True
 
     def test_intersect_one_inside_other(self):
@@ -246,7 +236,7 @@ class TestIntersect:
 
     def test_intersect_list_of_lists(self):
         """List of lists should work (not just list of tuples)."""
-        poly1 = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        poly1 = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
         poly2 = "POLYGON ((0.5 0.5, 1.5 0.5, 1.5 1.5, 0.5 1.5, 0.5 0.5))"
         assert intersect(poly1, poly2) is True
 

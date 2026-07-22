@@ -1,6 +1,6 @@
 """Unit tests for cop_ard_core.simul."""
 
-from unittest.mock import MagicMock, patch
+from typing import Union, cast
 
 import numpy as np
 import pytest
@@ -172,27 +172,31 @@ class TestGetGeoFromRadarBbox:
     def test_get_geo_from_radar_bbox_overlapping(self):
         """Overlapping radar bbox should return geographic bbox."""
         data_ml = {
-            "min": xr.Dataset({
-                "azimuth_time": xr.DataArray(
-                    np.array([[np.datetime64("2020-01-01T00:00:00")]]),
-                    dims=["y", "x"],
-                ),
-                "slant_range_time": xr.DataArray(np.array([[0.0]]), dims=["y", "x"]),
-                "y": xr.DataArray(np.array([[40.0]]), dims=["y", "x"]),
-                "x": xr.DataArray(np.array([[-75.0]]), dims=["y", "x"]),
-            }),
-            "max": xr.Dataset({
-                "azimuth_time": xr.DataArray(
-                    np.array([[np.datetime64("2020-01-13T00:00:00")]]),
-                    dims=["y", "x"],
-                ),
-                "slant_range_time": xr.DataArray(np.array([[10.0]]), dims=["y", "x"]),
-                "y": xr.DataArray(np.array([[45.0]]), dims=["y", "x"]),
-                "x": xr.DataArray(np.array([[-70.0]]), dims=["y", "x"]),
-            }),
+            "min": xr.Dataset(
+                {
+                    "azimuth_time": xr.DataArray(
+                        np.array([[np.datetime64("2020-01-01T00:00:00")]]),
+                        dims=["y", "x"],
+                    ),
+                    "slant_range_time": xr.DataArray(np.array([[0.0]]), dims=["y", "x"]),
+                    "y": xr.DataArray(np.array([[40.0]]), dims=["y", "x"]),
+                    "x": xr.DataArray(np.array([[-75.0]]), dims=["y", "x"]),
+                }
+            ),
+            "max": xr.Dataset(
+                {
+                    "azimuth_time": xr.DataArray(
+                        np.array([[np.datetime64("2020-01-13T00:00:00")]]),
+                        dims=["y", "x"],
+                    ),
+                    "slant_range_time": xr.DataArray(np.array([[10.0]]), dims=["y", "x"]),
+                    "y": xr.DataArray(np.array([[45.0]]), dims=["y", "x"]),
+                    "x": xr.DataArray(np.array([[-70.0]]), dims=["y", "x"]),
+                }
+            ),
         }
-        az_min = np.datetime64("2020-01-01T00:00:00")
-        az_max = np.datetime64("2020-01-13T00:00:00")
+        az_min = cast(Union[int, float], np.datetime64("2020-01-01T00:00:00").item())
+        az_max = cast(Union[int, float], np.datetime64("2020-01-13T00:00:00").item())
         bbox_radar = (az_min, 0.0, az_max, 10.0)
         result = get_geo_from_radar_bbox(data_ml, bbox_radar)
         assert result is not None
@@ -201,27 +205,31 @@ class TestGetGeoFromRadarBbox:
     def test_get_geo_from_radar_bbox_no_overlap(self):
         """Non-overlapping radar bbox should return None."""
         data_ml = {
-            "min": xr.Dataset({
-                "azimuth_time": xr.DataArray(
-                    np.array([[np.datetime64("2020-01-01T00:00:00")]]),
-                    dims=["y", "x"],
-                ),
-                "slant_range_time": xr.DataArray(np.array([[0.0]]), dims=["y", "x"]),
-                "y": xr.DataArray(np.array([[40.0]]), dims=["y", "x"]),
-                "x": xr.DataArray(np.array([[-75.0]]), dims=["y", "x"]),
-            }),
-            "max": xr.Dataset({
-                "azimuth_time": xr.DataArray(
-                    np.array([[np.datetime64("2020-01-13T00:00:00")]]),
-                    dims=["y", "x"],
-                ),
-                "slant_range_time": xr.DataArray(np.array([[10.0]]), dims=["y", "x"]),
-                "y": xr.DataArray(np.array([[45.0]]), dims=["y", "x"]),
-                "x": xr.DataArray(np.array([[-70.0]]), dims=["y", "x"]),
-            }),
+            "min": xr.Dataset(
+                {
+                    "azimuth_time": xr.DataArray(
+                        np.array([[np.datetime64("2020-01-01T00:00:00")]]),
+                        dims=["y", "x"],
+                    ),
+                    "slant_range_time": xr.DataArray(np.array([[0.0]]), dims=["y", "x"]),
+                    "y": xr.DataArray(np.array([[40.0]]), dims=["y", "x"]),
+                    "x": xr.DataArray(np.array([[-75.0]]), dims=["y", "x"]),
+                }
+            ),
+            "max": xr.Dataset(
+                {
+                    "azimuth_time": xr.DataArray(
+                        np.array([[np.datetime64("2020-01-13T00:00:00")]]),
+                        dims=["y", "x"],
+                    ),
+                    "slant_range_time": xr.DataArray(np.array([[10.0]]), dims=["y", "x"]),
+                    "y": xr.DataArray(np.array([[45.0]]), dims=["y", "x"]),
+                    "x": xr.DataArray(np.array([[-70.0]]), dims=["y", "x"]),
+                }
+            ),
         }
-        az_min = np.datetime64("2019-01-01T00:00:00")
-        az_max = np.datetime64("2019-01-02T00:00:00")
+        az_min = cast(Union[int, float], np.datetime64("2019-01-01T00:00:00").item())
+        az_max = cast(Union[int, float], np.datetime64("2019-01-02T00:00:00").item())
         bbox_radar = (az_min, 100.0, az_max, 200.0)
         result = get_geo_from_radar_bbox(data_ml, bbox_radar)
         assert result is None

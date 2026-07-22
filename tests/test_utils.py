@@ -1,7 +1,6 @@
 """Unit tests for cop_ard_core.utils."""
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.utils import (
@@ -13,7 +12,6 @@ from cop_ard_core.utils import (
     get_interf,
     get_normalized_interf,
     get_power,
-    get_phramp_diff,
     time_to_pixel,
     wrap,
 )

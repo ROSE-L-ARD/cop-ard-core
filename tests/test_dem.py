@@ -1,7 +1,5 @@
 """Unit tests for cop_ard_core.dem."""
 
-from unittest.mock import MagicMock, patch
-
 import numpy as np
 import pytest
 import xarray as xr
@@ -28,7 +26,7 @@ class TestExtractVerticalCrs:
     def test_extract_vertical_crs_invalid_type(self):
         """Non-CRS type should raise ValueError."""
         with pytest.raises(ValueError, match="Expected type CRS"):
-            extract_vertical_crs("not a crs")
+            extract_vertical_crs("not a crs")  # type: ignore
 
     def test_extract_vertical_crs_3d(self):
         """3D CRS should extract vertical component."""

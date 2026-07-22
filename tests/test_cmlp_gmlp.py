@@ -18,10 +18,17 @@ class TestCalculateStableDates:
 
     def test_calculate_stable_dates_basic(self):
         """Should select dates at stable_reference_step intervals."""
-        dates = np.array([
-            "2020-01-01", "2020-01-13", "2020-01-25",
-            "2020-02-06", "2020-02-18", "2020-03-01",
-        ], dtype="datetime64[ns]")
+        dates = np.array(
+            [
+                "2020-01-01",
+                "2020-01-13",
+                "2020-01-25",
+                "2020-02-06",
+                "2020-02-18",
+                "2020-03-01",
+            ],
+            dtype="datetime64[ns]",
+        )
         revisit_cycle = np.timedelta64(13, "D")
         result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=2)
         assert isinstance(result, np.ndarray)
@@ -36,14 +43,18 @@ class TestCalculateStableDates:
 
     def test_calculate_stable_dates_with_starting_date(self):
         """Starting date should affect selection."""
-        dates = np.array([
-            "2020-01-01", "2020-01-13", "2020-01-25",
-            "2020-02-06", "2020-02-18",
-        ], dtype="datetime64[ns]")
-        revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(
-            dates, revisit_cycle, stable_reference_step=1, starting_date="2020-01-13"
+        dates = np.array(
+            [
+                "2020-01-01",
+                "2020-01-13",
+                "2020-01-25",
+                "2020-02-06",
+                "2020-02-18",
+            ],
+            dtype="datetime64[ns]",
         )
+        revisit_cycle = np.timedelta64(13, "D")
+        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1, starting_date="2020-01-13")
         assert isinstance(result, np.ndarray)
 
     def test_calculate_stable_dates_with_stable_reference(self):
@@ -52,14 +63,18 @@ class TestCalculateStableDates:
             [np.datetime64("2020-01-01", "ns"), np.datetime64("2020-01-25", "ns")],
             dims=["acquisition_date"],
         )
-        dates = np.array([
-            "2020-01-01", "2020-01-13", "2020-01-25",
-            "2020-02-06", "2020-02-18",
-        ], dtype="datetime64[ns]")
-        revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(
-            dates, revisit_cycle, stable_reference_step=1, stable_reference=stable_ref
+        dates = np.array(
+            [
+                "2020-01-01",
+                "2020-01-13",
+                "2020-01-25",
+                "2020-02-06",
+                "2020-02-18",
+            ],
+            dtype="datetime64[ns]",
         )
+        revisit_cycle = np.timedelta64(13, "D")
+        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1, stable_reference=stable_ref)
         assert isinstance(result, np.ndarray)
 
     def test_calculate_stable_dates_empty(self):
@@ -135,7 +150,9 @@ class TestUpdateDrift:
             coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
         )
         result = update_drift(
-            drift_interf, reference, stable_ref,
+            drift_interf,
+            reference,
+            stable_ref,
             multilook={"azimuth_time": 3, "slant_range_time": 3},
             coherence_threshold=0.3,
         )
@@ -159,8 +176,11 @@ class TestUpdateDrift:
             coords={"azimuth_time": np.arange(2), "slant_range_time": np.arange(2)},
         )
         result = update_drift(
-            drift_interf, reference, stable_ref,
-            multilook={}, coherence_threshold=0.3,
+            drift_interf,
+            reference,
+            stable_ref,
+            multilook={},
+            coherence_threshold=0.3,
         )
         assert isinstance(result, np.ndarray)
 
@@ -220,7 +240,7 @@ class TestWarpCmlp:
         source = np.ones((4, 4), dtype=np.complex128)
         target = np.zeros((1, 4, 4), dtype=np.complex128)
         target_indexes = np.arange(16)
-        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing='xy')
+        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
         y = y.ravel()
         kernel = {
@@ -230,8 +250,14 @@ class TestWarpCmlp:
             "sinc_y": np.ones(100),
         }
         warp_cmlp(
-            target, target_indexes, source, x, y, kernel,
-            is_phase=True, is_coherence=False,
+            target,
+            target_indexes,
+            source,
+            x,
+            y,
+            kernel,
+            is_phase=True,
+            is_coherence=False,
         )
         assert target.shape == (1, 4, 4)
 
@@ -240,7 +266,7 @@ class TestWarpCmlp:
         source = np.ones((4, 4), dtype=np.float64)
         target = np.zeros((1, 4, 4))
         target_indexes = np.arange(16)
-        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing='xy')
+        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
         y = y.ravel()
         kernel = {
@@ -250,8 +276,14 @@ class TestWarpCmlp:
             "sinc_y": np.ones(100),
         }
         warp_cmlp(
-            target, target_indexes, source, x, y, kernel,
-            is_phase=False, is_coherence=True,
+            target,
+            target_indexes,
+            source,
+            x,
+            y,
+            kernel,
+            is_phase=False,
+            is_coherence=True,
         )
         assert np.all(target >= 0.0)
         assert np.all(target <= 1.0)
@@ -261,7 +293,7 @@ class TestWarpCmlp:
         source = np.random.rand(4, 4)
         target = np.zeros((1, 4, 4))
         target_indexes = np.arange(16)
-        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing='xy')
+        x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
         y = y.ravel()
         kernel = {
@@ -271,7 +303,13 @@ class TestWarpCmlp:
             "sinc_y": np.ones(100),
         }
         warp_cmlp(
-            target, target_indexes, source, x, y, kernel,
-            is_phase=False, is_coherence=False,
+            target,
+            target_indexes,
+            source,
+            x,
+            y,
+            kernel,
+            is_phase=False,
+            is_coherence=False,
         )
         assert target.shape == (1, 4, 4)

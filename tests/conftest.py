@@ -10,11 +10,14 @@ import xarray as xr
 @pytest.fixture
 def complex_3x3():
     """3x3 complex DataArray with known values."""
-    data = np.array([
-        [1+1j, 2+2j, 3+3j],
-        [4+4j, 5+5j, 6+6j],
-        [7+7j, 8+8j, 9+9j],
-    ], dtype=np.complex128)
+    data = np.array(
+        [
+            [1 + 1j, 2 + 2j, 3 + 3j],
+            [4 + 4j, 5 + 5j, 6 + 6j],
+            [7 + 7j, 8 + 8j, 9 + 9j],
+        ],
+        dtype=np.complex128,
+    )
     return xr.DataArray(
         data,
         dims=["azimuth_time", "slant_range_time"],
@@ -45,9 +48,7 @@ def complex_5x5():
 @pytest.fixture
 def complex_stack_3x3x3():
     """3D complex DataArray (acquisition x azimuth x range)."""
-    data = np.array(
-        [[(i + 1) * (j + 1) * (k + 1) * (1 + 0.25j) for k in range(3)] for j in range(3)] for i in range(3)
-    )
+    data = np.array([[(i + 1) * (j + 1) * (k + 1) * (1 + 0.25j) for k in range(3)] for j in range(3)] for i in range(3))
     data = np.array(data, dtype=np.complex128)
     return xr.DataArray(
         data,
@@ -161,7 +162,9 @@ def coherence_data_3x3():
 @pytest.fixture
 def phase_data_3x3():
     """3x3 DataArray with wrapped phase values."""
-    data = np.array([[0.0, np.pi / 2, np.pi], [3 * np.pi / 2, np.pi / 4, -np.pi / 4], [-np.pi / 2, -np.pi / 3, np.pi / 6]])
+    data = np.array(
+        [[0.0, np.pi / 2, np.pi], [3 * np.pi / 2, np.pi / 4, -np.pi / 4], [-np.pi / 2, -np.pi / 3, np.pi / 6]]
+    )
     return xr.DataArray(
         data,
         dims=["azimuth_time", "slant_range_time"],
@@ -184,8 +187,10 @@ def nan_3x3():
 def daz_drg_data():
     """Small daz/drg DataArrays for testing."""
     daz = xr.DataArray(
-        np.array([["2020-01-01T00:00:00", "2020-01-01T00:00:01"],
-                  ["2020-01-01T00:00:02", "2020-01-01T00:00:03"]], dtype="datetime64[ns]"),
+        np.array(
+            [["2020-01-01T00:00:00", "2020-01-01T00:00:01"], ["2020-01-01T00:00:02", "2020-01-01T00:00:03"]],
+            dtype="datetime64[ns]",
+        ),
         dims=["azimuth_time", "slant_range_time"],
         coords={"azimuth_time": np.arange(2), "slant_range_time": np.arange(2)},
     )

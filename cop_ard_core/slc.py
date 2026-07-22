@@ -163,7 +163,7 @@ def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) 
     return slc * np.exp(-1j * phderamp)
 
 
-def intersect(polygon1: str | list[float], polygon2: str | list[float]):
+def intersect(polygon1: str | list[list[float]], polygon2: str | list[list[float]]):
     """
     Return True if the two input polygons intersect one another.
     Polygons can be passed either as a list of coordinates or as a WKT format string.

@@ -71,12 +71,14 @@ class TestBuildOrbitDataset:
         tree1 = ElementTree(Element("ROOT"))
         file_type1 = Element("File_Type")
         file_type1.text = "POEORB"
-        tree1.getroot().append(file_type1)
+        root1 = tree1.getroot()
+        assert root1 is not None
+        root1.append(file_type1)
         list_osvs1 = Element("List_of_OSVs")
         osv = Element("OSV")
         for tag in ["UTC", "TAI", "UT1"]:
             t = Element(tag)
-            t.text = f"2020-01-01T00:00:00=0"
+            t.text = "2020-01-01T00:00:00=0"
             osv.append(t)
         for coord in ["X", "Y", "Z"]:
             val = Element(coord)
@@ -87,17 +89,19 @@ class TestBuildOrbitDataset:
             val.text = "7500.0"
             osv.append(val)
         list_osvs1.append(osv)
-        tree1.getroot().append(list_osvs1)
+        root1.append(list_osvs1)
 
         tree2 = ElementTree(Element("ROOT"))
         file_type2 = Element("File_Type")
         file_type2.text = "RESORB"
-        tree2.getroot().append(file_type2)
+        root2 = tree2.getroot()
+        assert root2 is not None
+        root2.append(file_type2)
         list_osvs2 = Element("List_of_OSVs")
         osv2 = Element("OSV")
         for tag in ["UTC", "TAI", "UT1"]:
             t = Element(tag)
-            t.text = f"2020-01-01T00:00:00=1"
+            t.text = "2020-01-01T00:00:00=1"
             osv2.append(t)
         for coord in ["X", "Y", "Z"]:
             val = Element(coord)
@@ -108,20 +112,22 @@ class TestBuildOrbitDataset:
             val.text = "7500.0"
             osv2.append(val)
         list_osvs2.append(osv2)
-        tree2.getroot().append(list_osvs2)
+        root2.append(list_osvs2)
 
         with pytest.raises(RuntimeError, match="same orbit type"):
-            build_orbit_dataset([tree1, tree2])
+            build_orbit_dataset([tree1, tree2])  # type: ignore not worth the time to investigate etree typing
 
     def test_build_orbit_dataset_missing_osv_raises(self):
         """Orbit file without List_of_OSVs should raise ValueError."""
         tree = ElementTree(Element("ROOT"))
         file_type = Element("File_Type")
         file_type.text = "POEORB"
-        tree.getroot().append(file_type)
+        root = tree.getroot()
+        assert root is not None
+        root.append(file_type)
 
         with pytest.raises(ValueError, match="error reading orbit file"):
-            build_orbit_dataset([tree])
+            build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
 
     def test_build_orbit_dataset_with_many_observations(self):
         """Should handle many orbit observations."""
@@ -148,7 +154,7 @@ class TestBuildOrbitDataset:
         root.append(list_osvs)
         tree = ElementTree(root)
 
-        result = build_orbit_dataset([tree])
+        result = build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
         assert result.position.shape == (100, 3)
 
 
@@ -170,7 +176,13 @@ class TestRefitOrbitCoefficients:
     def test_refit_orbit_coefficients_with_orbit(self):
         """With a valid orbit, should return an xr.Dataset."""
         utc = np.array(
-            ["2020-01-01T00:00:00", "2020-01-01T00:00:10", "2020-01-01T00:00:20", "2020-01-01T00:00:30", "2020-01-01T00:00:40"],
+            [
+                "2020-01-01T00:00:00",
+                "2020-01-01T00:00:10",
+                "2020-01-01T00:00:20",
+                "2020-01-01T00:00:30",
+                "2020-01-01T00:00:40",
+            ],
             dtype="datetime64[ns]",
         )
         x_vals = np.array([6500000.0, 6507500.0, 6515000.0, 6522500.0, 6530000.0])
@@ -214,7 +226,13 @@ class TestRefitOrbitCoefficients:
     def test_refit_orbit_coefficients_returns_correct_dims(self):
         """Output should have dims: acquisition_date, degree, axis."""
         utc = np.array(
-            ["2020-01-01T00:00:00", "2020-01-01T00:00:10", "2020-01-01T00:00:20", "2020-01-01T00:00:30", "2020-01-01T00:00:40"],
+            [
+                "2020-01-01T00:00:00",
+                "2020-01-01T00:00:10",
+                "2020-01-01T00:00:20",
+                "2020-01-01T00:00:30",
+                "2020-01-01T00:00:40",
+            ],
             dtype="datetime64[ns]",
         )
         x_vals = np.array([6500000.0, 6507500.0, 6515000.0, 6522500.0, 6530000.0])
@@ -247,6 +265,7 @@ class TestRefitOrbitCoefficients:
             poly_degree=2,
         )
 
+        assert result is not None
         assert "coeffs" in result
         assert result.coeffs.dims == ("acquisition_date", "degree", "axis")
         assert result.coeffs.shape[1] == 3  # degree 0, 1, 2

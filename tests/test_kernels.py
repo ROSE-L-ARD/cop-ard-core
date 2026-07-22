@@ -1,7 +1,6 @@
 """Unit tests for cop_ard_core.kernels."""
 
 import numpy as np
-import pytest
 
 from cop_ard_core.kernels import (
     gaussian_kernel,

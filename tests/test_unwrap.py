@@ -1,10 +1,7 @@
 """Unit tests for cop_ard_core.unwrap."""
 
-from unittest.mock import patch
-
 import numpy as np
 import pytest
-import xarray as xr
 
 from cop_ard_core.unwrap import (
     get_dual_graph_,
@@ -20,7 +17,7 @@ class TestUnique:
     def test_unique_basic(self):
         """Should return unique edges."""
         e = np.array([[0, 1], [1, 2], [0, 1], [2, 3]])
-        result = unique(e)
+        result = unique(e, return_index=False)
         assert isinstance(result, np.ndarray)
         assert result.shape[0] <= e.shape[0]
 
@@ -34,20 +31,20 @@ class TestUnique:
     def test_unique_all_same(self):
         """All same edges should return single unique."""
         e = np.array([[0, 1], [0, 1], [0, 1]])
-        result = unique(e)
+        result = unique(e, return_index=False)
         assert result.shape[0] == 1
 
     def test_unique_single_edge(self):
         """Single edge should return itself."""
         e = np.array([[0, 1]])
-        result = unique(e)
+        result = unique(e, return_index=False)
         assert result.shape == (1, 2)
         np.testing.assert_array_equal(result, e)
 
     def test_unique_reverse_edges(self):
         """Reverse edges (0,1) and (1,0) should be treated as different."""
         e = np.array([[0, 1], [1, 0], [0, 2]])
-        result = unique(e)
+        result = unique(e, return_index=False)
         # Each pair is unique by min/max approach
         assert result.shape[0] <= e.shape[0]
 
@@ -104,7 +101,6 @@ class TestGetDualGraph:
         """Custom maxcost and maxjump should be respected."""
         neigh = np.array([[1, 2, -1], [0, 2, -1], [0, 1, -1]])
         head, tail, cost, ucap = get_dual_graph_(neigh, maxcost=50, maxjump=200)
-        n_triang = neigh.shape[0]
         n_edges = neigh.size + (neigh == -1).sum()
         np.testing.assert_array_equal(cost[:n_edges], np.full(n_edges, 50))
         np.testing.assert_array_equal(ucap[:n_edges], np.full(n_edges, 200))

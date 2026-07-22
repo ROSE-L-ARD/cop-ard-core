@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Literal, Tuple, overload
 
 import numba as nb
 import numpy as np
@@ -12,6 +12,14 @@ from cop_ard_core.utils import wrap
 
 MAXJUMP = 1_000
 MAXCOST = 1_000
+
+
+@overload
+def unique(e: np.ndarray, return_index: Literal[True]) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+@overload
+def unique(e: np.ndarray, return_index: Literal[False]) -> np.ndarray: ...
 
 
 def unique(e: np.ndarray, return_index: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
@@ -53,7 +61,7 @@ def get_edges(
 
     # return arcs without repetition, arcs with repetition, neighbours
     # FIXME this doesn't feel right
-    return (unique(np.vstack(e)), e, neigh)  # type: ignore
+    return unique(np.vstack(e)), e, neigh  # type: ignore
 
 
 def get_dual_graph_(
