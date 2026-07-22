@@ -11,3 +11,7 @@ format:
 	uv run --extra security --frozen python -m bandit -c ${S1_ARD_DIR}/bandit.yml -r ${SOURCES}
 	uv run --extra complexity --frozen python -m xenon --max-average b --max-modules c --max-absolute d ${SOURCES}
 	uv run --extra typing --frozen ty check ${SOURCES} ${TESTS}
+fix:
+	uv run --extra linter --frozen ruff check --fix ${SOURCES} ${TESTS}
+test:
+	uv run --extra tests --frozen pytest ${TESTS}
