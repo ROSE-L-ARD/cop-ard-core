@@ -8,12 +8,12 @@ import xarray as xr
 
 from cop_ard_core.area_projection import (
     build_sparse_array,
-    triangulate_regular,
+    compute_geocoded_mask,
     compute_rasterization,
     compute_rtc_ap,
     compute_shadow,
-    compute_geocoded_mask,
     get_w,
+    triangulate_regular,
 )
 
 
@@ -545,11 +545,11 @@ class TestComputeRasterization:
     def _make_mock_get_w(self):
         """Create a mock get_w that returns valid outputs matching the source logic."""
 
-        def mock_get_w(x, y, triang, ymin, ymin_global, xmin, xmin_global, xsize_global,
-                       bbox, expected_nlooks, plane_orientation=1):
-            dim_y = y.size if hasattr(y, '__len__') and not isinstance(y, xr.DataArray) else 0
+        def mock_get_w(
+            x, y, triang, ymin, ymin_global, xmin, xmin_global, xsize_global, bbox, expected_nlooks, plane_orientation=1
+        ):
             # Simulate: triang shape determines number of polygons
-            n_tri = triang.shape[0] if hasattr(triang, 'shape') else 1
+            n_tri = triang.shape[0] if hasattr(triang, "shape") else 1
             nlook = np.ones(n_tri, dtype=np.float32)
             # Return non-None to trigger weight creation path
             w = build_sparse_array(
@@ -561,19 +561,24 @@ class TestComputeRasterization:
                 chunks=n_tri // 4,
                 attrs={"radar_bbox": np.array([0, 0, 5, 5])},
             )
-            layover = [("0_0_5_5", build_sparse_array(
-                data=np.array([0.5], dtype="float32"),
-                row=np.array([0, 1], dtype="int64"),
-                col=np.array([0], dtype="int64"),
-                shape=np.array([5, 5]),
-                format="CSR",
-                chunks=n_tri // 4,
-            ))]
+            layover = [
+                (
+                    "0_0_5_5",
+                    build_sparse_array(
+                        data=np.array([0.5], dtype="float32"),
+                        row=np.array([0, 1], dtype="int64"),
+                        col=np.array([0], dtype="int64"),
+                        shape=np.array([5, 5]),
+                        format="CSR",
+                        chunks=n_tri // 4,
+                    ),
+                )
+            ]
             return (w, nlook, layover)
 
         return mock_get_w
 
-    @patch('cop_ard_core.area_projection.get_w')
+    @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_returns_tuple(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Should return a 3-tuple (nlook, weights, layover)."""
         dim_y = area_proj_simulation.y.size - 1
@@ -599,7 +604,7 @@ class TestComputeRasterization:
         assert len(result) == 3
         mock_get_w.assert_called_once()
 
-    @patch('cop_ard_core.area_projection.get_w')
+    @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_nlook_type(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """nlook should be an xr.DataArray with dims [y, x]."""
         dim_y = area_proj_simulation.y.size - 1
@@ -619,7 +624,7 @@ class TestComputeRasterization:
         assert "y" in nlook.dims
         assert "x" in nlook.dims
 
-    @patch('cop_ard_core.area_projection.get_w')
+    @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_nlook_shape(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """nlook shape should be (dim_y, dim_x) = (sim.y.size-1, sim.x.size-1)."""
         dim_y = area_proj_simulation.y.size - 1
@@ -637,7 +642,7 @@ class TestComputeRasterization:
         )
         assert nlook.shape == (dim_y, dim_x)
 
-    @patch('cop_ard_core.area_projection.get_w')
+    @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_weights_type(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Weights should be xr.Dataset or None."""
         mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), None)
@@ -653,11 +658,15 @@ class TestComputeRasterization:
         )
         assert weights is None or isinstance(weights, xr.Dataset)
 
-    @patch('cop_ard_core.area_projection.get_w')
+    @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_layover_type(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Layover should be list of tuples or None."""
-        layover_data = [("0_0_5_5", build_sparse_array(np.array([0.5]), np.array([0]), np.array([0, 1]),
-                                                       np.array([5, 5]), "CSR", chunks=1))]
+        layover_data = [
+            (
+                "0_0_5_5",
+                build_sparse_array(np.array([0.5]), np.array([0]), np.array([0, 1]), np.array([5, 5]), "CSR", chunks=1),
+            )
+        ]
         mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), layover_data)
         _, _, layover = compute_rasterization(
             simulation=area_proj_simulation,
@@ -675,10 +684,8 @@ class TestComputeRasterization:
                 assert isinstance(bbox_str, str)
                 assert isinstance(ds, xr.Dataset)
 
-    @patch('cop_ard_core.area_projection.get_w')
-    def test_compute_rasterization_non_unit_resolution(
-        self, mock_get_w, area_proj_simulation, area_proj_bbox
-    ):
+    @patch("cop_ard_core.area_projection.get_w")
+    def test_compute_rasterization_non_unit_resolution(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Different resolutions should produce valid nlook."""
         mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), None)
         for resolution in [(2.0, 2.0), (0.5, 0.5), (1.0, 2.0)]:
@@ -695,10 +702,8 @@ class TestComputeRasterization:
             assert isinstance(nlook, xr.DataArray)
             assert nlook.shape == (area_proj_simulation.y.size - 1, area_proj_simulation.x.size - 1)
 
-    @patch('cop_ard_core.area_projection.get_w')
-    def test_compute_rasterization_nonzero_pixel_area(
-        self, mock_get_w, area_proj_simulation, area_proj_bbox
-    ):
+    @patch("cop_ard_core.area_projection.get_w")
+    def test_compute_rasterization_nonzero_pixel_area(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Non-unit radar_grid_pixel_area should scale expected_nlooks."""
         mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), None)
         nlook1, _, _ = compute_rasterization(
@@ -723,10 +728,8 @@ class TestComputeRasterization:
         )
         assert np.all(nlook2.values >= nlook1.values)
 
-    @patch('cop_ard_core.area_projection.get_w')
-    def test_compute_rasterization_with_offset_global_coords(
-        self, mock_get_w, area_proj_simulation, area_proj_bbox
-    ):
+    @patch("cop_ard_core.area_projection.get_w")
+    def test_compute_rasterization_with_offset_global_coords(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Should handle non-zero xmin_global and ymin_global."""
         mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), None)
         nlook, weights, layover = compute_rasterization(
@@ -764,24 +767,15 @@ class TestComputeRtcAp:
         """Create a mock computeGammaNaughtArea that fills GNA and cos_theta arrays."""
 
         def mock_compute_gamma(**kwargs):
-            triang_points = kwargs["triang_points"]
-            radar_distance = kwargs["radar_distance"]
             radar_grid_pixel_area = kwargs["radar_grid_pixel_area"]
             num_triangles = kwargs["num_triangles"]
-            normal_order = kwargs["normal_order"]
             GNA = kwargs["GNA"]
             lia_arr = kwargs["lia"]
-            data_w = kwargs["data_w"]
-            indptr_w = kwargs["indptr_w"]
-            indices_w = kwargs["indices_w"]
             n_rows = kwargs["n_rows"]
             n_cols = kwargs["n_cols"]
-            dense = kwargs["dense"]
             data_out = kwargs["data"]
             indices_out = kwargs["indices"]
             indptr_out = kwargs["indptr"]
-            width = kwargs["width"]
-            length = kwargs["length"]
             bbox = kwargs["bbox"]
 
             # Fill GNA and cos_theta with known values
@@ -806,9 +800,10 @@ class TestComputeRtcAp:
 
         return mock_compute_gamma
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_returns_tuple(self, mock_compute_gamma, area_proj_csr_matrix,
-                                           area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_returns_tuple(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """Should return a 3-tuple (anf, lia, a_block)."""
         mock_compute_gamma.return_value = 5
         result = compute_rtc_ap(
@@ -822,9 +817,10 @@ class TestComputeRtcAp:
         assert len(result) == 3
         mock_compute_gamma.assert_called_once()
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_anf_type(self, mock_compute_gamma, area_proj_csr_matrix,
-                                      area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_anf_type(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """anf should be an xr.DataArray."""
         mock_compute_gamma.return_value = 5
         anf, _, _ = compute_rtc_ap(
@@ -836,9 +832,10 @@ class TestComputeRtcAp:
         )
         assert isinstance(anf, xr.DataArray)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_anf_shape(self, mock_compute_gamma, area_proj_csr_matrix,
-                                       area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_anf_shape(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """anf shape should be (dim_y, dim_x)."""
         dim_y = area_proj_simulation.y.size - 1
         dim_x = area_proj_simulation.x.size - 1
@@ -852,9 +849,10 @@ class TestComputeRtcAp:
         )
         assert anf.shape == (dim_y, dim_x)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_anf_dims(self, mock_compute_gamma, area_proj_csr_matrix,
-                                      area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_anf_dims(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """anf should have dims ['y', 'x']."""
         mock_compute_gamma.return_value = 5
         anf, _, _ = compute_rtc_ap(
@@ -866,9 +864,10 @@ class TestComputeRtcAp:
         )
         assert set(anf.dims) == {"y", "x"}
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_lia_type(self, mock_compute_gamma, area_proj_csr_matrix,
-                                      area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_lia_type(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """lia should be an xr.DataArray."""
         mock_compute_gamma.return_value = 5
         _, lia, _ = compute_rtc_ap(
@@ -880,9 +879,10 @@ class TestComputeRtcAp:
         )
         assert isinstance(lia, xr.DataArray)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_lia_shape(self, mock_compute_gamma, area_proj_csr_matrix,
-                                       area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_lia_shape(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """lia shape should match anf shape."""
         dim_y = area_proj_simulation.y.size - 1
         dim_x = area_proj_simulation.x.size - 1
@@ -896,9 +896,10 @@ class TestComputeRtcAp:
         )
         assert lia.shape == (dim_y, dim_x)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_lia_values_range(self, mock_compute_gamma, area_proj_csr_matrix,
-                                              area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_lia_values_range(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """lia (local incidence angle) should be in [0, pi/2] range (in radians)."""
         mock_compute_gamma.return_value = 5
         _, lia, _ = compute_rtc_ap(
@@ -911,9 +912,10 @@ class TestComputeRtcAp:
         assert np.all(lia.values >= 0)
         assert np.all(lia.values <= np.pi / 2 + 0.01)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_anf_values_non_negative(self, mock_compute_gamma, area_proj_csr_matrix,
-                                                     area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_anf_values_non_negative(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """ANF values should be non-negative."""
         mock_compute_gamma.return_value = 5
         anf, _, _ = compute_rtc_ap(
@@ -925,9 +927,10 @@ class TestComputeRtcAp:
         )
         assert np.all(anf.values >= 0)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_a_block_type(self, mock_compute_gamma, area_proj_csr_matrix,
-                                          area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_a_block_type(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """a_block should be xr.Dataset or None."""
         mock_compute_gamma.return_value = 5
         _, _, a_block = compute_rtc_ap(
@@ -939,9 +942,10 @@ class TestComputeRtcAp:
         )
         assert a_block is None or isinstance(a_block, xr.Dataset)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_normal_order_false(self, mock_compute_gamma, area_proj_csr_matrix,
-                                                area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_normal_order_false(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """normal_order=False should still produce valid output (different normal direction)."""
         mock_compute_gamma.return_value = 5
         anf, lia, a_block = compute_rtc_ap(
@@ -954,9 +958,10 @@ class TestComputeRtcAp:
         assert isinstance(anf, xr.DataArray)
         assert isinstance(lia, xr.DataArray)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_different_pixel_area(self, mock_compute_gamma, area_proj_csr_matrix,
-                                                  area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_different_pixel_area(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """Different radar_grid_pixel_area should not cause errors."""
         dim_y = area_proj_simulation.y.size - 1
         dim_x = area_proj_simulation.x.size - 1
@@ -971,9 +976,10 @@ class TestComputeRtcAp:
             )
             assert anf.shape == (dim_y, dim_x)
 
-    @patch('cop_ard_core.area_projection.computeGammaNaughtArea')
-    def test_compute_rtc_ap_dtype(self, mock_compute_gamma, area_proj_csr_matrix,
-                                   area_proj_simulation, area_proj_bbox_int):
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_dtype(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
         """anf and lia should be float32."""
         mock_compute_gamma.return_value = 5
         anf, lia, _ = compute_rtc_ap(
@@ -1008,7 +1014,7 @@ class TestGetW:
 
         def mock_area_proj(**kwargs):
             # Return valid CSR components: (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook
-            ntr = kwargs.get("triangs", []).size // 4 if hasattr(kwargs.get("triangs", []), '__len__') else 4
+            ntr = kwargs.get("triangs", []).size // 4 if hasattr(kwargs.get("triangs", []), "__len__") else 4
             data = np.arange(nnz, dtype="float64") + 0.1
             ind_ptr = np.arange(ntr + 1, dtype="int64") * nnz // max(ntr, 1)
             col = np.arange(nnz, dtype="int64")
@@ -1023,11 +1029,15 @@ class TestGetW:
 
         return mock_area_proj
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_returns_tuple(self, mock_area_proj, get_w_simple_inputs):
         """Should return a 3-tuple (w, nlook, layover)."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1037,11 +1047,15 @@ class TestGetW:
         assert len(result) == 3
         mock_area_proj.assert_called_once()
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_weights_type(self, mock_area_proj, get_w_simple_inputs):
         """w should be xr.Dataset or None."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1052,11 +1066,15 @@ class TestGetW:
             assert "data" in w.data_vars
             assert "indptr" in w.data_vars or "indptr" in w.coords
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_nlook_type(self, mock_area_proj, get_w_simple_inputs):
         """nlook should be np.ndarray or None."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1065,11 +1083,15 @@ class TestGetW:
         if nlook is not None:
             assert isinstance(nlook, np.ndarray)
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_layover_type(self, mock_area_proj, get_w_simple_inputs):
         """layover should be list of tuples or None."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1081,11 +1103,15 @@ class TestGetW:
                 assert isinstance(bbox_str, str)
                 assert isinstance(ds, xr.Dataset)
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_nlook_dtype(self, mock_area_proj, get_w_simple_inputs):
         """nlook should be float32 dtype."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1094,7 +1120,7 @@ class TestGetW:
         if nlook is not None:
             assert nlook.dtype == np.float32
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_nlook_shape_matches_triang(self, mock_area_proj, get_w_simple_inputs):
         """nlook size should match number of triangles."""
         n_tri = get_w_simple_inputs["triang"].shape[0]
@@ -1109,11 +1135,15 @@ class TestGetW:
             expected_nnz = get_w_simple_inputs["triang"].shape[0]
             assert nlook.shape == (expected_nnz,)
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_with_attrs_in_sparse_dataset(self, mock_area_proj, get_w_simple_inputs):
         """Sparse weight dataset should store radar_bbox as attribute."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1122,11 +1152,15 @@ class TestGetW:
         if w is not None:
             assert "radar_bbox" in w.attrs
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_with_plane_orientation(self, mock_area_proj, get_w_simple_inputs):
         """Different plane_orientation should produce valid results."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1139,11 +1173,15 @@ class TestGetW:
             assert isinstance(result, tuple)
             assert len(result) == 3
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_with_nonzero_global_offset(self, mock_area_proj, get_w_simple_inputs):
         """Should handle non-zero xmin_global/ymin_global offsets."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1156,11 +1194,15 @@ class TestGetW:
         assert isinstance(nlook, (np.ndarray, type(None)))
         assert isinstance(layover, (list, type(None)))
 
-    @patch('cop_ard_core.area_projection.area_proj_triangles')
+    @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_with_different_expected_nlooks(self, mock_area_proj, get_w_simple_inputs):
         """Different expected_nlooks should not change output structure."""
         mock_area_proj.return_value = (
-            (np.array([1.0, 2.0], dtype="float64"), np.array([0, 1, 2], dtype="int64"), np.array([0, 1], dtype="int64")),
+            (
+                np.array([1.0, 2.0], dtype="float64"),
+                np.array([0, 1, 2], dtype="int64"),
+                np.array([0, 1], dtype="int64"),
+            ),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             (np.array([], dtype="float64"), np.array([0], dtype="int64"), np.array([], dtype="int64")),
             np.array([1.0, 1.0], dtype="float64"),
@@ -1201,7 +1243,6 @@ class TestComputeGeocodedMask:
             indptr = kwargs["indptr"]
             radar_image = kwargs["radar_image"]
             geocoded_image = kwargs["geocoded_image"]
-            xsize_global = kwargs["xsize_global"]
             xsize_block = kwargs["xsize_block"]
             ysize_block = kwargs["ysize_block"]
 
@@ -1213,16 +1254,17 @@ class TestComputeGeocodedMask:
                     for j in range(start, end):
                         idx = indices[j]
                         for k in range(n_dims):
-                            geocoded_image[k * n_rows + i] += (data[j] / nlook) * radar_image[k * xsize_block * ysize_block + idx]
+                            geocoded_image[k * n_rows + i] += (data[j] / nlook) * radar_image[
+                                k * xsize_block * ysize_block + idx
+                            ]
 
         return mock_csr_times_dense
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_returns_ndarray(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Should return a np.ndarray."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
         dim_y, dim_x = 4, 6
-        n_rows = dim_y * dim_x * 4  # 96
         layover = xr.DataArray(np.ones((4, 6), dtype=np.float32), dims=["azimuth_time", "slant_range_time"])
         shadow = xr.DataArray(np.ones((4, 6), dtype=np.float32), dims=["azimuth_time", "slant_range_time"])
         result = compute_geocoded_mask(
@@ -1236,7 +1278,7 @@ class TestComputeGeocodedMask:
         )
         assert isinstance(result, np.ndarray)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_output_shape(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Output shape should match output_shape parameter."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1254,7 +1296,7 @@ class TestComputeGeocodedMask:
         )
         assert result.shape == output_shape
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_dtype(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Output dtype should be int32."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1271,7 +1313,7 @@ class TestComputeGeocodedMask:
         )
         assert result.dtype == np.int32
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_value_range(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Mask values should be 0, 1, 2, or 3."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1289,7 +1331,7 @@ class TestComputeGeocodedMask:
         unique_vals = np.unique(result)
         assert all(v in [0, 1, 2, 3] for v in unique_vals)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_no_activity_all_zero(self, mock_csr, area_proj_geocoded_csr_matrix):
         """With zero layover/shadow, all output should be 0 (no shadow)."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1306,7 +1348,7 @@ class TestComputeGeocodedMask:
         )
         assert np.all(result == 0)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_all_layover(self, mock_csr, area_proj_geocoded_csr_matrix):
         """With all-ones layover mask, should produce non-zero layover values."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1323,7 +1365,7 @@ class TestComputeGeocodedMask:
         )
         assert np.any(result > 0)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_all_shadow(self, mock_csr, area_proj_geocoded_csr_matrix):
         """With all-ones shadow mask, should produce non-zero shadow values."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1331,7 +1373,7 @@ class TestComputeGeocodedMask:
         shadow = xr.DataArray(np.ones((4, 6), dtype=np.float32), dims=["azimuth_time", "slant_range_time"])
         result = compute_geocoded_mask(
             csr_matrix=area_proj_geocoded_csr_matrix,
-            layover=shadow,
+            layover=layover,
             shadow=shadow,
             xsize_global=10,
             bbox_radar=(0, 0, 5, 5),
@@ -1340,7 +1382,7 @@ class TestComputeGeocodedMask:
         )
         assert np.any(result > 0)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_different_threshold(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Higher threshold should produce fewer flagged pixels."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1366,7 +1408,7 @@ class TestComputeGeocodedMask:
         )
         assert np.sum(result_low > 0) >= np.sum(result_high > 0)
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_with_bbox_offset(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Should handle non-zero bbox_radar offsets."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
@@ -1384,7 +1426,7 @@ class TestComputeGeocodedMask:
         assert result.shape == (4, 6)
         assert result.dtype == np.int32
 
-    @patch('cop_ard_core.area_projection.csr_times_dense')
+    @patch("cop_ard_core.area_projection.csr_times_dense")
     def test_compute_geocoded_mask_default_threshold(self, mock_csr, area_proj_geocoded_csr_matrix):
         """Default threshold (0.3) should work without explicit parameter."""
         mock_csr.side_effect = self._make_mock_csr_times_dense()
