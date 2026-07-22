@@ -431,7 +431,7 @@ def compute_pearson_coefficient(
         dims=["acquisition_date", "point", "variable"],
         coords={
             "acquisition_date": stack.z.values,
-            "point": [patch.patch.values],
+            "point": patch.patch.values,
             "y": (["point"], [stack[y_dim].mean().values]),
             "x": (["point"], [stack[x_dim].mean().values]),
             "variable": ["dy", "dx", "cohe", "s_y", "s_x"],
