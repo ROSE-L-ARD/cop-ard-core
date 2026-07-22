@@ -67,7 +67,7 @@ license = { file = "LICENSE" }
 cluster-plugin = ["eopf[cluster-plugin] >= 3.0.0rc2"]
 tests = ["eopf[tests] >= 3.0.0rc2"]
 linter = ["eopf[linter] >= 3.0.0rc2"]
-typing = ["eopf[typing] >= 3.0.0rc2"]
+typing = ["eopf[typing] >= 3.0.0rc2", "ty"]
 formatter = ["eopf[formatter] >= 3.0.0rc2"]
 security = ["eopf[security] >= 3.0.0rc2"]
 notebook = ["eopf[notebook] >= 3.0.0rc2"]
