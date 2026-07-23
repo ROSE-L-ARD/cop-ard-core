@@ -511,7 +511,7 @@ def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_c
 def simulate_acquisition(
     dem_ecef: xr.DataArray,
     pos: xr.DataArray,
-    azimuth_time: Optional[xr.DataArray] = None,
+    azimuth_time: Optional[xr.DataArray | np.datetime64] = None,
     include_variables: Container[str] = (),
     **kwargs,
 ) -> xr.Dataset:

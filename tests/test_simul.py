@@ -413,7 +413,7 @@ class TestBackwardGeocode:
             quad_coeffs=(0.0, 0.0, 0.0),
         )
         result = backward_geocode(dem_ecef, pos)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 0.0, atol=1e-6)
 
     def test_backward_geocode_constant_dem_nonzero_range(self):
@@ -423,7 +423,7 @@ class TestBackwardGeocode:
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
         # Range should be |dem - sat_pos| = (0, 0, 1000), magnitude = 1000
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-6)
 
     def test_backward_geocode_varying_dem_heights(self):
@@ -433,11 +433,13 @@ class TestBackwardGeocode:
         result = backward_geocode(dem_ecef, pos)
         # The DEM Z values are [0, 500, ..., 3000] added to 4000000
         # Expected ranges: [0, 500, 1000, 1000, 1500, 2000, 2000, 2500, 3000]
-        expected = np.array([
-            [0.0, 500.0, 1000.0],
-            [1000.0, 1500.0, 2000.0],
-            [2000.0, 2500.0, 3000.0],
-        ])
+        expected = np.array(
+            [
+                [0.0, 500.0, 1000.0],
+                [1000.0, 1500.0, 2000.0],
+                [2000.0, 2500.0, 3000.0],
+            ]
+        )
         np.testing.assert_allclose(result.dem_distance.values[:, :, 2], expected, atol=1.0)
 
     def test_backward_geocode_no_t0_default(self):
@@ -515,7 +517,7 @@ class TestBackwardGeocode:
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
         # Compute magnitude of each direction vector
-        magnitudes = np.sqrt((result.satellite_direction.values ** 2).sum(axis=-1))
+        magnitudes = np.sqrt((result.satellite_direction.values**2).sum(axis=-1))
         np.testing.assert_allclose(magnitudes, 1.0, atol=1e-6)
 
     def test_backward_geocode_dem_distance_real_values(self):
@@ -543,7 +545,7 @@ class TestBackwardGeocode:
         result = backward_geocode(dem_ecef, pos)
         assert result.azimuth_time.shape == (1, 1)
         assert result.dem_distance.shape == (1, 1, 3)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-6)
 
     def test_backward_geocode_2x2_dem(self):
@@ -596,7 +598,7 @@ class TestBackwardGeocode:
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos, conv_th=1e-10)
         assert isinstance(result, xr.Dataset)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-4)
 
     def test_backward_geocode_conv_th_loose(self):
@@ -606,7 +608,7 @@ class TestBackwardGeocode:
         result = backward_geocode(dem_ecef, pos, conv_th=1e-2)
         assert isinstance(result, xr.Dataset)
         # With loose convergence, range should still be approximately correct
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1.0)
 
     # ------------------------------------------------------------------
@@ -635,7 +637,7 @@ class TestBackwardGeocode:
         # DEM position: (6700000, 2000000, 4001000)
         # Difference: (0, 0, 1000), magnitude = 1000
         expected_range = 1000.0
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, expected_range, atol=1e-6)
 
     def test_backward_geocode_direction_points_to_satellite(self):
@@ -673,19 +675,21 @@ class TestBackwardGeocode:
         """Should work with higher-degree polynomial coefficients."""
         dem_ecef = self._make_dem()
         # 4th degree polynomial (5 coefficients per axis)
-        coeffs = np.array([
-            [6700000.0, 2000000.0, 4000000.0],  # 0th order
-            [7500.0, 0.0, 0.0],                   # 1st order
-            [0.0, 0.0, 0.001],                    # 2nd order
-            [0.0, 0.0, 0.0],                      # 3rd order
-            [0.0, 0.0, 0.0],                      # 4th order
-        ])
+        coeffs = np.array(
+            [
+                [6700000.0, 2000000.0, 4000000.0],  # 0th order
+                [7500.0, 0.0, 0.0],  # 1st order
+                [0.0, 0.0, 0.001],  # 2nd order
+                [0.0, 0.0, 0.0],  # 3rd order
+                [0.0, 0.0, 0.0],  # 4th order
+            ]
+        )
         pos = xr.DataArray(coeffs, dims=["degree", "axis"])
         pos.attrs["referenceTime"] = np.datetime64("2020-01-01", "ns")
         pos.attrs["scaleTime"] = 1e-9
         result = backward_geocode(dem_ecef, pos)
         assert result.dem_distance.shape == (3, 3, 3)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-6)
 
     def test_backward_geocode_negative_z_offset(self):
@@ -695,7 +699,7 @@ class TestBackwardGeocode:
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
         expected_range = 500.0
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, expected_range, atol=1e-6)
 
     def test_backward_geocode_x_offset(self):
@@ -703,7 +707,7 @@ class TestBackwardGeocode:
         dem_ecef = self._make_dem(x_val=6700100.0)
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         # Range should be approximately 1000 (Z offset) with small X contribution
         # The solver converges based on range rate, so exact X offset may not appear
         np.testing.assert_allclose(range_mag, 1000.0, atol=10.0)
@@ -714,7 +718,7 @@ class TestBackwardGeocode:
         dem_ecef = self._make_dem(x_val=6700100.0, z_val=4000500.0)
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         # Range should be approximately 500 (Z offset)
         np.testing.assert_allclose(range_mag, 500.0, atol=10.0)
 
@@ -724,7 +728,7 @@ class TestBackwardGeocode:
         pos = self._make_pos()
         result = backward_geocode(dem_ecef, pos)
         assert result.azimuth_time.shape == (10, 10)
-        range_mag = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-6)
 
 
@@ -739,13 +743,15 @@ class TestSimulateAcquisition:
             coords={"axis": [0, 1, 2]},
         )
         # Fill DEM with ECEF coords
-        dem_ecef.values[:, :, :] = [[6700000., 2000000., 4001000.]]
+        dem_ecef.values[:, :, :] = [[6700000.0, 2000000.0, 4001000.0]]
         pos = xr.DataArray(
-            np.array([
-                [6700000., 2000000., 4000000.],
-                [7500., 0., 0.],
-                [0., 0., 0.],
-            ]),
+            np.array(
+                [
+                    [6700000.0, 2000000.0, 4000000.0],
+                    [7500.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                ]
+            ),
             dims=["degree", "axis"],
         )
         pos.attrs["referenceTime"] = np.datetime64("2020-01-01", "ns")
@@ -866,9 +872,7 @@ class TestSimulateAcquisition:
         pos = self._make_pos()
         result = simulate_acquisition(dem_ecef, pos)
         assert np.all(result.azimuth_time.values == result.azimuth_time.values[0, 0])
-        np.testing.assert_allclose(
-            result.slant_range_time.values, result.slant_range_time.values[0, 0], atol=1e-12
-        )
+        np.testing.assert_allclose(result.slant_range_time.values, result.slant_range_time.values[0, 0], atol=1e-12)
 
     # ------------------------------------------------------------------
     # include_variables parameter
@@ -1081,11 +1085,13 @@ class TestSimulateAcquisition:
         pos = self._make_pos()
         result = simulate_acquisition(dem_ecef, pos)
         # Z offsets: [0, 500, 1000, 1000, 1500, 2000, 2000, 2500, 3000]
-        expected_ranges = np.array([
-            [0.0, 500.0, 1000.0],
-            [1000.0, 1500.0, 2000.0],
-            [2000.0, 2500.0, 3000.0],
-        ])
+        expected_ranges = np.array(
+            [
+                [0.0, 500.0, 1000.0],
+                [1000.0, 1500.0, 2000.0],
+                [2000.0, 2500.0, 3000.0],
+            ]
+        )
         expected_range_times = 2.0 * expected_ranges / 299792458.0
         np.testing.assert_allclose(result.slant_range_time.values, expected_range_times, rtol=1e-8)
 
@@ -1116,7 +1122,7 @@ class TestSimulateAcquisition:
         dem_ecef = self._make_dem_varying_z()
         pos = self._make_pos()
         result = simulate_acquisition(dem_ecef, pos)
-        range_magnitude = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        range_magnitude = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         expected_range_time = 2.0 / 299792458.0 * range_magnitude
         np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
 
@@ -1198,13 +1204,15 @@ class TestSimulateAcquisition:
     def test_simulate_acquisition_higher_degree_poly(self):
         """Should work with higher-degree polynomial coefficients."""
         dem_ecef = self._make_dem()
-        coeffs = np.array([
-            [6700000.0, 2000000.0, 4000000.0],
-            [7500.0, 0.0, 0.0],
-            [0.0, 0.0, 0.001],
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0],
-        ])
+        coeffs = np.array(
+            [
+                [6700000.0, 2000000.0, 4000000.0],
+                [7500.0, 0.0, 0.0],
+                [0.0, 0.0, 0.001],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+            ]
+        )
         pos = xr.DataArray(coeffs, dims=["degree", "axis"])
         pos.attrs["referenceTime"] = np.datetime64("2020-01-01", "ns")
         pos.attrs["scaleTime"] = 1e-9
