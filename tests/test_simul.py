@@ -3,12 +3,14 @@
 from typing import Union, cast
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from pyproj import CRS
 
 from cop_ard_core.simul import (
     backward_geocode,
+    compute_simulation,
     get_geo_from_radar_bbox,
     get_position,
     get_radar_bbox,
@@ -1240,3 +1242,539 @@ class TestSimulateAcquisition:
         pos.attrs["referenceTime"] = np.datetime64("2030-12-31", "ns")
         result = simulate_acquisition(dem_ecef, pos)
         assert result.azimuth_time.values[0, 0] == np.datetime64("2030-12-31", "ns")
+
+
+# ===========================================================================
+# compute_simulation tests
+# ===========================================================================
+
+
+def _make_sim_data(acquisition_dates, y_size=3, x_size=3):
+    """Create test data for compute_simulation.
+
+    Returns (simulation, dem, orbits) ready to pass to compute_simulation.
+    The DEM uses ECEF coordinates (EPSG:4978) with Z offset of 1000m.
+    The orbit provides polynomial position coefficients.
+    """
+    # Simulation dataset with NaN slant_range_time (unprocessed)
+    simulation = xr.Dataset(
+        coords={
+            "acquisition_date": acquisition_dates,
+            "y": np.arange(y_size, dtype=np.float64),
+            "x": np.arange(x_size, dtype=np.float64),
+            "axis": [0, 1, 2],
+        },
+        data_vars={
+            "h": xr.DataArray(np.zeros((y_size, x_size)), dims=["y", "x"]),
+        },
+    )
+    simulation["slant_range_time"] = xr.full_like(simulation.h, fill_value=np.nan, dtype="float64")
+    simulation["azimuth_time"] = xr.DataArray(
+        np.zeros((len(acquisition_dates), y_size, x_size)),
+        dims=["acquisition_date", "y", "x"],
+        coords={"acquisition_date": acquisition_dates},
+    ).astype("datetime64[ns]")
+    simulation["dem_distance"] = xr.DataArray(
+        np.zeros((len(acquisition_dates), y_size, x_size, 3)),
+        dims=["acquisition_date", "y", "x", "axis"],
+    )
+    simulation.rio.write_crs("EPSG:4326", inplace=True)
+
+    # DEM in ECEF with 1000m Z offset
+    dem = np.zeros((y_size, x_size, 3))
+    dem[:, :, :] = [[6700000.0, 2000000.0, 4001000.0]]
+    dem_ecef = xr.DataArray(
+        dem,
+        dims=["y", "x", "axis"],
+        coords={"axis": [0, 1, 2], "x": np.arange(x_size, dtype=np.float64), "y": np.arange(y_size, dtype=np.float64)},
+    )
+    dem_ecef.rio.write_crs(4978, inplace=True)
+
+    # Orbit as xr.DataArray with dims (acquisition_date, degree, axis)
+    # matching the type hint orbits: xr.DataArray in compute_simulation
+    position_data = np.array(
+        [
+            [6700000.0, 2000000.0, 4000000.0],
+            [7500.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ]
+    )
+    # Expand to (n_dates, 3, 3)
+    n_dates = len(acquisition_dates)
+    position_data = np.tile(position_data, (n_dates, 1, 1))
+    orbits = xr.DataArray(
+        position_data,
+        dims=["acquisition_date", "degree", "axis"],
+        coords={
+            "acquisition_date": acquisition_dates,
+            "degree": [0, 1, 2],
+            "axis": [0, 1, 2],
+        },
+    )
+    # reference_times: dict with datetime64 keys -> string values
+    orbits.attrs["reference_times"] = {
+        d: f"2020-01-{i+1:02d}T00:00:00.000000000" for i, d in enumerate(acquisition_dates)
+    }
+
+    return simulation, dem_ecef, orbits
+
+
+def _run_compute(sim_data):
+    """Run compute_simulation and return the result."""
+    from cop_ard_core.simul import compute_simulation
+
+    simulation, dem, orbits = sim_data
+    return compute_simulation(simulation, dem, orbits)
+
+
+def _make_orbits(acquisition_dates, const_coeffs=(7500.0, 0.0, 0.0), quad_coeffs=(0.0, 0.0, 0.0)):
+    """Create an orbit xr.DataArray for compute_simulation.
+
+    Parameters
+    ----------
+    acquisition_dates : np.ndarray
+        Array of datetime64 acquisition dates.
+    const_coeffs : tuple
+        Linear (velocity) polynomial coefficients for X, Y, Z.
+    quad_coeffs : tuple
+        Quadratic polynomial coefficients for X, Y, Z.
+    """
+    const_data = np.array([[6700000.0, 2000000.0, 4000000.0]])
+    lin_data = np.array([const_coeffs])
+    quad_data = np.array([quad_coeffs])
+    position_data = np.vstack([const_data, lin_data, quad_data])
+    n_dates = len(acquisition_dates)
+    position_data = np.tile(position_data, (n_dates, 1, 1))
+    orbits = xr.DataArray(
+        position_data,
+        dims=["acquisition_date", "degree", "axis"],
+        coords={"acquisition_date": acquisition_dates, "degree": [0, 1, 2], "axis": [0, 1, 2]},
+    )
+    # FIXME pd.Timestamp doesn't feel right
+    orbits.attrs["reference_times"] = {d: pd.Timestamp(d).isoformat() + ".000000000" for d in acquisition_dates}
+    return orbits
+
+
+def _make_ecef_dem(y_size=3, x_size=3, z_offset=1000.0):
+    """Create an ECEF DEM DataArray.
+
+    Parameters
+    ----------
+    y_size : int
+        Number of rows.
+    x_size : int
+        Number of columns.
+    z_offset : float
+        Z offset from satellite position (4000000.0).
+    """
+    dem = np.zeros((y_size, x_size, 3))
+    dem[:, :, :] = [[6700000.0, 2000000.0, 4000000.0 + z_offset]]
+    dem_ecef = xr.DataArray(
+        dem,
+        dims=["y", "x", "axis"],
+        coords={"axis": [0, 1, 2], "x": np.arange(x_size, dtype=np.float64), "y": np.arange(y_size, dtype=np.float64)},
+    )
+    dem_ecef.rio.write_crs(4978, inplace=True)
+    return dem_ecef
+
+
+def _make_unprocessed_simulation(acquisition_dates, y_size=3, x_size=3):
+    """Create a simulation dataset with NaN slant_range_time (unprocessed)."""
+    simulation = xr.Dataset(
+        coords={
+            "acquisition_date": acquisition_dates,
+            "y": np.arange(y_size, dtype=np.float64),
+            "x": np.arange(x_size, dtype=np.float64),
+            "axis": [0, 1, 2],
+        },
+        data_vars={"h": xr.DataArray(np.zeros((y_size, x_size)), dims=["y", "x"])},
+    )
+    simulation["slant_range_time"] = xr.full_like(simulation.h, fill_value=np.nan, dtype="float64")
+    simulation["azimuth_time"] = xr.DataArray(
+        np.zeros((len(acquisition_dates), y_size, x_size)),
+        dims=["acquisition_date", "y", "x"],
+        coords={"acquisition_date": acquisition_dates},
+    ).astype("datetime64[ns]")
+    simulation["dem_distance"] = xr.DataArray(
+        np.zeros((len(acquisition_dates), y_size, x_size, 3)),
+        dims=["acquisition_date", "y", "x", "axis"],
+    )
+    simulation.rio.write_crs("EPSG:4326", inplace=True)
+    return simulation
+
+
+class TestComputeSimulation:
+    """Tests for cop_ard_core.simul.compute_simulation.
+
+    The compute_simulation function is the core worker that runs on each Dask block.
+    It takes a chunk of the DEM, converts its coordinates to ECEF if needed,
+    and uses the satellite orbit data to compute radar geometry (azimuth time,
+    slant range time, dem_distance) for each DEM pixel via the sarsen library
+    (through simulate_acquisition / backward_geocode / main_loop).
+    """
+
+    # ------------------------------------------------------------------
+    # Happy paths — basic functionality
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_returns_dataset(self):
+        """compute_simulation should return an xr.Dataset."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates, y_size=3, x_size=3)
+        result = _run_compute(sim_data)
+        assert isinstance(result, xr.Dataset)
+
+    def test_compute_simulation_has_expected_variables(self):
+        """Output dataset should contain azimuth_time, slant_range_time, dem_distance."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert "azimuth_time" in result.data_vars
+        assert "slant_range_time" in result.data_vars
+        assert "dem_distance" in result.data_vars
+
+    def test_compute_simulation_output_shapes_match_dem(self):
+        """Output shapes should include acquisition_date dimension plus DEM spatial dimensions."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        y_size = 3
+        x_size = 4
+        sim_data = _make_sim_data(acquisition_dates, y_size=y_size, x_size=x_size)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.shape == (1, y_size, x_size)
+        assert result.slant_range_time.shape == (1, y_size, x_size)
+        assert result.dem_distance.shape == (1, y_size, x_size, 3)
+
+    def test_compute_simulation_azimuth_time_matches_acquisition_date(self):
+        """Output azimuth_time should correspond to the acquisition_date."""
+        dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(dates)
+        result = _run_compute(sim_data)
+        assert np.all(result.azimuth_time.values == dates[0])
+
+    # ------------------------------------------------------------------
+    # Happy paths — different DEM sizes
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_single_pixel(self):
+        """Single-pixel DEM should produce single-pixel output with acquisition_date dim."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates, y_size=1, x_size=1)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.shape == (1, 1, 1)
+        assert result.slant_range_time.shape == (1, 1, 1)
+        assert result.dem_distance.shape == (1, 1, 1, 3)
+
+    def test_compute_simulation_2x2_dem(self):
+        """2x2 DEM should produce correct 2x2 output with acquisition_date dim."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates, y_size=2, x_size=2)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.shape == (1, 2, 2)
+        assert result.slant_range_time.shape == (1, 2, 2)
+
+    def test_compute_simulation_5x5_dem(self):
+        """5x5 DEM should produce correct 5x5 output with acquisition_date dim."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates, y_size=5, x_size=5)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.shape == (1, 5, 5)
+        assert result.slant_range_time.shape == (1, 5, 5)
+        assert result.dem_distance.shape == (1, 5, 5, 3)
+
+    def test_compute_simulation_10x10_dem(self):
+        """10x10 DEM should produce correct 10x10 output with acquisition_date dim."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates, y_size=10, x_size=10)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.shape == (1, 10, 10)
+        assert result.slant_range_time.shape == (1, 10, 10)
+
+    def test_compute_simulation_multiple_acquisition_dates(self):
+        """compute_simulation processes only the first acquisition date."""
+        dates = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(dates)
+        result = _run_compute(sim_data)
+        # Output should have acquisition_date dimension with size 1 (only first date processed)
+        assert len(result.acquisition_date) == 1
+        assert result.azimuth_time.values[0, 0, 0] == np.datetime64("2020-01-01")
+
+    def test_compute_simulation_multiple_dates_all_same_azimuth(self):
+        """All acquisition dates should have valid (non-NaT) azimuth_time."""
+        dates = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(dates)
+        result = _run_compute(sim_data)
+        assert not np.any(np.isnat(result.azimuth_time.values))
+
+    # ------------------------------------------------------------------
+    # Happy paths — value correctness
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_slant_range_time_non_negative(self):
+        """Slant range time values should be non-negative."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert np.all(result.slant_range_time.values >= -1e-12)
+
+    def test_compute_simulation_slant_range_time_finite(self):
+        """Slant range time values should be finite (not NaN or inf)."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    def test_compute_simulation_dem_distance_non_negative(self):
+        """dem_distance should have non-negative magnitude."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
+        assert np.all(range_mag >= -1e-6)
+
+    def test_compute_simulation_all_pixels_identical_for_constant_dem(self):
+        """All pixels in a constant-height DEM should have identical outputs."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert np.all(result.azimuth_time.values == result.azimuth_time.values[0, 0, 0])
+        np.testing.assert_allclose(
+            result.slant_range_time.values[0],
+            result.slant_range_time.values[0, 0, 0],
+            atol=1e-12,
+        )
+
+    def test_compute_simulation_range_time_formula(self):
+        """Slant range time should equal 2/c * ||dem_distance||."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
+        expected_range_time = 2.0 / 299792458.0 * range_mag
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    # ------------------------------------------------------------------
+    # Type and dtype correctness
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_azimuth_time_dtype(self):
+        """azimuth_time should be datetime64[ns]."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert result.azimuth_time.dtype == np.dtype("datetime64[ns]")
+
+    def test_compute_simulation_slant_range_time_dtype(self):
+        """slant_range_time should be float64."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert result.slant_range_time.dtype == np.float64
+
+    def test_compute_simulation_dem_distance_dtype(self):
+        """dem_distance should be float64."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert result.dem_distance.dtype == np.float64
+
+    def test_compute_simulation_all_real_values(self):
+        """All output values should be real (non-complex)."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert np.isrealobj(result.azimuth_time.values)
+        assert np.isrealobj(result.slant_range_time.values)
+        assert np.isrealobj(result.dem_distance.values)
+
+    def test_compute_simulation_no_extra_variables(self):
+        """Output should only contain expected data variables, not extra ones."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert "h" not in result.data_vars
+        assert set(result.data_vars) <= {"azimuth_time", "slant_range_time", "dem_distance"}
+
+    def test_compute_simulation_cleaned_coordinates(self):
+        """Intermediate coordinates (spatial_ref, crs) should be dropped from output."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert "spatial_ref" not in result.coords
+        assert "crs" not in result.coords
+
+    def test_compute_simulation_no_reference_to_input_simulation(self):
+        """Output should be independent of input simulation data_vars."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        # The output should not contain 'h' from the input simulation
+        assert "h" not in result.data_vars
+
+    # ------------------------------------------------------------------
+    # Edge cases — already processed data (no NaN in slant_range_time)
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_no_nan_skips_processing(self):
+        """When slant_range_time has no NaN, function should return simulation structure."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        # Override slant_range_time with valid values (no NaN)
+        simulation["slant_range_time"] = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "y", "x"],
+        )
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+
+    # ------------------------------------------------------------------
+    # Edge cases — DEM with NaN values
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_nan_in_dem(self):
+        """NaN values in DEM should be handled during processing."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        dem.values[0, 0, :] = [np.nan, np.nan, np.nan]
+        dem.values[1, 1, :] = [np.nan, np.nan, np.nan]
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+
+    def test_compute_simulation_inf_in_dem(self):
+        """Inf values in DEM should be handled during processing."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        dem.values[0, 0, :] = [np.inf, np.inf, np.inf]
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+
+    def test_compute_simulation_mixed_nan_inf_valid(self):
+        """Mix of NaN, inf, and valid values in DEM should handle all correctly."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        dem.values[0, 0, :] = [np.nan, np.nan, np.nan]
+        dem.values[1, 1, :] = [np.inf, np.inf, np.inf]
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+
+    # ------------------------------------------------------------------
+    # Edge cases — different Z offsets
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_negative_z_offset(self):
+        """DEM below satellite (negative Z offset) should produce valid range."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3, z_offset=-500.0)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
+        np.testing.assert_allclose(range_mag, 500.0, atol=10.0)
+
+    def test_compute_simulation_large_z_offset(self):
+        """Large Z offset should still produce valid range."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3, z_offset=5000.0)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    def test_compute_simulation_x_offset_dem(self):
+        """DEM offset in X direction should affect range computation."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem_data = np.zeros((3, 3, 3))
+        dem_data[:, :, :] = [[6700100.0, 2000000.0, 4001000.0]]
+        dem = xr.DataArray(
+            dem_data,
+            dims=["y", "x", "axis"],
+            coords={"y": np.arange(3, dtype=np.float64), "x": np.arange(3, dtype=np.float64), "axis": [0, 1, 2]},
+        )
+        dem.rio.write_crs(4978, inplace=True)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    def test_compute_simulation_small_z_offset(self):
+        """Small Z offset (1m) should produce valid range."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3, z_offset=1.0)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    # ------------------------------------------------------------------
+    # Edge cases — different polynomial coefficients
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_quadratic_polynomial(self):
+        """Should work with quadratic polynomial position coefficients."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        orbits = _make_orbits(acquisition_dates, quad_coeffs=(0.1, 0.0, 0.0))
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    def test_compute_simulation_higher_degree_polynomial(self):
+        """Should work with higher-degree polynomial coefficients."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem = _make_ecef_dem(y_size=3, x_size=3)
+        orbits = _make_orbits(acquisition_dates, quad_coeffs=(0.0, 0.0, 0.001))
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    # ------------------------------------------------------------------
+    # Edge cases — DEM coordinate handling
+    # ------------------------------------------------------------------
+
+    def test_compute_simulation_dem_all_finite_values(self):
+        """DEM with all finite values should produce valid output."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        sim_data = _make_sim_data(acquisition_dates)
+        result = _run_compute(sim_data)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
+        assert np.all(np.isfinite(result.slant_range_time.values))
+
+    def test_compute_simulation_dem_no_axis_coord(self):
+        """DEM without axis coordinate value should still work via fallback."""
+        acquisition_dates = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        simulation = _make_unprocessed_simulation(acquisition_dates)
+        dem_data = np.zeros((3, 3, 3))
+        dem_data[:, :, :] = [[6700000.0, 2000000.0, 4001000.0]]
+        dem = xr.DataArray(
+            dem_data,
+            dims=["y", "x", "axis"],
+            coords={"y": np.arange(3, dtype=np.float64), "x": np.arange(3, dtype=np.float64), "axis": [0, 1, 2]},
+        )
+        dem.rio.write_crs(4978, inplace=True)
+        orbits = _make_orbits(acquisition_dates)
+        result = compute_simulation(simulation, dem, orbits)
+        assert isinstance(result, xr.Dataset)
+        assert "slant_range_time" in result.data_vars
