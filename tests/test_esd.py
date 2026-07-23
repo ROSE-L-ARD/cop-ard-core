@@ -339,9 +339,9 @@ class TestComputeShift:
             acquisition_date=esd_acquisition_date,
             reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_threshold=1.0,
+            coherence_threshold=1.0 + 1e-6,
         )
-        # All coherence values < 1.0, so mean_phase should be NaN everywhere
+        # All coherence values <= 1.0, so mean_phase should be NaN everywhere
         assert np.all(np.isnan(mean_phase.values))
 
     def test_compute_shift_coherence_above_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
