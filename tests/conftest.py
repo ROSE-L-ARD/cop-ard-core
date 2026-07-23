@@ -617,9 +617,10 @@ def esd_dataset():
 
     burst_id = [str(i) for i in range(n_ids)]
 
-    az_times = np.array([[1_000_000_000 * i * j for i in range(n)] for j in range(1, n_ids + 1)], dtype="timedelta64[ns]")
+    az_times = np.array(
+        [[1_000_000_000 * i * j for i in range(n)] for j in range(1, n_ids + 1)], dtype="timedelta64[ns]"
+    )
     sr_times = np.array([[500 * i * j for i in range(n)] for j in range(1, n_ids + 1)], dtype="timedelta64[ns]")
-
 
     # Build mean_shift: NaN on diagonal, valid off-diagonal
     mean_shift_data = np.full((n_ids, n, n), np.nan)

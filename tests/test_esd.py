@@ -9,7 +9,6 @@ Covers the epoch-stacking differential InSAR module:
 """
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from cop_ard_core.esd import (
