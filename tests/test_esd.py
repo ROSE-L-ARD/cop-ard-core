@@ -13,6 +13,7 @@ import pytest
 import xarray as xr
 
 from cop_ard_core.esd import (
+    _to_dataset,
     angle_phase,
     compute_azimuth_shifts,
     compute_phase,
@@ -20,9 +21,7 @@ from cop_ard_core.esd import (
     optimize_curvature,
     optimize_phase,
     scipy_optimize_phase,
-    _to_dataset
 )
-
 
 # =============================================================================
 #  _to_dataset
@@ -533,56 +532,56 @@ class TestOptimizeCurvature:
     The function expects y, w, az to all be 1D arrays of the same length.
     """
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_returns_dataset(self, esd_dataset):
         """Should return an xr.Dataset with same structure."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         assert isinstance(result, xr.Dataset)
         assert "mean_phase" in result.data_vars
         assert "mean_shift" in result.data_vars
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_preserves_shape(self, esd_dataset):
         """Output mean_phase and mean_shift should match input shapes."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         assert result["mean_phase"].shape == esd_dataset["mean_phase"].shape
         assert result["mean_shift"].shape == esd_dataset["mean_shift"].shape
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_valid_phase_values(self, esd_dataset):
         """Where mean_phase was valid, optimized values should be finite."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         ind = np.where(np.isfinite(esd_dataset["mean_phase"].values))[0]
         if len(ind) > 0:
             assert np.all(np.isfinite(result["mean_phase"].values[ind]))
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_mean_shift_computed(self, esd_dataset):
         """mean_shift should be computed from mean_phase / (2*pi) * wrap_cycle."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         assert np.any(np.isfinite(result["mean_shift"].values))
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_poly_degree_0(self, esd_dataset):
         """Degree-0 should still return valid dataset."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=0)
         assert isinstance(result, xr.Dataset)
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_poly_degree_2(self, esd_dataset):
         """Degree-2 should fit higher-order polynomial."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=2)
         assert isinstance(result, xr.Dataset)
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_preserves_coords(self, esd_dataset):
         """Output should preserve input coordinates."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         assert list(result.coords) == list(esd_dataset.coords)
 
-    @pytest.mark.skip(reason="Source code bug: wrap_cycle.values[ind] returns 2D instead of 1D")
     def test_optimize_curvature_wrap_cycle_unchanged(self, esd_dataset):
         """wrap_cycle should be unchanged in output."""
+        esd_dataset = esd_dataset.isel(reference_date=0, acquisition_date=1)
         result = optimize_curvature(esd_dataset, poly_degree=1)
         np.testing.assert_array_equal(
             result["wrap_cycle"].values,

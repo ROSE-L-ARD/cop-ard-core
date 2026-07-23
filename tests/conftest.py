@@ -606,6 +606,7 @@ def esd_dataset():
         dtype="datetime64[ns]",
     )
     n = len(acquisition_dates)
+    n_ids = 2
     stacked_ids = np.arange(n)
     stacked_dates = acquisition_dates.copy()
 
@@ -614,54 +615,58 @@ def esd_dataset():
     for i in range(n):
         stacked[i] = (int(stacked_ids[i]), stacked_dates[i])
 
-    az_times = np.array([1_000_000_000 * i for i in range(n)], dtype="timedelta64[ns]")
-    sr_times = np.array([500_000_000 * i for i in range(n)], dtype="timedelta64[ns]")
+    burst_id = [str(i) for i in range(n_ids)]
+
+    az_times = np.array([[1_000_000_000 * i * j for i in range(n)] for j in range(1, n_ids + 1)], dtype="timedelta64[ns]")
+    sr_times = np.array([[500 * i * j for i in range(n)] for j in range(1, n_ids + 1)], dtype="timedelta64[ns]")
+
 
     # Build mean_shift: NaN on diagonal, valid off-diagonal
-    mean_shift_data = np.full((n, n), np.nan)
+    mean_shift_data = np.full((n_ids, n, n), np.nan)
     for i in range(n):
         for j in range(n):
             if i != j:
-                mean_shift_data[i, j] = float(i - j) * 0.5
+                mean_shift_data[:, i, j] = float(i - j) * 0.5
 
-    mean_phase_data = np.full((n, n), np.nan)
+    mean_phase_data = np.full((n_ids, n, n), np.nan)
     for i in range(n):
         for j in range(n):
             if i != j:
-                mean_phase_data[i, j] = float(i - j) * np.pi / 4
+                mean_phase_data[:, i, j] = float(i - j) * np.pi / 4
 
-    coherence_data = np.full((n, n), 0.8)
+    coherence_data = np.full((n_ids, n, n), 0.8)
 
-    wrap_cycle_data = np.full((n, n), 0.002)
+    wrap_cycle_data = np.full((n_ids, n, n), 0.2)
 
     esd = xr.Dataset(
         data_vars={
             "mean_shift": (
-                ["acquisition_date", "reference_date"],
+                ["burst_id", "reference_date", "acquisition_date"],
                 mean_shift_data,
             ),
             "mean_phase": (
-                ["acquisition_date", "reference_date"],
+                ["burst_id", "reference_date", "acquisition_date"],
                 mean_phase_data,
             ),
             "coherence": (
-                ["acquisition_date", "reference_date"],
+                ["burst_id", "reference_date", "acquisition_date"],
                 coherence_data,
             ),
             "wrap_cycle": (
-                ["acquisition_date", "reference_date"],
+                ["burst_id", "reference_date", "acquisition_date"],
                 wrap_cycle_data,
             ),
-            "azimuth_time": (["acquisition_date"], np.array(az_times, dtype="timedelta64[ns]")),
-            "slant_range_time": (["acquisition_date"], np.array(sr_times, dtype="timedelta64[ns]")),
+            "azimuth_time": (["burst_id", "acquisition_date"], np.array(az_times, dtype="timedelta64[ns]")),
+            "slant_range_time": (["burst_id", "acquisition_date"], np.array(sr_times, dtype="timedelta64[ns]")),
         },
         coords={
             "acquisition_date": acquisition_dates,
             "reference_date": acquisition_dates,
             "stacked": ("stacked", stacked),
+            "burst_id": burst_id,
         },
         attrs={
             "coregistration_reference_date": np.datetime64("2020-01-01", "ns"),
-        }
+        },
     )
     return esd
