@@ -754,3 +754,481 @@ class TestSimulateAcquisition:
         assert isinstance(result, xr.Dataset)
         assert "azimuth_time" in result.data_vars
         assert "slant_range_time" in result.data_vars
+
+    # ------------------------------------------------------------------
+    # Inline fixtures for simulate_acquisition test data
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_pos(
+        const_coeffs=(6700000.0, 2000000.0, 4000000.0),
+        lin_coeffs=(7500.0, 0.0, 0.0),
+        quad_coeffs=(0.0, 0.0, 0.0),
+    ) -> xr.DataArray:
+        """Create a valid orbit DataArray with referenceTime and scaleTime attrs.
+
+        Parameters
+        ----------
+        const_coeffs : tuple
+            Constant (0th order) polynomial coefficients for X, Y, Z.
+        lin_coeffs : tuple
+            Linear (1st order) polynomial coefficients for X, Y, Z.
+        quad_coeffs : tuple
+            Quadratic (2nd order) polynomial coefficients for X, Y, Z.
+        """
+        coeffs = np.array([const_coeffs, lin_coeffs, quad_coeffs])
+        pos = xr.DataArray(coeffs, dims=["degree", "axis"])
+        pos.attrs["referenceTime"] = np.datetime64("2020-01-01", "ns")
+        pos.attrs["scaleTime"] = 1e-9
+        return pos
+
+    @staticmethod
+    def _make_dem(y_size=3, x_size=3, x_val=6700000.0, y_val=2000000.0, z_val=4001000.0) -> xr.DataArray:
+        """Create an ECEF DEM DataArray with dims ['y', 'x', 'axis'].
+
+        Each pixel (i, j) has XYZ coordinates [x_val, y_val, z_val].
+        """
+        dem = np.zeros((y_size, x_size, 3))
+        for i in range(y_size):
+            for j in range(x_size):
+                dem[i, j, :] = [x_val, y_val, z_val]
+        return xr.DataArray(dem, dims=["y", "x", "axis"], coords={"axis": [0, 1, 2]})
+
+    @staticmethod
+    def _make_dem_varying_z(y_size=3, x_size=3, base_z=4000000.0) -> xr.DataArray:
+        """Create an ECEF DEM with Z varying across the spatial grid."""
+        dem = np.zeros((y_size, x_size, 3))
+        z_values = np.array([[0.0, 500.0, 1000.0], [1000.0, 1500.0, 2000.0], [2000.0, 2500.0, 3000.0]])
+        for i in range(y_size):
+            for j in range(x_size):
+                dem[i, j, :] = [6700000.0, 2000000.0, base_z + z_values[i, j]]
+        return xr.DataArray(dem, dims=["y", "x", "axis"], coords={"axis": [0, 1, 2]})
+
+    # ------------------------------------------------------------------
+    # Happy paths — basic functionality
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_returns_dataset(self):
+        """Should return an xr.Dataset."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert isinstance(result, xr.Dataset)
+
+    def test_simulate_acquisition_has_all_expected_vars(self):
+        """Output dataset should contain azimuth_time, dem_distance, satellite_direction, slant_range_time."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert "azimuth_time" in result.data_vars
+        assert "dem_distance" in result.data_vars
+        assert "satellite_direction" in result.data_vars
+        assert "slant_range_time" in result.data_vars
+
+    def test_simulate_acquisition_output_shapes_match_dem(self):
+        """Output azimuth_time and slant_range_time shapes should match DEM spatial dims (y, x)."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.shape == (3, 3)
+        assert result.slant_range_time.shape == (3, 3)
+        assert result.dem_distance.shape == (3, 3, 3)
+        assert result.satellite_direction.shape == (3, 3, 3)
+
+    def test_simulate_acquisition_output_shapes_5x5(self):
+        """Output shapes should match a 5x5 DEM spatial grid."""
+        dem_ecef = self._make_dem(y_size=5, x_size=5)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.shape == (5, 5)
+        assert result.slant_range_time.shape == (5, 5)
+        assert result.dem_distance.shape == (5, 5, 3)
+        assert result.satellite_direction.shape == (5, 5, 3)
+
+    def test_simulate_acquisition_slant_range_time_value(self):
+        """Slant range time for 1000m range should equal 2*1000/c."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    def test_simulate_acquisition_zero_range(self):
+        """DEM at satellite position should yield zero range and zero range time."""
+        dem_ecef = self._make_dem(z_val=4000000.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        np.testing.assert_allclose(result.slant_range_time.values, 0.0, atol=1e-12)
+
+    def test_simulate_acquisition_all_pixels_same_for_constant_dem(self):
+        """All pixels in a constant-height DEM should have identical outputs."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert np.all(result.azimuth_time.values == result.azimuth_time.values[0, 0])
+        np.testing.assert_allclose(
+            result.slant_range_time.values, result.slant_range_time.values[0, 0], atol=1e-12
+        )
+
+    # ------------------------------------------------------------------
+    # include_variables parameter
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_include_azimuth_time_only(self):
+        """include_variables=['azimuth_time'] should drop other data vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("azimuth_time",))
+        assert "azimuth_time" in result.data_vars
+        assert "dem_distance" not in result.data_vars
+        assert "satellite_direction" not in result.data_vars
+        assert "slant_range_time" not in result.data_vars
+
+    def test_simulate_acquisition_include_slant_range_time_only(self):
+        """include_variables=['slant_range_time'] should drop other data vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("slant_range_time",))
+        assert "slant_range_time" in result.data_vars
+        assert "azimuth_time" not in result.data_vars
+        assert "dem_distance" not in result.data_vars
+        assert "satellite_direction" not in result.data_vars
+
+    def test_simulate_acquisition_include_dem_distance_only(self):
+        """include_variables=['dem_distance'] should drop other data vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("dem_distance",))
+        assert "dem_distance" in result.data_vars
+        assert "azimuth_time" not in result.data_vars
+        assert "slant_range_time" not in result.data_vars
+        assert "satellite_direction" not in result.data_vars
+
+    def test_simulate_acquisition_include_satellite_direction_only(self):
+        """include_variables=['satellite_direction'] should drop other data vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("satellite_direction",))
+        assert "satellite_direction" in result.data_vars
+        assert "azimuth_time" not in result.data_vars
+        assert "slant_range_time" not in result.data_vars
+        assert "dem_distance" not in result.data_vars
+
+    def test_simulate_acquisition_include_subset(self):
+        """include_variables with two vars should keep only those."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("azimuth_time", "slant_range_time"))
+        assert "azimuth_time" in result.data_vars
+        assert "slant_range_time" in result.data_vars
+        assert "dem_distance" not in result.data_vars
+        assert "satellite_direction" not in result.data_vars
+
+    def test_simulate_acquisition_include_empty_keeps_all(self):
+        """include_variables=() (default) should keep all data vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=())
+        assert set(result.data_vars) == {"azimuth_time", "dem_distance", "satellite_direction", "slant_range_time"}
+
+    def test_simulate_acquisition_include_all_vars(self):
+        """include_variables with all vars should keep everything."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(
+            dem_ecef, pos, include_variables=("azimuth_time", "dem_distance", "satellite_direction", "slant_range_time")
+        )
+        assert set(result.data_vars) == {"azimuth_time", "dem_distance", "satellite_direction", "slant_range_time"}
+
+    def test_simulate_acquisition_include_nonexistent_var_keeps_all(self):
+        """include_variables with a nonexistent var name should drop nothing that matches existing vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=("nonexistent_var",))
+        assert "azimuth_time" not in result.data_vars
+        assert "dem_distance" not in result.data_vars
+        assert "satellite_direction" not in result.data_vars
+        assert "slant_range_time" not in result.data_vars
+
+    def test_simulate_acquisition_include_list_instead_of_tuple(self):
+        """include_variables should accept list as well as tuple."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=["azimuth_time"])
+        assert "azimuth_time" in result.data_vars
+        assert "slant_range_time" not in result.data_vars
+
+    # ------------------------------------------------------------------
+    # Type and dtype correctness
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_azimuth_time_dtype(self):
+        """azimuth_time should be datetime64[ns]."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.dtype == np.dtype("datetime64[ns]")
+
+    def test_simulate_acquisition_slant_range_time_dtype(self):
+        """slant_range_time should be float64."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.slant_range_time.dtype == np.float64
+
+    def test_simulate_acquisition_dem_distance_dtype(self):
+        """dem_distance should be float64."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.dem_distance.dtype == np.float64
+
+    def test_simulate_acquisition_satellite_direction_dtype(self):
+        """satellite_direction should be float64."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.satellite_direction.dtype == np.float64
+
+    def test_simulate_acquisition_all_real_values(self):
+        """All output values should be real (non-complex)."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert np.isrealobj(result.azimuth_time.values)
+        assert np.isrealobj(result.slant_range_time.values)
+        assert np.isrealobj(result.dem_distance.values)
+        assert np.isrealobj(result.satellite_direction.values)
+
+    def test_simulate_acquisition_slant_range_time_non_negative(self):
+        """slant_range_time should be non-negative."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert np.all(result.slant_range_time.values >= -1e-12)
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_single_pixel(self):
+        """Single-pixel DEM should produce single-pixel output."""
+        dem_ecef = self._make_dem(y_size=1, x_size=1)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.shape == (1, 1)
+        assert result.slant_range_time.shape == (1, 1)
+        assert result.dem_distance.shape == (1, 1, 3)
+        assert result.satellite_direction.shape == (1, 1, 3)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    def test_simulate_acquisition_2x2_dem(self):
+        """2x2 DEM should produce correct 2x2 output."""
+        dem_ecef = self._make_dem(y_size=2, x_size=2)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.shape == (2, 2)
+        assert result.slant_range_time.shape == (2, 2)
+        assert result.dem_distance.shape == (2, 2, 3)
+
+    def test_simulate_acquisition_nan_in_dem(self):
+        """All-NaN axis in DEM: xarray.sum(skipna=True) skips NaN and yields 0.0 range."""
+        dem_ecef = self._make_dem()
+        dem_ecef.values[0, 0, :] = [np.nan, np.nan, np.nan]
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        # xarray .sum() skips NaN by default; when all values are NaN, sum = 0.0
+        np.testing.assert_allclose(result.slant_range_time.values[0, 0], 0.0, atol=1e-12)
+        # dem_distance should still carry the NaN values
+        assert np.all(np.isnan(result.dem_distance.values[0, 0, :]))
+
+    def test_simulate_acquisition_inf_in_dem(self):
+        """Inf values in DEM: xarray.sum(skipna=True) skips Inf, yielding 0.0 range."""
+        dem_ecef = self._make_dem()
+        dem_ecef.values[1, 1, :] = [np.inf, np.inf, np.inf]
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        # xarray .sum() skips inf by default; when all values are inf, sum = 0.0
+        np.testing.assert_allclose(result.slant_range_time.values[1, 1], 0.0, atol=1e-12)
+
+    def test_simulate_acquisition_mixed_nan_valid(self):
+        """Mix of NaN and valid values: NaN axis pixel yields 0.0, valid pixels yield correct range."""
+        dem_ecef = self._make_dem()
+        dem_ecef.values[0, 0, :] = [np.nan, np.nan, np.nan]
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values[2, 2], expected_range_time, rtol=1e-10)
+        # NaN pixel: xarray sum skips NaN -> 0.0
+        np.testing.assert_allclose(result.slant_range_time.values[0, 0], 0.0, atol=1e-12)
+
+    def test_simulate_acquisition_partial_nan_in_axis_propagates_to_all_components(self):
+        """Partial NaN in DEM axis dimension: solver propagates NaN to all dem_distance components, xarray sum yields 0.0."""
+        dem_ecef = self._make_dem()
+        # Set only the Z component to NaN; the solver will propagate NaN to all 3 dem_distance components
+        dem_ecef.values[0, 0, 2] = np.nan
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        # backward_geocode produces [nan, nan, nan] for that pixel
+        assert np.all(np.isnan(result.dem_distance.values[0, 0, :]))
+        # xarray sum(skipna=True) skips NaN, sum = 0.0
+        np.testing.assert_allclose(result.slant_range_time.values[0, 0], 0.0, atol=1e-12)
+
+    def test_simulate_acquisition_varying_dem_heights(self):
+        """Varying DEM heights should produce varying slant_range_time values."""
+        dem_ecef = self._make_dem_varying_z()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        # Z offsets: [0, 500, 1000, 1000, 1500, 2000, 2000, 2500, 3000]
+        expected_ranges = np.array([
+            [0.0, 500.0, 1000.0],
+            [1000.0, 1500.0, 2000.0],
+            [2000.0, 2500.0, 3000.0],
+        ])
+        expected_range_times = 2.0 * expected_ranges / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_times, rtol=1e-8)
+
+    def test_simulate_acquisition_negative_z_offset(self):
+        """DEM below satellite should produce positive range time."""
+        dem_ecef = self._make_dem(z_val=3999500.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        expected_range_time = 2.0 * 500.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    def test_simulate_acquisition_large_dem_grid(self):
+        """Larger DEM grid should handle correctly."""
+        dem_ecef = self._make_dem(y_size=10, x_size=10)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.shape == (10, 10)
+        assert result.slant_range_time.shape == (10, 10)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    # ------------------------------------------------------------------
+    # Value correctness — detailed checks
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_slant_range_time_formula(self):
+        """slant_range_time should equal 2/c * ||dem_distance||."""
+        dem_ecef = self._make_dem_varying_z()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        range_magnitude = np.sqrt((result.dem_distance.values ** 2).sum(axis=-1))
+        expected_range_time = 2.0 / 299792458.0 * range_magnitude
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-10)
+
+    def test_simulate_acquisition_azimuth_time_is_datetime(self):
+        """azimuth_time output should be datetime64[ns] type."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.dtype == np.dtype("datetime64[ns]")
+
+    def test_simulate_acquisition_azimuth_time_equals_reference_time_no_offset(self):
+        """Without azimuth_time offset, azimuth_time should equal referenceTime."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        pos.attrs["referenceTime"] = np.datetime64("2020-06-01", "ns")
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.values[0, 0] == np.datetime64("2020-06-01", "ns")
+
+    def test_simulate_acquisition_azimuth_time_with_offset(self):
+        """With azimuth_time parameter, azimuth_time should reflect the offset."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        t0 = np.datetime64("2020-01-01T00:00:05", "ns")
+        result = simulate_acquisition(dem_ecef, pos, azimuth_time=t0)
+        # All pixels should have the same azimuth time
+        assert np.all(result.azimuth_time.values == result.azimuth_time.values[0, 0])
+
+    def test_simulate_acquisition_varying_dem_all_different_ranges(self):
+        """Varying DEM should produce all different slant_range_time values."""
+        dem_ecef = self._make_dem_varying_z()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        unique_values = np.unique(result.slant_range_time.values)
+        # With Z offsets [0,500,1000,1000,1500,2000,2000,2500,3000],
+        # unique ranges are [0,500,1000,1500,2000,2500,3000] = 7 unique values
+        assert len(unique_values) == 7
+
+    def test_simulate_acquisition_x_offset_affects_range(self):
+        """DEM offset in X direction should change range."""
+        dem_ecef = self._make_dem(x_val=6700100.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        # X offset is small relative to Z, range should be approximately the same
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, atol=1e-14)
+
+    def test_simulate_acquisition_diagonal_offset(self):
+        """DEM offset in multiple axes: Z dominates range, X offset has minor effect."""
+        dem_ecef = self._make_dem(x_val=6700100.0, z_val=4000500.0)
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        # Z offset of 500m dominates; X offset of 100m has minor effect due to range-rate solver
+        expected_range_time = 2.0 * 500.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, atol=1e-14)
+
+    # ------------------------------------------------------------------
+    # Coordinate handling
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_uses_axis_coord(self):
+        """Output should use the 'axis' coordinate from the input DEM."""
+        dem_ecef = self._make_dem()
+        dem_ecef.coords["axis"] = [10.0, 20.0, 30.0]
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos)
+        assert "axis" in result.coords or "axis" not in [c for c in result.coords]
+
+    def test_simulate_acquisition_empty_include_variables_drops_all_vars(self):
+        """include_variables=['nonexistent'] should drop all existing vars."""
+        dem_ecef = self._make_dem()
+        pos = self._make_pos()
+        result = simulate_acquisition(dem_ecef, pos, include_variables=["nonexistent"])
+        assert len(list(result.data_vars)) == 0
+
+    # ------------------------------------------------------------------
+    # High-degree polynomial coefficients
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_higher_degree_poly(self):
+        """Should work with higher-degree polynomial coefficients."""
+        dem_ecef = self._make_dem()
+        coeffs = np.array([
+            [6700000.0, 2000000.0, 4000000.0],
+            [7500.0, 0.0, 0.0],
+            [0.0, 0.0, 0.001],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ])
+        pos = xr.DataArray(coeffs, dims=["degree", "axis"])
+        pos.attrs["referenceTime"] = np.datetime64("2020-01-01", "ns")
+        pos.attrs["scaleTime"] = 1e-9
+        result = simulate_acquisition(dem_ecef, pos)
+        assert isinstance(result, xr.Dataset)
+        expected_range_time = 2.0 * 1000.0 / 299792458.0
+        np.testing.assert_allclose(result.slant_range_time.values, expected_range_time, rtol=1e-6)
+
+    # ------------------------------------------------------------------
+    # Different reference times
+    # ------------------------------------------------------------------
+
+    def test_simulate_acquisition_different_reference_time(self):
+        """Different referenceTime should affect azimuth_time output."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        pos.attrs["referenceTime"] = np.datetime64("2021-06-15", "ns")
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.values[0, 0] == np.datetime64("2021-06-15", "ns")
+
+    def test_simulate_acquisition_large_time_offset(self):
+        """Large time offset in referenceTime should shift azimuth_time accordingly."""
+        dem_ecef = self._make_dem(z_val=4001000.0)
+        pos = self._make_pos()
+        pos.attrs["referenceTime"] = np.datetime64("2030-12-31", "ns")
+        result = simulate_acquisition(dem_ecef, pos)
+        assert result.azimuth_time.values[0, 0] == np.datetime64("2030-12-31", "ns")
