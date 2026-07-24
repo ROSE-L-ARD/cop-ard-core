@@ -1313,7 +1313,7 @@ def _make_sim_data(acquisition_dates, y_size=3, x_size=3):
     )
     # reference_times: dict with datetime64 keys -> string values
     orbits.attrs["reference_times"] = {
-        d: f"2020-01-{i+1:02d}T00:00:00.000000000" for i, d in enumerate(acquisition_dates)
+        d: f"2020-01-{i + 1:02d}T00:00:00.000000000" for i, d in enumerate(acquisition_dates)
     }
 
     return simulation, dem_ecef, orbits
