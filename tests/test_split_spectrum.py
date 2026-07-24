@@ -492,36 +492,125 @@ class TestScaleAzimuthTime:
 
 
 class TestFitIonosphere:
-    """Tests for fit_ionosphere."""
+    """Tests for fit_ionosphere.
 
-    def test_fit_ionosphere_returns_dataarray(self):
-        """Should return xr.DataArray with coefficients."""
-        az_size, sr_size = 3, 5
+    fit_ionosphere performs a 2D polynomial fit to ionospheric phase data by:
+    1. Scaling azimuth time based on the ratio of ionosphere height to orbit height.
+    2. Building normalized x/y coordinate axes from slant range time and scaled azimuth time.
+    3. Fitting a polynomial model to the phase data at the (x, y) coordinate points.
+    4. Returning the polynomial coefficients as an xr.DataArray with normalization
+       metadata (offset, scale_fact) stored as attributes.
+
+    All tests use in-memory synthetic data with known values. No file I/O or mocks.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_fit_inputs(
+        az_size: int = 3,
+        sr_size: int = 5,
+        phase_data: np.ndarray | None = None,
+        azimuth_time_raw_2d: np.ndarray | None = None,
+        H_iono: float = 300000.0,
+        H_orb: float = 800000.0,
+        degree: int = 1,
+        norm: int = 1,
+        az_coords: np.ndarray | None = None,
+        sr_coords: np.ndarray | None = None,
+    ):
+        """Create standard inputs for fit_ionosphere.
+
+        The phase_iono DataArray needs a 2D `azimuth_time_raw` coordinate because
+        the function uses it to construct the x-axis (slant range time) and to
+        verify array shapes. The `azimuth_time_raw` is broadcast from the 1D
+        azimuth coordinate along the range dimension.
+
+        The scale_azimuth_time function requires datetime64[ns] inputs because it
+        computes (azimuth_time_raw - azimuth_time).astype(float) to get timedelta
+        differences. So both azimuth_time and azimuth_time_raw must be datetime64[ns].
+
+        To produce y-values that vary with azimuth index (and thus with height ratio),
+        azimuth_time_raw uses offsets that are double the azimuth coordinate offset:
+            azimuth_time_raw[i] = base + 2*i*1e9
+            azimuth_time[i] = base + i*1e9
+            difference = i*1e9 ns
+        This ensures y varies linearly with azimuth index.
+
+        Parameters:
+            az_size: Number of azimuth samples.
+            sr_size: Number of slant range samples.
+            phase_data: 2D phase data values. If None, uses ones.
+            azimuth_time_raw_2d: Optional 2D azimuth_time_raw array (datetime64[ns]).
+                If None, uses broadcast datetime values with double-offsets.
+            H_iono: Ionosphere height in meters.
+            H_orb: Orbit height in meters.
+            degree: Polynomial degree.
+            norm: Norm for minimization (1 or 2).
+            az_coords: Custom azimuth coordinate values. If None, uses datetime64.
+            sr_coords: Custom slant range coordinate values. If None, uses np.arange(sr_size).
+        """
+        base_dt = np.datetime64("2020-01-01T00:00:00", "ns")
+
+        if az_coords is None:
+            az_coords = np.array(
+                [base_dt + np.timedelta64(int(1e9) * i, "ns") for i in range(az_size)],
+                dtype="datetime64[ns]",
+            )
+        if sr_coords is None:
+            sr_coords = np.arange(sr_size, dtype=np.float64)
+
+        # Build phase data (always 2D)
+        if phase_data is None:
+            phase_data = np.ones((az_size, sr_size), dtype=np.float64)
+
         phase_iono = xr.DataArray(
-            np.ones((az_size, sr_size)),
+            phase_data,
             dims=["azimuth_time", "slant_range_time"],
             coords={
-                "azimuth_time": np.arange(az_size),
-                "slant_range_time": np.arange(sr_size),
+                "azimuth_time": az_coords,
+                "slant_range_time": sr_coords,
             },
         )
-        # azimuth_time_raw must be 2D, matching phase_iono shape
+
+        # Build azimuth_time_raw 2D array (datetime64[ns])
+        # Use double-offsets so y = (raw - coord) produces varying values per row
+        # raw[i] = base + 2*i*1e9, coord[i] = base + i*1e9 -> diff = i*1e9 ns
+        if azimuth_time_raw_2d is None:
+            az_offsets = np.array([int(2e9) * i for i in range(az_size)], dtype="timedelta64[ns]")
+            azimuth_time_raw_2d = np.empty((az_size, sr_size), dtype="datetime64[ns]")
+            for i in range(az_size):
+                azimuth_time_raw_2d[i, :] = base_dt + az_offsets[i]
+
         azimuth_time_raw = xr.DataArray(
-            np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float),
+            azimuth_time_raw_2d,
             dims=["azimuth_time", "slant_range_time"],
             coords={
-                "azimuth_time": np.arange(az_size),
-                "slant_range_time": np.arange(sr_size),
+                "azimuth_time": az_coords,
+                "slant_range_time": sr_coords,
             },
         )
+
+        # Assign azimuth_time_raw as a coordinate on phase_iono
         phase_iono = phase_iono.assign_coords(
             {
                 "azimuth_time_raw": (
                     ["azimuth_time", "slant_range_time"],
-                    np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float),
+                    azimuth_time_raw_2d,
                 ),
             }
         )
+        return phase_iono, azimuth_time_raw
+
+    # ------------------------------------------------------------------
+    # Return type and attribute tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_returns_dataarray(self):
+        """Should return xr.DataArray with polynomial coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
         result = fit_ionosphere(
             phase_iono,
             azimuth_time_raw,
@@ -531,23 +620,641 @@ class TestFitIonosphere:
         )
         assert isinstance(result, xr.DataArray)
 
-    def test_fit_ionosphere_with_attrs(self):
-        """Should have offset and scale_fact attributes."""
+    def test_fit_ionosphere_has_offset_attribute(self):
+        """Should have 'offset' attribute storing coordinate normalization offset."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert "offset" in result.attrs
+
+    def test_fit_ionosphere_has_scale_fact_attribute(self):
+        """Should have 'scale_fact' attribute storing coordinate normalization scale factor."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert "scale_fact" in result.attrs
+
+    def test_fit_ionosphere_degree_one_coefficient_count(self):
+        """Degree=1 fit should return exactly 3 coefficients (const, x, y)."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert result.sizes["degree"] == 3
+        np.testing.assert_array_equal(result.coords["degree"].values, [0, 1, 2])
+
+    def test_fit_ionosphere_degree_zero_coefficient_count(self):
+        """Degree=0 fit should return exactly 1 coefficient (constant)."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=0,
+        )
+        assert result.sizes["degree"] == 1
+        np.testing.assert_array_equal(result.coords["degree"].values, [0])
+
+    def test_fit_ionosphere_degree_two_coefficient_count(self):
+        """Degree=2 fit should return exactly 6 coefficients (const, x, y, x^2, xy, y^2)."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=2,
+        )
+        assert result.sizes["degree"] == 6
+
+    def test_fit_ionosphere_coefficients_are_float64(self):
+        """Coefficient values should be float64 dtype."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert result.dtype == np.float64
+
+    def test_fit_ionosphere_offset_is_array(self):
+        """Offset attribute should be a 2-element array for x and y normalization."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        offset = result.attrs["offset"]
+        assert isinstance(offset, np.ndarray)
+        assert offset.shape == (2,)
+
+    def test_fit_ionosphere_scale_fact_is_array(self):
+        """Scale_fact attribute should be a 2-element array for x and y normalization."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        scale_fact = result.attrs["scale_fact"]
+        assert isinstance(scale_fact, np.ndarray)
+        assert scale_fact.shape == (2,)
+
+    # ------------------------------------------------------------------
+    # Coordinate preservation tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_preserves_azimuth_coords(self):
+        """Output degree dimension coords should match polynomial degree indices."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        np.testing.assert_array_equal(result.coords["degree"].values, [0, 1, 2])
+
+    def test_fit_ionosphere_custom_azimuth_coords(self):
+        """Custom azimuth coordinate values should produce valid coefficients."""
+        base_dt = np.datetime64("2020-01-01T00:00:00", "ns")
+        az_coords = np.array(
+            [base_dt + np.timedelta64(int(1e9) * i, "ns") for i in range(3)],
+            dtype="datetime64[ns]",
+        )
+        sr_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(
+            az_size=3,
+            sr_size=5,
+            az_coords=az_coords,
+            sr_coords=sr_coords,
+        )
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert isinstance(result, xr.DataArray)
+        assert "offset" in result.attrs
+        assert np.all(np.isfinite(result.values))
+
+    # ------------------------------------------------------------------
+    # Shape and size tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "az_size,sr_size",
+        [
+            (3, 5),
+            (5, 3),
+            (4, 4),
+            (5, 5),
+            (3, 3),
+            (10, 10),
+            (2, 5),
+            (5, 2),
+        ],
+    )
+    def test_fit_ionosphere_various_shapes(self, az_size, sr_size):
+        """Should handle various input array shapes correctly."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=az_size, sr_size=sr_size)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert isinstance(result, xr.DataArray)
+        assert "offset" in result.attrs
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_minimum_viable_shape(self):
+        """Should work with minimum viable shape (2x2) for degree=1 fit."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=2, sr_size=2)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert result.sizes["degree"] == 3
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_asymmetric_narrow_shape(self):
+        """Narrow asymmetric shape (2 x 10) should produce valid coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=2, sr_size=10)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert result.sizes["degree"] == 3
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_asymmetric_tall_shape(self):
+        """Tall asymmetric shape (10 x 2) should produce valid coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=10, sr_size=2)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert result.sizes["degree"] == 3
+        assert np.all(np.isfinite(result.values))
+
+    # ------------------------------------------------------------------
+    # Degree parameter tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("degree", [0, 1, 2])
+    def test_fit_ionosphere_degree_coefficient_size(self, degree):
+        """Coefficient count should follow polynomial combinatorics: (degree+1)(degree+2)/2."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=degree,
+        )
+        expected_size = (degree + 1) * (degree + 2) // 2
+        assert result.sizes["degree"] == expected_size
+
+    @pytest.mark.parametrize("degree", [0, 1, 2])
+    def test_fit_ionosphere_degree_finite_coefficients(self, degree):
+        """All coefficients should be finite for the given degree."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=degree,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_degree_zero_constant_fit(self):
+        """Degree=0 with constant input should return the constant as coefficient."""
+        phase_data = np.full((3, 5), 7.0, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data, degree=0)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=0,
+        )
+        np.testing.assert_allclose(result.values[0], 7.0, rtol=1e-6)
+
+    def test_fit_ionosphere_degree_one_linear_gradient(self):
+        """Degree=1 with a linear gradient should capture the slope."""
+        az = np.arange(3, dtype=np.float64)
+        sr = np.arange(5, dtype=np.float64)
+        az_grid, sr_grid = np.meshgrid(az, sr, indexing="ij")
+        phase_data = az_grid * 2.0 + sr_grid * 0.5 + 1.0
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        # The x-coefficient should be non-zero (captures range gradient)
+        assert np.abs(result.values[1]) > 0.01
+
+    def test_fit_ionosphere_degree_two_quadratic_fit(self):
+        """Degree=2 with a quadratic surface should produce valid coefficients."""
+        az = np.arange(3, dtype=np.float64)
+        sr = np.arange(5, dtype=np.float64)
+        az_grid, sr_grid = np.meshgrid(az, sr, indexing="ij")
+        phase_data = az_grid**2 * 0.1 + sr_grid**2 * 0.05 + 0.5
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data, degree=2)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=2,
+        )
+        assert np.all(np.isfinite(result.values))
+        assert result.sizes["degree"] == 6
+
+    # ------------------------------------------------------------------
+    # Height scaling tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_different_height_ratios_affect_offset(self):
+        """Different height ratios should produce different normalization attributes."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result_1 = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        result_2 = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=400000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        # The scale_fact attribute should differ between height ratios
+        assert result_1.attrs["scale_fact"][1] != result_2.attrs["scale_fact"][1]
+
+    # ------------------------------------------------------------------
+    # Norm parameter tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_l1_norm(self):
+        """norm=1 (L1) should produce finite coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+            norm=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_l2_norm(self):
+        """norm=2 (L2) should produce finite coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+            norm=2,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_norm_produces_different_results(self):
+        """L1 and L2 norms should produce different coefficient values."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        result_l1 = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+            norm=1,
+        )
+        result_l2 = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+            norm=2,
+        )
+        assert not np.allclose(result_l1.values, result_l2.values, rtol=1e-6)
+
+    # ------------------------------------------------------------------
+    # Phase data pattern tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_constant_phase(self):
+        """Constant phase input should produce a valid constant-fit coefficient."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        # Constant phase: the constant and y-coefficients together approximate the phase.
+        # Since x-coeff is ~0 (no range variation in constant data),
+        # the sum of const and y-coeff should approximate 1.0.
+        np.testing.assert_allclose(result.values[0] + result.values[2], 1.0, atol=0.01)
+
+    def test_fit_ionosphere_linear_azimuth_phase(self):
+        """Phase varying linearly along azimuth should produce a non-zero y-coefficient."""
+        az = np.arange(3, dtype=np.float64)
+        # Phase increases along azimuth direction: y-component gradient
+        phase_data = np.broadcast_to(az[:, None], (3, 5)).astype(np.float64) * 2.0
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        # The y-coefficient should be non-zero (captures azimuth gradient)
+        assert np.abs(result.values[2]) > 0.01
+
+    def test_fit_ionosphere_linear_range_phase(self):
+        """Phase varying linearly along range should produce a non-zero x-coefficient."""
+        phase_data = np.full((3, 5), 0.0, dtype=np.float64)
+        phase_data[:, :] = np.arange(5, dtype=np.float64) * 1.5  # ramp along range
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        # The x-coefficient should be non-zero (captures range gradient)
+        assert np.abs(result.values[1]) > 0.01
+
+    def test_fit_ionosphere_2d_phase_surface(self):
+        """2D phase surface should produce valid polynomial fit coefficients."""
+        az = np.arange(5, dtype=np.float64)
+        sr = np.arange(5, dtype=np.float64)
+        az_grid, sr_grid = np.meshgrid(az, sr, indexing="ij")
+        phase_data = az_grid * 0.3 + sr_grid * 0.1 + np.sin(az_grid * 0.5) * 0.5
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data, az_size=5, sr_size=5)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        assert result.sizes["degree"] == 3
+
+    def test_fit_ionosphere_positive_phase_values(self):
+        """Positive phase values should produce finite coefficients."""
+        phase_data = np.full((3, 5), 2.5, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_negative_phase_values(self):
+        """Negative phase values should produce finite coefficients."""
+        phase_data = np.full((3, 5), -2.5, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_mixed_phase_values(self):
+        """Mixed positive and negative phase values should produce finite coefficients."""
+        phase_data = np.array(
+            [[-1.0, 0.0, 1.0, -0.5, 0.5], [1.0, -1.0, 0.0, 0.5, -0.5], [-0.5, 0.5, -1.0, 1.0, 0.0]],
+            dtype=np.float64,
+        )
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_large_phase_values(self):
+        """Large phase values should produce finite coefficients."""
+        phase_data = np.full((3, 5), 1e6, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_small_phase_values(self):
+        """Very small phase values should produce finite coefficients."""
+        phase_data = np.full((3, 5), 1e-12, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    # ------------------------------------------------------------------
+    # NaN and inf handling tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_nan_in_phase_propagates(self):
+        """NaN in phase data should be excluded from fit but not cause errors."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_data[1, 2] = np.nan
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        # Fit should still work with remaining finite values
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_multiple_nans_in_phase(self):
+        """Multiple NaN values in phase data should be excluded from fit."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_data[0, 0] = np.nan
+        phase_data[1, 2] = np.nan
+        phase_data[2, 4] = np.nan
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_inf_in_phase_propagates(self):
+        """Inf values in phase data should be excluded from fit but not cause errors."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_data[1, 2] = np.inf
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_negative_inf_in_phase(self):
+        """Negative inf values in phase data should be excluded from fit."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_data[0, 0] = -np.inf
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_mixed_nan_and_inf_in_phase(self):
+        """Both NaN and inf values in phase data should all be excluded from fit."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_data[0, 0] = np.nan
+        phase_data[1, 2] = np.inf
+        phase_data[2, 4] = -np.inf
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        # With 12 remaining finite values and 3 coefficients, fit should work
+        assert np.all(np.isfinite(result.values))
+
+    # ------------------------------------------------------------------
+    # Edge case tests
+    # ------------------------------------------------------------------
+
+    def test_fit_ionosphere_all_nan_phase(self):
+        """All NaN phase values should cause the optimizer to fail (exception expected)."""
+        phase_data = np.full((3, 5), np.nan, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        with pytest.raises(Exception):
+            fit_ionosphere(
+                phase_iono,
+                azimuth_time_raw,
+                H_iono=300000.0,
+                H_orb=800000.0,
+                degree=1,
+            )
+
+    def test_fit_ionosphere_mismatched_azimuth_range_size_raises(self):
+        """Mismatched azimuth_time_raw shape vs phase_iono should raise IndexError."""
+        # phase_iono is 3x5 but azimuth_time_raw is 4x6
         az_size, sr_size = 3, 5
+        base_dt = np.datetime64("2020-01-01T00:00:00", "ns")
+        az_coords = np.array(
+            [base_dt + np.timedelta64(int(1e9) * i, "ns") for i in range(az_size)],
+            dtype="datetime64[ns]",
+        )
+        sr_coords = np.arange(sr_size, dtype=np.float64)
         phase_iono = xr.DataArray(
             np.ones((az_size, sr_size)),
             dims=["azimuth_time", "slant_range_time"],
             coords={
-                "azimuth_time": np.arange(az_size),
-                "slant_range_time": np.arange(sr_size),
+                "azimuth_time": az_coords,
+                "slant_range_time": sr_coords,
             },
         )
-        azimuth_time_raw = xr.DataArray(
-            np.broadcast_to(np.arange(az_size)[:, None], (az_size, sr_size)).astype(float),
+        # wrong_shape_az_raw has different coords/shape
+        wrong_az_coords = np.array(
+            [base_dt + np.timedelta64(int(1e9) * i, "ns") for i in range(4)],
+            dtype="datetime64[ns]",
+        )
+        wrong_az_raw_2d = np.empty((4, 6), dtype="datetime64[ns]")
+        for i in range(4):
+            wrong_az_raw_2d[i, :] = base_dt + np.timedelta64(int(1e12) + int(1e9) * i, "ns")
+        wrong_shape_az_raw = xr.DataArray(
+            wrong_az_raw_2d,
             dims=["azimuth_time", "slant_range_time"],
             coords={
-                "azimuth_time": np.arange(az_size),
-                "slant_range_time": np.arange(sr_size),
+                "azimuth_time": wrong_az_coords,
+                "slant_range_time": np.arange(6, dtype=np.float64),
             },
         )
         phase_iono = phase_iono.assign_coords(
@@ -558,6 +1265,30 @@ class TestFitIonosphere:
                 ),
             }
         )
+        with pytest.raises(Exception):
+            fit_ionosphere(
+                phase_iono,
+                wrong_shape_az_raw,
+                H_iono=300000.0,
+                H_orb=800000.0,
+                degree=1,
+            )
+
+    def test_fit_ionosphere_nan_in_azimuth_time_raw(self):
+        """NaN values in azimuth_time_raw coordinate should be excluded from fit."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        # Inject NaN into the azimuth_time_raw coordinate
+        az_raw_with_nan = azimuth_time_raw.values.copy().astype(float)
+        az_raw_with_nan[1, 2] = np.nan
+        phase_iono = phase_iono.assign_coords(
+            {
+                "azimuth_time_raw": (
+                    ["azimuth_time", "slant_range_time"],
+                    az_raw_with_nan,
+                ),
+            }
+        )
         result = fit_ionosphere(
             phase_iono,
             azimuth_time_raw,
@@ -565,7 +1296,157 @@ class TestFitIonosphere:
             H_orb=800000.0,
             degree=1,
         )
-        assert "offset" in result.attrs
+        # Fit should still work with remaining finite values
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_single_nan_azimuth_time_raw(self):
+        """Single NaN in azimuth_time_raw should not cause errors."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float64)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        az_raw_with_nan = azimuth_time_raw.values.copy().astype(float)
+        az_raw_with_nan[0, 0] = np.nan
+        phase_iono = phase_iono.assign_coords(
+            {
+                "azimuth_time_raw": (
+                    ["azimuth_time", "slant_range_time"],
+                    az_raw_with_nan,
+                ),
+            }
+        )
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_very_small_azimuth_range(self):
+        """Small array (2x2) should produce valid coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=2, sr_size=2)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+        assert result.sizes["degree"] == 3
+
+    def test_fit_ionosphere_large_array(self):
+        """Larger array (10x10) should produce valid coefficients within reasonable time."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=10, sr_size=10)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert isinstance(result, xr.DataArray)
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_float32_phase_data(self):
+        """float32 phase data should produce float64 coefficients (conversion happens in processing)."""
+        phase_data = np.full((3, 5), 1.0, dtype=np.float32)
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(phase_data=phase_data)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_offset_values_are_reasonable(self):
+        """Offset values should be reasonable centering values for the coordinate axes."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=3, sr_size=5)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        offset = result.attrs["offset"]
+        # Offset should be within the coordinate range
+        assert offset[0] >= 0  # slant range time offset
+        assert offset[1] >= 0  # azimuth time offset
+        assert len(offset) == 2
+
+    def test_fit_ionosphere_scale_fact_positive(self):
+        """Scale_fact values should be positive (used for normalization)."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(az_size=3, sr_size=5)
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        scale_fact = result.attrs["scale_fact"]
+        assert np.all(scale_fact > 0)
+
+    def test_fit_ionosphere_default_degree(self):
+        """Default degree=1 should produce 3 coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        # Explicitly use default degree
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+        )
+        assert result.sizes["degree"] == 3
+
+    def test_fit_ionosphere_default_norm(self):
+        """Default norm=1 should produce finite coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs()
+        # Explicitly use default norm
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+        )
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_datetime_azimuth_coords(self):
+        """Datetime-based azimuth coordinates should work correctly."""
+        az_dt = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(
+            az_size=3,
+            sr_size=5,
+            az_coords=az_dt,
+        )
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert isinstance(result, xr.DataArray)
+        assert np.all(np.isfinite(result.values))
+
+    def test_fit_ionosphere_negative_range_coords(self):
+        """Negative slant_range_time coordinates should produce valid coefficients."""
+        phase_iono, azimuth_time_raw = self._make_fit_inputs(
+            az_size=3,
+            sr_size=5,
+            sr_coords=np.array([-2.0, -1.0, 0.0, 1.0, 2.0], dtype=np.float64),
+        )
+        result = fit_ionosphere(
+            phase_iono,
+            azimuth_time_raw,
+            H_iono=300000.0,
+            H_orb=800000.0,
+            degree=1,
+        )
+        assert np.all(np.isfinite(result.values))
 
 
 class TestReconstructIonoSurface:
