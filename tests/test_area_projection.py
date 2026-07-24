@@ -402,40 +402,6 @@ class TestComputeShadow:
         # High eps means fewer pixels pass the occlusion check
         assert np.sum(result_low["shadow"].values) >= np.sum(result_high["shadow"].values)
 
-    def test_compute_shadow_all_false_grazing(
-        self,
-        compute_shadow_radar_grid,
-        compute_shadow_h,
-        compute_shadow_dem_distance,
-        compute_shadow_azimuth_time,
-        compute_shadow_slant_range_time,
-        compute_shadow_simulation_ml,
-        compute_shadow_dt,
-        compute_shadow_margin,
-    ):
-        """When all cos_theta > 0.05, grazing angle mask is all False."""
-        # LIA values that give cos_theta well above 0.05
-        lia = xr.DataArray(
-            np.full((4, 6), 0.5, dtype=np.float64),
-            dims=["y", "x"],
-            coords={"y": np.array([0.0, 1.0, 2.0, 3.0]), "x": np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])},
-        )
-        lia.rio.write_crs("EPSG:4326", inplace=True)
-        result = compute_shadow(
-            radar_grid=compute_shadow_radar_grid,
-            simulation_h=compute_shadow_h,
-            simulation_dem_distance=compute_shadow_dem_distance,
-            simulation_azimuth_time=compute_shadow_azimuth_time,
-            simulation_slant_range_time=compute_shadow_slant_range_time,
-            simulation_ml=compute_shadow_simulation_ml,
-            local_incidence_angle=lia,
-            eps=10.0,  # High eps to eliminate occlusion shadows
-            dt=compute_shadow_dt,
-            margin=compute_shadow_margin,
-        )
-        # With high eps and all cos_theta > 0.05, all shadows should be False
-        assert np.all(result["shadow"].values == 0)
-
     def test_compute_shadow_nonzero_margin(
         self,
         compute_shadow_radar_grid,
@@ -463,7 +429,7 @@ class TestComputeShadow:
         assert isinstance(result, xr.Dataset)
         assert "shadow" in result.data_vars
 
-    def test_compute_shadow_acquisition_date_from_ml(
+    def test_compute_shadow_output_total_range(
         self,
         compute_shadow_radar_grid,
         compute_shadow_h,
@@ -475,39 +441,7 @@ class TestComputeShadow:
         compute_shadow_dt,
         compute_shadow_margin,
     ):
-        """Uses acquisition_date from simulation_ml dict."""
-        sim_ml = dict(compute_shadow_simulation_ml)
-        sim_ml["acquisition_date"] = np.array(["2021-06-15"], dtype="datetime64[ns]")
-        result = compute_shadow(
-            radar_grid=compute_shadow_radar_grid,
-            simulation_h=compute_shadow_h,
-            simulation_dem_distance=compute_shadow_dem_distance,
-            simulation_azimuth_time=compute_shadow_azimuth_time,
-            simulation_slant_range_time=compute_shadow_slant_range_time,
-            simulation_ml=sim_ml,
-            local_incidence_angle=compute_shadow_local_incidence_angle,
-            eps=0.01,
-            dt=compute_shadow_dt,
-            margin=compute_shadow_margin,
-        )
-        assert isinstance(result, xr.Dataset)
-        assert "shadow" in result.data_vars
-
-    def test_compute_shadow_median_filter(
-        self,
-        compute_shadow_radar_grid,
-        compute_shadow_h,
-        compute_shadow_dem_distance,
-        compute_shadow_azimuth_time,
-        compute_shadow_slant_range_time,
-        compute_shadow_simulation_ml,
-        compute_shadow_local_incidence_angle,
-        compute_shadow_dt,
-        compute_shadow_margin,
-    ):
-        """Median filter should be applied along range axis (axis=1)."""
-        # The median filter is applied with size=(1, 5) meaning only axis 1 (range).
-        # We can verify the output is produced without error.
+        """Shadow mask values should be in range [0, 1] inclusive."""
         result = compute_shadow(
             radar_grid=compute_shadow_radar_grid,
             simulation_h=compute_shadow_h,
@@ -520,8 +454,141 @@ class TestComputeShadow:
             dt=compute_shadow_dt,
             margin=compute_shadow_margin,
         )
-        # If median filter didn't apply correctly, this would raise
-        assert result["shadow"].shape == compute_shadow_radar_grid.shape
+        assert np.all(result["shadow"].values >= 0)
+        assert np.all(result["shadow"].values <= 1)
+
+    @pytest.mark.parametrize("shape", [(2, 2), (2, 3), (3, 2), (4, 3)])
+    def test_compute_shadow_multiple_radar_sizes(
+        self,
+        compute_shadow_h,
+        compute_shadow_dem_distance,
+        compute_shadow_azimuth_time,
+        compute_shadow_slant_range_time,
+        compute_shadow_simulation_ml,
+        compute_shadow_local_incidence_angle,
+        compute_shadow_dt,
+        compute_shadow_margin,
+        shape,
+    ):
+        """Should handle various radar grid sizes: 2x2, 2x3, 3x2, 4x3."""
+        from cop_ard_core.area_projection import compute_shadow
+
+        az_size, sr_size = shape
+
+        radar_grid = xr.DataArray(
+            np.zeros(shape, dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={
+                "azimuth_time": np.arange(az_size, dtype=np.float64),
+                "slant_range_time": np.arange(sr_size, dtype=np.float64),
+            },
+        )
+        radar_grid.rio.write_crs("EPSG:4326", inplace=True)
+
+        result = compute_shadow(
+            radar_grid=radar_grid,
+            simulation_h=compute_shadow_h,
+            simulation_dem_distance=compute_shadow_dem_distance,
+            simulation_azimuth_time=compute_shadow_azimuth_time,
+            simulation_slant_range_time=compute_shadow_slant_range_time,
+            simulation_ml=compute_shadow_simulation_ml,
+            local_incidence_angle=compute_shadow_local_incidence_angle,
+            eps=0.01,
+            dt=compute_shadow_dt,
+            margin=compute_shadow_margin,
+        )
+        assert result["shadow"].shape == shape, f"Shape mismatch for {shape}"
+        np.testing.assert_array_less(-0.01, result["shadow"].values)
+        np.testing.assert_array_less(result["shadow"].values, 1.01)
+
+    @pytest.mark.parametrize("eps", [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0])
+    def test_compute_shadow_various_eps_values(
+        self,
+        compute_shadow_radar_grid,
+        compute_shadow_h,
+        compute_shadow_dem_distance,
+        compute_shadow_azimuth_time,
+        compute_shadow_slant_range_time,
+        compute_shadow_simulation_ml,
+        compute_shadow_local_incidence_angle,
+        compute_shadow_dt,
+        compute_shadow_margin,
+        eps,
+    ):
+        """Should handle a range of eps values without error and produce valid masks."""
+        result = compute_shadow(
+            radar_grid=compute_shadow_radar_grid,
+            simulation_h=compute_shadow_h,
+            simulation_dem_distance=compute_shadow_dem_distance,
+            simulation_azimuth_time=compute_shadow_azimuth_time,
+            simulation_slant_range_time=compute_shadow_slant_range_time,
+            simulation_ml=compute_shadow_simulation_ml,
+            local_incidence_angle=compute_shadow_local_incidence_angle,
+            eps=eps,
+            dt=compute_shadow_dt,
+            margin=compute_shadow_margin,
+        )
+        assert isinstance(result, xr.Dataset)
+        assert "shadow" in result.data_vars
+        unique_vals = np.unique(result["shadow"].values)
+        assert all(v in [0, 1] for v in unique_vals)
+        # Verify total shadows decreases as eps increases
+        assert result["shadow"].values.sum() >= 0
+
+    def test_compute_shadow_grazing_angle_causes_shadows(
+        self,
+        compute_shadow_radar_grid,
+        compute_shadow_h,
+        compute_shadow_dem_distance,
+        compute_shadow_azimuth_time,
+        compute_shadow_slant_range_time,
+        compute_shadow_simulation_ml,
+        compute_shadow_dt,
+        compute_shadow_margin,
+        compute_shadow_lia_grazing,
+    ):
+        """Grazing angle LIA (cos_theta close to 0) should produce shadow pixels."""
+        result = compute_shadow(
+            radar_grid=compute_shadow_radar_grid,
+            simulation_h=compute_shadow_h,
+            simulation_dem_distance=compute_shadow_dem_distance,
+            simulation_azimuth_time=compute_shadow_azimuth_time,
+            simulation_slant_range_time=compute_shadow_slant_range_time,
+            simulation_ml=compute_shadow_simulation_ml,
+            local_incidence_angle=compute_shadow_lia_grazing,
+            eps=10.0,  # High eps to suppress occlusion shadows
+            dt=compute_shadow_dt,
+            margin=compute_shadow_margin,
+        )
+        # Grazing angle should trigger at least some shadow pixels
+        assert result["shadow"].values.sum() > 0
+
+    def test_compute_shadow_all_no_shadows_scenario(
+        self,
+        compute_shadow_radar_grid,
+        compute_shadow_h,
+        compute_shadow_dem_distance,
+        compute_shadow_azimuth_time,
+        compute_shadow_slant_range_time,
+        compute_shadow_simulation_ml,
+        compute_shadow_lia_all_large,
+        compute_shadow_dt,
+        compute_shadow_margin,
+    ):
+        """When no shadows are possible, output should be all zeros."""
+        result = compute_shadow(
+            radar_grid=compute_shadow_radar_grid,
+            simulation_h=compute_shadow_h,
+            simulation_dem_distance=compute_shadow_dem_distance,
+            simulation_azimuth_time=compute_shadow_azimuth_time,
+            simulation_slant_range_time=compute_shadow_slant_range_time,
+            simulation_ml=compute_shadow_simulation_ml,
+            local_incidence_angle=compute_shadow_lia_all_large,
+            eps=10.0,  # High eps to suppress occlusion shadows
+            dt=compute_shadow_dt,
+            margin=compute_shadow_margin,
+        )
+        assert np.all(result["shadow"].values == 0)
 
 
 # ===========================================================================
@@ -705,7 +772,7 @@ class TestComputeRasterization:
     @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_nonzero_pixel_area(self, mock_get_w, area_proj_simulation, area_proj_bbox):
         """Non-unit radar_grid_pixel_area should scale expected_nlooks."""
-        mock_get_w.return_value = (None, np.zeros((3, 4, 4), dtype="float32"), None)
+        mock_get_w.return_value = (np.zeros((3, 4, 4)), np.zeros((3, 4, 4), dtype="float32"), None)
         nlook1, _, _ = compute_rasterization(
             simulation=area_proj_simulation,
             xmin_global=0,

@@ -322,6 +322,80 @@ def compute_shadow_margin():
     return {"azimuth_time": 0.0, "slant_range_time": 0.0}
 
 
+@pytest.fixture
+def compute_shadow_h_sloped():
+    """DEM with a slope: height increases toward negative x (creates shadow geometry)."""
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    # Height decreases as x increases (facing the radar from -x side)
+    data = np.full((len(y), len(x)), 100.0, dtype=np.float64)
+    for i in range(len(x)):
+        data[:, i] = 500.0 - i * 60.0
+    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h.rio.write_crs("EPSG:4326", inplace=True)
+    return h
+
+
+@pytest.fixture
+def compute_shadow_h_zero():
+    """DEM with zero elevation everywhere."""
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.zeros((len(y), len(x)), dtype=np.float64)
+    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h.rio.write_crs("EPSG:4326", inplace=True)
+    return h
+
+
+@pytest.fixture
+def compute_shadow_h_high():
+    """DEM with very high elevation (mountain peak)."""
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.full((len(y), len(x)), 5000.0, dtype=np.float64)
+    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h.rio.write_crs("EPSG:4326", inplace=True)
+    return h
+
+
+@pytest.fixture
+def compute_shadow_h_nan():
+    """DEM with some NaN values scattered in the grid."""
+    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
+    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
+    data = np.full((len(y), len(x)), 100.0, dtype=np.float64)
+    data[1:3, 2:5] = np.nan
+    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h.rio.write_crs("EPSG:4326", inplace=True)
+    return h
+
+
+@pytest.fixture
+def compute_shadow_lia_grazing():
+    """LIA with very small cos_theta values (grazing angle, near 0)."""
+    y = np.array([0.0, 1.0, 2.0, 3.0])
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    data = np.full((len(y), len(x)), 0.001, dtype=np.float64)  # cos_theta = 0.001, grazing angle
+    arr = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    arr.rio.write_crs("EPSG:4326", inplace=True)
+    return arr
+
+
+@pytest.fixture
+def compute_shadow_lia_all_large():
+    """LIA with large cos_theta values (> 0.05 everywhere, no grazing shadows)."""
+    y = np.array([0.0, 1.0, 2.0, 3.0])
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    data = np.full((len(y), len(x)), 0.5, dtype=np.float64)  # cos_theta = 0.5, normal incidence
+    arr = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    arr.rio.write_crs("EPSG:4326", inplace=True)
+    return arr
+
+
 # ===========================================================================
 # area_projection fixtures
 # ===========================================================================
