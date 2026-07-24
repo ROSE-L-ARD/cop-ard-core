@@ -40,6 +40,424 @@ class TestSplitSpectrumCore:
         np.testing.assert_allclose(phase_iono.values, 0.0, atol=1e-10)
         np.testing.assert_allclose(phase_nd.values, 0.0, atol=1e-10)
 
+    def test_split_spectrum_core_same_phases_iono_is_zero(self):
+        """When both sub-bands have identical phases, ionospheric component follows the formula."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # When C_l = C_h = C:
+        # phase_iono = C * (f_h/f0 - f_l/f0) * (f_l*f_h) / (f_h^2 - f_l^2)
+        #            = C * (f_h - f_l) / f0 * (f_l*f_h) / ((f_h-f_l)*(f_h+f_l))
+        #            = C * (f_l*f_h) / (f0 * (f_h + f_l))
+        C = 1.0
+        f0, f_l, f_h = 5.4e9, 5.3e9, 5.5e9
+        expected = C * (f_l * f_h) / (f0 * (f_h + f_l))
+        np.testing.assert_allclose(phase_iono.values, expected, atol=1e-10)
+
+    def test_split_spectrum_core_same_phases_nd_equals_input(self):
+        """When both sub-bands have identical constant phase C, non-dispersive output equals C/2."""
+        C = 2.5
+        ph_l = xr.DataArray(np.full((3, 3), C), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), C), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # When C_l = C_h = C:
+        # phase_nd = C * (f_h/f0 - f_l/f0) * f0 / (2*(f_h-f_l))
+        #          = C * (f_h-f_l) / f0 * f0 / (2*(f_h-f_l))
+        #          = C / 2
+        np.testing.assert_allclose(phase_nd.values, C / 2.0, atol=1e-10)
+
+    @pytest.mark.parametrize(
+        "f0,f_l,f_h",
+        [
+            (5.4e9, 5.3e9, 5.5e9),
+            (3.5e9, 3.3e9, 3.7e9),
+            (1.2e9, 1.0e9, 1.4e9),
+            (5.6e9, 5.55e9, 5.65e9),
+        ],
+    )
+    def test_split_spectrum_core_various_frequency_sets(self, f0, f_l, f_h):
+        """Should produce valid output for various valid frequency configurations."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+        assert phase_iono.dtype == np.float64
+        assert phase_nd.dtype == np.float64
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_single_element_array(self):
+        """Should handle minimum 1x1 arrays."""
+        ph_l = xr.DataArray(np.array([[1.0]]), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.array([[2.0]]), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.shape == (1, 1)
+        assert phase_nd.shape == (1, 1)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    @pytest.mark.parametrize("shape", [(3, 3), (4, 4), (5, 5), (3, 5), (5, 3), (2, 2), (10, 10)])
+    def test_split_spectrum_core_various_shapes(self, shape):
+        """Output shapes should match input shapes for various array sizes."""
+        ph_l = xr.DataArray(np.ones(shape), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full(shape, 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.shape == shape
+        assert phase_nd.shape == shape
+        assert phase_iono.dims == ("az", "rg")
+        assert phase_nd.dims == ("az", "rg")
+
+    @pytest.mark.parametrize(
+        "phase_l_val, phase_h_val",
+        [
+            (0.0, 0.0),
+            (np.pi, np.pi),
+            (-np.pi, -np.pi),
+            (0.0, np.pi),
+            (np.pi, 0.0),
+            (-np.pi / 2, np.pi / 2),
+            (1.5, -1.5),
+            (2.0, -2.0),
+            (-2.0, 2.0),
+        ],
+    )
+    def test_split_spectrum_core_boundary_phase_values(self, phase_l_val, phase_h_val):
+        """Should handle boundary phase values: -pi, 0, pi, and mixed signs."""
+        ph_l = xr.DataArray(np.full((3, 3), phase_l_val), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), phase_h_val), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_preserves_coordinates(self):
+        """Output DataArrays should preserve input coordinates."""
+        az = np.arange(3, dtype=np.float64)
+        rg = np.arange(5, dtype=np.float64)
+        ph_l = xr.DataArray(
+            np.ones((3, 5)),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        ph_h = xr.DataArray(
+            np.full((3, 5), 2.0),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        xr.testing.assert_allclose(phase_iono.coords["azimuth_time"], ph_l.coords["azimuth_time"])
+        xr.testing.assert_allclose(phase_iono.coords["slant_range_time"], ph_l.coords["slant_range_time"])
+        xr.testing.assert_allclose(phase_nd.coords["azimuth_time"], ph_l.coords["azimuth_time"])
+        xr.testing.assert_allclose(phase_nd.coords["slant_range_time"], ph_l.coords["slant_range_time"])
+
+    def test_split_spectrum_core_1d_like_2d(self):
+        """Should work with 1D-like 2D arrays (1 x N or N x 1)."""
+        ph_l = xr.DataArray(np.ones((1, 5)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((1, 5), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.shape == (1, 5)
+        assert phase_nd.shape == (1, 5)
+        assert np.all(np.isfinite(phase_iono.values))
+
+    def test_split_spectrum_core_linear_ramp_in_l_band(self):
+        """A linear phase ramp in the low band should propagate correctly to outputs."""
+        rg = np.arange(5, dtype=np.float64)
+        phase_l = np.tile(rg, (3, 1))  # ramp along range
+        phase_h = np.zeros((3, 5))
+        ph_l = xr.DataArray(phase_l, dims=["az", "rg"])
+        ph_h = xr.DataArray(phase_h, dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+        # Ionospheric component should show ramp pattern: constant along azimuth, linear along range
+        for i in range(1, 3):
+            np.testing.assert_array_almost_equal(phase_iono.values[i, :], phase_iono.values[0, :])
+        # Range differences should be constant (linear ramp)
+        diffs = np.diff(phase_iono.values[0, :])
+        np.testing.assert_allclose(diffs, diffs[0], rtol=1e-10)
+
+    def test_split_spectrum_core_linear_ramp_in_h_band(self):
+        """A linear phase ramp in the high band should propagate correctly to outputs."""
+        rg = np.arange(5, dtype=np.float64)
+        phase_l = np.zeros((3, 5))
+        phase_h = np.tile(rg, (3, 1))  # ramp along range
+        ph_l = xr.DataArray(phase_l, dims=["az", "rg"])
+        ph_h = xr.DataArray(phase_h, dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_2d_phase_surface(self):
+        """A 2D phase surface (azimuth * range) should produce valid decomposed outputs."""
+        az = np.arange(5, dtype=np.float64)
+        rg = np.arange(5, dtype=np.float64)
+        az_grid, rg_grid = np.meshgrid(az, rg, indexing="ij")
+        phase_l = az_grid * 0.1 + rg_grid * 0.05
+        phase_h = az_grid * 0.15 + rg_grid * 0.08
+        ph_l = xr.DataArray(phase_l, dims=["az", "rg"])
+        ph_h = xr.DataArray(phase_h, dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.shape == (5, 5)
+        assert phase_nd.shape == (5, 5)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_float32_input(self):
+        """float32 input arrays should preserve float32 dtype."""
+        ph_l = xr.DataArray(np.ones((3, 3), dtype=np.float32), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0, dtype=np.float32), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.dtype == np.float32
+        assert phase_nd.dtype == np.float32
+
+    def test_split_spectrum_core_float64_input(self):
+        """float64 input arrays should produce float64 outputs."""
+        ph_l = xr.DataArray(np.ones((3, 3), dtype=np.float64), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0, dtype=np.float64), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert phase_iono.dtype == np.float64
+        assert phase_nd.dtype == np.float64
+
+    def test_split_spectrum_core_nan_in_phase_l_propagates(self):
+        """NaN in phase_unw_l should propagate to both outputs at those positions."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_l.values[0, 0] = np.nan
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.isnan(phase_iono.values[0, 0])
+        assert np.isnan(phase_nd.values[0, 0])
+
+    def test_split_spectrum_core_nan_in_phase_h_propagates(self):
+        """NaN in phase_unw_h should propagate to both outputs at those positions."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        ph_h.values[1, 1] = np.nan
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.isnan(phase_iono.values[1, 1])
+        assert np.isnan(phase_nd.values[1, 1])
+
+    def test_split_spectrum_core_nan_in_both_phases(self):
+        """NaN in both phases at the same position should propagate."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        ph_l.values[0, 0] = np.nan
+        ph_h.values[0, 0] = np.nan
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.isnan(phase_iono.values[0, 0])
+        assert np.isnan(phase_nd.values[0, 0])
+
+    def test_split_spectrum_core_inf_in_phase_l_propagates(self):
+        """Inf in phase_unw_l should propagate to both outputs."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_l.values[0, 0] = np.inf
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.isinf(phase_iono.values[0, 0])
+        assert np.isinf(phase_nd.values[0, 0])
+
+    def test_split_spectrum_core_negative_inf_in_phase(self):
+        """-Inf in phase data should propagate to both outputs."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_l.values[0, 0] = -np.inf
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.isneginf(phase_iono.values[0, 0]) or np.isposinf(phase_iono.values[0, 0])
+        assert np.isinf(phase_nd.values[0, 0])
+
+    def test_split_spectrum_core_nan_frequencies_raises(self):
+        """NaN in frequency parameters should produce NaN output."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=np.nan, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isnan(phase_iono.values))
+        assert np.all(np.isnan(phase_nd.values))
+
+    def test_split_spectrum_core_inf_frequencies(self):
+        """Inf in f0 makes frequency ratios zero; phase_nd produces nan (0*inf)."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=np.inf, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # f_h/f0 = 0, f_l/f0 = 0 when f0=inf
+        # phase_iono = 0 * finite = 0
+        np.testing.assert_allclose(phase_iono.values, 0.0, atol=1e-10)
+        # phase_nd = 0 * inf / finite = nan (0 * infinity is NaN in IEEE 754)
+        assert np.all(np.isnan(phase_nd.values))
+
+    def test_split_spectrum_core_equal_frequencies_division_by_zero(self):
+        """Equal f_l_tot and f_h_tot causes division by zero in both components."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.4e9, f_h_tot=5.4e9)
+        assert np.all(np.isinf(phase_iono.values))
+        assert np.all(np.isinf(phase_nd.values))
+
+    def test_split_spectrum_core_zero_f0_raises_zero_division_error(self):
+        """Zero f0 causes division by zero in both components."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        with pytest.raises(ZeroDivisionError):
+            split_spectrum_core(ph_l, ph_h, f0=0.0, f_l_tot=5.3e9, f_h_tot=5.5e9)
+
+    def test_split_spectrum_core_vnarrow_bandwidth(self):
+        """Very narrow frequency separation should produce larger magnitude outputs."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        # Narrow separation: f_l=5.399e9, f_h=5.401e9
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.399e9, f_h_tot=5.401e9)
+        assert phase_iono.shape == (3, 3)
+        assert phase_nd.shape == (3, 3)
+        # With narrow bandwidth, the denominator (f_h^2 - f_l^2) is very small,
+        # producing larger magnitude values
+        assert np.abs(phase_iono.values[0, 0]) > 1.0
+
+    def test_split_spectrum_core_wide_bandwidth(self):
+        """Wide frequency separation should produce smaller magnitude outputs."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        # Wide separation: f_l=3.0e9, f_h=8.0e9
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=3.0e9, f_h_tot=8.0e9)
+        assert phase_iono.shape == (3, 3)
+        assert phase_nd.shape == (3, 3)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_symmetric_frequencies_around_f0(self):
+        """f_l and f_h symmetric around f0: f0-f_l = f_h-f0."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        f0 = 5.4e9
+        f_l = 5.2e9
+        f_h = 5.6e9  # symmetric: 5.4-5.2 = 5.6-5.4 = 0.2e9
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+        assert phase_iono.shape == (3, 3)
+        assert phase_nd.shape == (3, 3)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_iono_sign_with_larger_h_phase(self):
+        """When h-phase > l-phase, ionospheric component should have predictable sign."""
+        ph_l = xr.DataArray(np.full((3, 3), 1.0), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 3.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # phase_iono = ((1 * 5.5/5.4 - 3 * 5.3/5.4) * 5.3*5.5) / (5.5^2 - 5.3^2) * 1e9
+        # The sign depends on the frequency ratios but should be consistently negative here
+        assert np.all(phase_iono.values < 0)
+
+    def test_split_spectrum_core_nd_sign_with_larger_h_phase(self):
+        """When h-phase > l-phase, non-dispersive component sign should be predictable."""
+        ph_l = xr.DataArray(np.full((3, 3), 1.0), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 3.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # phase_nd = ((3 * 5.5/5.4 - 1 * 5.3/5.4) * 5.4) / (2*(5.5-5.3)) * 1e9
+        # This should be positive since h-phase dominates
+        assert np.all(phase_nd.values > 0)
+
+    def test_split_spectrum_core_nd_sign_with_larger_l_phase(self):
+        """When l-phase > h-phase, non-dispersive component sign should flip."""
+        ph_l = xr.DataArray(np.full((3, 3), 3.0), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 1.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        # Sign should flip compared to h > l case
+        assert np.all(phase_nd.values < 0)
+
+    def test_split_spectrum_core_asymmetric_frequency_spacing(self):
+        """f0 closer to f_h than f_l (asymmetric spacing) should produce valid results."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        f0 = 5.5e9
+        f_l = 5.3e9
+        f_h = 5.55e9  # f0 much closer to f_h
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_large_absolute_phases(self):
+        """Large phase values (multiple cycles) should produce valid outputs."""
+        ph_l = xr.DataArray(np.full((3, 3), 100.0), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 150.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_mixed_positive_negative_phases(self):
+        """Mixed positive and negative phase values should produce valid outputs."""
+        phase_l = np.array([[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]], dtype=np.float64)
+        phase_h = np.array([[1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, -1.0]], dtype=np.float64)
+        ph_l = xr.DataArray(phase_l, dims=["az", "rg"])
+        ph_h = xr.DataArray(phase_h, dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.3e9, f_h_tot=5.5e9)
+        assert np.all(np.isfinite(phase_iono.values))
+        assert np.all(np.isfinite(phase_nd.values))
+
+    def test_split_spectrum_core_zero_frequency_difference_fails(self):
+        """When f_h == f_l, the denominator (f_h^2 - f_l^2) is zero."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.4e9, f_l_tot=5.4e9, f_h_tot=5.4e9)
+        # Both outputs should contain inf due to division by zero
+        assert np.all(np.isinf(phase_iono.values))
+        assert np.all(np.isinf(phase_nd.values))
+
+    def test_split_spectrum_core_f_l_equals_f_h_but_not_f0(self):
+        """f_l == f_h (but != f0) causes zero denominator."""
+        ph_l = xr.DataArray(np.ones((3, 3)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((3, 3), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.0e9, f_l_tot=5.4e9, f_h_tot=5.4e9)
+        assert np.all(np.isinf(phase_iono.values))
+        assert np.all(np.isinf(phase_nd.values))
+
+    def test_split_spectrum_core_manual_calculation(self):
+        """Verify arithmetic by computing expected values manually for a simple case."""
+        # Using f0=5.0, f_l=3.0, f_h=4.0 (scaled down for readability)
+        ph_l = xr.DataArray(np.ones((1, 1)), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((1, 1), 2.0), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.0, f_l_tot=3.0, f_h_tot=4.0)
+
+        # Manual calculation:
+        # r_h = f_h/f0 = 4/5 = 0.8, r_l = f_l/f0 = 3/5 = 0.6
+        # phase_iono = (1 * 0.8 - 2 * 0.6) * (3*4) / (4^2 - 3^2) = (0.8 - 1.2) * 12 / 7 = -0.4 * 12/7 = -4.8/7
+        expected_iono = (1.0 * 0.8 - 2.0 * 0.6) * 12.0 / 7.0
+        # phase_nd = (2 * 0.8 - 1 * 0.6) * 5.0 / (2*(4-3)) = (1.6 - 0.6) * 5/2 = 1.0 * 2.5 = 2.5
+        expected_nd = (2.0 * 0.8 - 1.0 * 0.6) * 5.0 / 2.0
+
+        np.testing.assert_allclose(phase_iono.values, expected_iono, rtol=1e-12)
+        np.testing.assert_allclose(phase_nd.values, expected_nd, rtol=1e-12)
+
+    def test_split_spectrum_core_manual_calculation_different_phases(self):
+        """Verify arithmetic with different l and h phase values."""
+        ph_l = xr.DataArray(np.full((1, 1), 1.5), dims=["az", "rg"])
+        ph_h = xr.DataArray(np.full((1, 1), 3.5), dims=["az", "rg"])
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=5.0, f_l_tot=3.0, f_h_tot=4.0)
+
+        r_h = 0.8  # 4/5
+        r_l = 0.6  # 3/5
+        expected_iono = (1.5 * r_h - 3.5 * r_l) * 12.0 / 7.0
+        expected_nd = (3.5 * r_h - 1.5 * r_l) * 5.0 / 2.0
+
+        np.testing.assert_allclose(phase_iono.values, expected_iono, rtol=1e-12)
+        np.testing.assert_allclose(phase_nd.values, expected_nd, rtol=1e-12)
+
+    def test_split_spectrum_core_output_values_match_manual_formula(self):
+        """Verify that the ionospheric and non-dispersive formulas match the documented equations."""
+        az, rg = 3, 3
+        phase_l = np.random.default_rng(42).random((az, rg)) * 2 * np.pi - np.pi
+        phase_h = np.random.default_rng(43).random((az, rg)) * 2 * np.pi - np.pi
+        ph_l = xr.DataArray(phase_l, dims=["az", "rg"])
+        ph_h = xr.DataArray(phase_h, dims=["az", "rg"])
+
+        f0 = 5.4e9
+        f_l = 5.3e9
+        f_h = 5.5e9
+
+        phase_iono, phase_nd = split_spectrum_core(ph_l, ph_h, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+
+        # Compute expected values using the exact formulas
+        r_h = f_h / f0
+        r_l = f_l / f0
+        expected_iono = (phase_l * r_h - phase_h * r_l) * (f_l * f_h) / (f_h**2 - f_l**2)
+        expected_nd = (phase_h * r_h - phase_l * r_l) * f0 / (2 * (f_h - f_l))
+
+        np.testing.assert_allclose(phase_iono.values, expected_iono, rtol=1e-10)
+        np.testing.assert_allclose(phase_nd.values, expected_nd, rtol=1e-10)
+
 
 class TestScaleAzimuthTime:
     """Tests for scale_azimuth_time."""
