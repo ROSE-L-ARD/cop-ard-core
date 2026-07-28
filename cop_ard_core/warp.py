@@ -1100,16 +1100,16 @@ def warp_gslc(
     # Use the first acquisition's simulation as the reference grid.
     simulation = simulation.isel(acquisition_date=0).squeeze()
     # Define the output region for the current chunk.
-    margin = kernel["kernel_shape"] // 2 + 1
+    margin = np.array(kernel["kernel_shape"]) // 2 + 1
 
     # --- Coordinate Transformation ---
     spacing_in = np.abs(simulation.rio.resolution(recalc=True))
     spacing_out = image.rio.resolution(recalc=True)
 
-    xmin = image.x.min().values - margin * spacing_in[0]
-    xmax = image.x.max().values + margin * spacing_in[0]
-    ymin = image.y.min().values - margin * spacing_in[1]
-    ymax = image.y.max().values + margin * spacing_in[1]
+    xmin = image.x.min().values - margin[0] * spacing_in[0]
+    xmax = image.x.max().values + margin[0] * spacing_in[0]
+    ymin = image.y.min().values - margin[1] * spacing_in[1]
+    ymax = image.y.max().values + margin[1] * spacing_in[1]
 
     xslice = slice(xmin, xmax) if spacing_out[0] > 0 else slice(xmax, xmin)
     yslice = slice(ymin, ymax) if spacing_out[1] > 0 else slice(ymax, ymin)
@@ -1132,7 +1132,7 @@ def warp_gslc(
     az_interp = simul_out.azimuth_time.values.ravel()
 
     # Find the indices of points that can be safely interpolated (i.e., not too close to the edge).
-    kernel_margin = kernel["kernel_shape"] // 2 + 1
+    kernel_margin = np.array(kernel["kernel_shape"]) // 2 + 1
     (ind,) = np.where(
         (rg_interp >= kernel_margin[1])
         & (az_interp >= kernel_margin[0])
