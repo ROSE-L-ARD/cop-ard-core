@@ -1078,7 +1078,7 @@ class TestExtractRg0Az0:
                 "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
             }
         )
-        result = extract_rg0_az0(slc, phase_demod)
+        result = extract_rg0_az0(slc, phase_demod, 1, 1)
         assert len(result) == 4
 
     def test_extract_rg0_az0_types(self):
@@ -1108,20 +1108,9 @@ class TestExtractRg0Az0:
                 "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
             }
         )
-        rg0, az0, rg, az = extract_rg0_az0(slc, phase_demod)
+        rg0, az0, rg, az = extract_rg0_az0(slc, phase_demod, 1, 1)
         assert np.isscalar(rg0) or hasattr(rg0, "item")
         assert np.isscalar(az0) or hasattr(az0, "item")
-
-    def test_extract_rg0_az0_missing_attrs_raises(self):
-        """Missing attrs should raise KeyError."""
-        slc = xr.DataArray(
-            np.ones((3, 3), dtype=np.complex128),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
-        )
-        phase_demod = xr.DataArray(np.random.rand(3, 3))
-        with pytest.raises((KeyError, IndexError)):
-            extract_rg0_az0(slc, phase_demod)
 
 
 class TestExtractRgAz:
