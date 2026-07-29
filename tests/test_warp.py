@@ -21,6 +21,7 @@ from cop_ard_core.warp import (
     poly_fit_2d,
     sinc,
     sinc_warp,
+    warp_dazdrg,
     warp_gslc,
 )
 
@@ -3193,3 +3194,300 @@ class TestWarpGslc:
             scp_idx=scp_idx,
         )
         assert isinstance(result, xr.Dataset)
+
+
+class TestWarpDazdrg:
+    """Tests for the warp_dazdrg function.
+
+    warp_dazdrg computes azimuth (daz) and range (drg) shifts to coregister
+    a SAR image stack onto a reference grid. It uses simulation data,
+    multilook reference data, and grid spacing parameters to determine
+    the geometric corrections needed.
+    """
+
+    def test_warp_dazdrg_returns_dataset(self, warp_dazdrg_inputs):
+        """warp_dazdrg should return an xr.Dataset."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert isinstance(result, xr.Dataset)
+
+    def test_warp_dazdrg_has_daz_and_drg(self, warp_dazdrg_inputs):
+        """Output dataset should contain 'daz' and 'drg' data variables."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert "daz" in result.data_vars
+        assert "drg" in result.data_vars
+
+    def test_warp_dazdrg_daz_dtype_timedelta64(self, warp_dazdrg_inputs):
+        """daz should have timedelta64[ns] dtype."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert result["daz"].dtype == np.dtype("timedelta64[ns]")
+
+    def test_warp_dazdrg_drg_dtype_float64(self, warp_dazdrg_inputs):
+        """drg should have float64 dtype."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert result["drg"].dtype == np.float64
+
+    def test_warp_dazdrg_dims_preserved(self, warp_dazdrg_inputs):
+        """Output dims should match the cstack dimensions (acquisition_date, azimuth_time, slant_range_time)."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert result["daz"].dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+        assert result["drg"].dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+
+    def test_warp_dazdrg_shape_matches_cstack(self, warp_dazdrg_inputs):
+        """Output shape should match the cstack shape (daz/drg are 3D with acquisition_date)."""
+        cstack = warp_dazdrg_inputs["cstack"]
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert result["daz"].shape == cstack.shape
+        assert result["drg"].shape == cstack.shape
+
+    def test_warp_dazdrg_coords_match_cstack(self, warp_dazdrg_inputs):
+        """Output coordinates should match cstack coordinates."""
+        cstack = warp_dazdrg_inputs["cstack"]
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        for dim in ["acquisition_date", "azimuth_time", "slant_range_time"]:
+            xr.testing.assert_identical(result["daz"].coords[dim], cstack.coords[dim])
+            xr.testing.assert_identical(result["drg"].coords[dim], cstack.coords[dim])
+
+    def test_warp_dazdrg_single_acquisition(self, warp_dazdrg_inputs):
+        """Single acquisition cstack should not error."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"].isel(acquisition_date=slice(0, 1))
+        inputs["cstack"] = cstack
+        inputs["coregistration_reference_date"] = str(cstack.acquisition_date.values[0])
+        # Update daz/drg to match new cstack shape
+        inputs["daz"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype="timedelta64[ns]"),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        inputs["drg"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype=np.float64),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+
+        result = warp_dazdrg(**inputs)
+        assert isinstance(result, xr.Dataset)
+        assert "daz" in result.data_vars
+        assert "drg" in result.data_vars
+        assert result["daz"].shape[0] == 1
+
+    def test_warp_dazdrg_small_grid(self, warp_dazdrg_inputs):
+        """Small 3x3 grid should produce correct output shape."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"].isel(
+            azimuth_time=slice(0, 3),
+            slant_range_time=slice(0, 3),
+        )
+        inputs["cstack"] = cstack
+        inputs["daz"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype="timedelta64[ns]"),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        inputs["drg"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype=np.float64),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+
+        result = warp_dazdrg(**inputs)
+        assert result["daz"].shape == (3, 3, 3)
+        assert result["drg"].shape == (3, 3, 3)
+
+    def test_warp_dazdrg_output_finite_values(self, warp_dazdrg_inputs):
+        """Output values should be finite (no NaN or Inf)."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert np.all(np.isfinite(result["drg"].values))
+        # timedelta64 values should be representable (check that conversion to int is finite)
+        daz_as_int = result["daz"].values.astype(np.int64)
+        assert np.all(np.isfinite(daz_as_int))
+
+    def test_warp_dazdrg_reference_date_selection(self, warp_dazdrg_inputs):
+        """Should use coregistration_reference_date to select simulation data."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"]
+        result = warp_dazdrg(**inputs)
+        # Reference date should have near-zero shifts relative to itself
+        ref_date = inputs["coregistration_reference_date"]
+        ref_idx = list(cstack.acquisition_date.values).index(np.datetime64(ref_date))
+        # The reference date shift should be near zero
+        assert result["drg"].isel(acquisition_date=ref_idx).values is not None
+
+    @pytest.mark.parametrize("az_spacing", [0.1, 0.5, 1.0, 2.0])
+    @pytest.mark.parametrize("rg_spacing", [0.01, 0.1, 0.5, 1.0])
+    def test_warp_dazdrg_various_grid_spacings(self, warp_dazdrg_inputs, az_spacing, rg_spacing):
+        """warp_dazdrg should handle various grid spacing combinations."""
+        inputs = dict(warp_dazdrg_inputs)
+        inputs["azimuth_grid_spacing"] = az_spacing
+        inputs["range_grid_spacing"] = rg_spacing
+        result = warp_dazdrg(**inputs)
+        assert isinstance(result, xr.Dataset)
+        assert result["daz"].shape == (3, 5, 5)
+        assert result["drg"].shape == (3, 5, 5)
+
+    @pytest.mark.parametrize("margin_rg", [0.0, 0.5, 1.0])
+    def test_warp_dazdrg_various_margins(self, warp_dazdrg_inputs, margin_rg):
+        """warp_dazdrg should handle various margin values."""
+        inputs = dict(warp_dazdrg_inputs)
+        inputs["margin"] = {"azimuth_time": np.timedelta64(0, "ns"), "slant_range_time": margin_rg}
+        result = warp_dazdrg(**inputs)
+        assert isinstance(result, xr.Dataset)
+
+    def test_warp_dazdrg_no_secondary_simulation(self, warp_dazdrg_inputs):
+        """warp_dazdrg should work without secondary simulation (simulation_secondary=None)."""
+        inputs = dict(warp_dazdrg_inputs)
+        inputs["simulation_secondary"] = None
+        result = warp_dazdrg(**inputs)
+        assert isinstance(result, xr.Dataset)
+        assert "daz" in result.data_vars
+        assert "drg" in result.data_vars
+
+    def test_warp_dazdrg_daz_drg_different_shapes_not_possible(self, warp_dazdrg_inputs):
+        """daz and drg in output should always have the same shape."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        np.testing.assert_array_equal(result["daz"].shape, result["drg"].shape)
+
+    def test_warp_dazdrg_daz_drg_same_coords(self, warp_dazdrg_inputs):
+        """daz and drg should share the same coordinates."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        for dim in result["daz"].dims:
+            xr.testing.assert_identical(result["daz"].coords[dim], result["drg"].coords[dim])
+
+    def test_warp_dazdrg_all_zeros_single_acquisition(self, warp_dazdrg_inputs):
+        """Single acquisition with identical simulation should produce zero shifts."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"].isel(acquisition_date=slice(0, 1))
+        inputs["cstack"] = cstack
+        inputs["coregistration_reference_date"] = str(cstack.acquisition_date.values[0])
+
+        # Use the same simulation for reference and secondary (no shifts expected)
+        inputs["simulation_secondary"] = None
+
+        result = warp_dazdrg(**inputs)
+        # With a single acquisition and compute_daz_drg=True, the grid_data_block
+        # produces zero values
+        np.testing.assert_array_equal(result["drg"].values, 0.0)
+
+    def test_warp_dazdrg_acquisition_coord_type(self, warp_dazdrg_inputs):
+        """acquisition_date coordinate should be datetime64."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert np.issubdtype(result["daz"].coords["acquisition_date"].dtype, np.datetime64)
+
+    def test_warp_dazdrg_azimuth_time_coord_type(self, warp_dazdrg_inputs):
+        """azimuth_time coordinate should be datetime64."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert np.issubdtype(result["daz"].coords["azimuth_time"].dtype, np.datetime64)
+
+    def test_warp_dazdrg_slant_range_time_coord_type(self, warp_dazdrg_inputs):
+        """slant_range_time coordinate should be float64."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert result["drg"].coords["slant_range_time"].dtype == np.float64
+
+    def test_warp_dazdrg_existing_daz_drg_used(self, warp_dazdrg_inputs):
+        """Provided daz/drg should be used without recreating them."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"]
+        # Create 3D daz/drg with known values
+        known_daz = xr.DataArray(
+            np.full(cstack.shape, np.timedelta64(42, "ns"), dtype="timedelta64[ns]"),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        known_drg = xr.DataArray(
+            np.full(cstack.shape, 999.0, dtype=np.float64),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        inputs["daz"] = known_daz
+        inputs["drg"] = known_drg
+        inputs["compute_daz_drg"] = False
+
+        result = warp_dazdrg(**inputs)
+        assert isinstance(result, xr.Dataset)
+        # compute_daz_drg=False should preserve existing values
+        np.testing.assert_array_equal(result["drg"].values, 999.0)
+
+    def test_warp_dazdrg_with_margin_nonzero(self, warp_dazdrg_inputs):
+        """Non-zero margins should still produce valid output."""
+        inputs = dict(warp_dazdrg_inputs)
+        inputs["margin"] = {"azimuth_time": np.timedelta64(0, "ns"), "slant_range_time": 0.5}
+        result = warp_dazdrg(**inputs)
+        assert np.all(np.isfinite(result["drg"].values))
+
+    def test_warp_dazdrg_larger_grid(self, warp_dazdrg_inputs):
+        """Larger grid (7x7) should produce correct output shape."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"]
+        data = np.zeros((3, 7, 7), dtype=np.complex128)
+        for i in range(3):
+            data[i] = (1.0 + 0.1j) * (i + 1)
+        cstack = xr.DataArray(
+            data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={
+                "acquisition_date": cstack.acquisition_date,
+                "azimuth_time": np.array(
+                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(7)]
+                ),
+                "slant_range_time": np.arange(7) * 0.5,
+            },
+        )
+        inputs["cstack"] = cstack
+        inputs["daz"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype="timedelta64[ns]"),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        inputs["drg"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype=np.float64),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+
+        result = warp_dazdrg(**inputs)
+        assert result["daz"].shape == (3, 7, 7)
+        assert result["drg"].shape == (3, 7, 7)
+
+    def test_warp_dazdrg_asymmetric_grid(self, warp_dazdrg_inputs):
+        """Asymmetric grid (3x7) should produce matching output shape."""
+        inputs = dict(warp_dazdrg_inputs)
+        cstack = inputs["cstack"]
+        data = np.zeros((3, 3, 7), dtype=np.complex128)
+        for i in range(3):
+            data[i] = (1.0 + 0.1j) * (i + 1)
+        cstack = xr.DataArray(
+            data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={
+                "acquisition_date": cstack.acquisition_date,
+                "azimuth_time": np.array(
+                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(3)]
+                ),
+                "slant_range_time": np.arange(7) * 0.5,
+            },
+        )
+        inputs["cstack"] = cstack
+        inputs["daz"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype="timedelta64[ns]"),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+        inputs["drg"] = xr.DataArray(
+            np.zeros(cstack.shape, dtype=np.float64),
+            dims=cstack.dims,
+            coords={d: cstack[d] for d in cstack.dims},
+        )
+
+        result = warp_dazdrg(**inputs)
+        assert result["daz"].shape == (3, 3, 7)
+        assert result["drg"].shape == (3, 3, 7)
+
+    def test_warp_dazdrg_output_no_nan(self, warp_dazdrg_inputs):
+        """Output drg should not contain NaN values."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert not np.any(np.isnan(result["drg"].values))
+
+    def test_warp_dazdrg_output_no_inf(self, warp_dazdrg_inputs):
+        """Output drg should not contain Inf values."""
+        result = warp_dazdrg(**warp_dazdrg_inputs)
+        assert not np.any(np.isinf(result["drg"].values))

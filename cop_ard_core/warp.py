@@ -348,7 +348,7 @@ def warp_dazdrg(
     # Create an empty xarray Dataset to hold the azimuth and range shifts.
     shape = cstack.shape[1:]
     dtype = {"daz": "timedelta64[ns]", "drg": "float64"}
-    if daz is None or drg is None or daz.recompute:
+    if daz is None or drg is None or daz.attrs.get("recompute", False):
         daz = xr.DataArray(
             da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
         )

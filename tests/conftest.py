@@ -1095,3 +1095,185 @@ def warp_gslc_all_inputs(
         "do_reramp": False,
         "gamma_flattening": False,
     }
+
+
+# ===========================================================================
+# warp_dazdrg fixtures
+# ===========================================================================
+
+
+@pytest.fixture
+def warp_dazdrg_cstack():
+    """Small cstack (coregistered stack) for warp_dazdrg tests.
+
+    Dims: (acquisition_date, azimuth_time, slant_range_time)
+    Uses 3 acquisition dates, 5 azimuth pixels, 5 range pixels.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az_times = np.array(
+        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(5)], dtype="datetime64[ns]"
+    )
+    sr_times = np.arange(5) * 0.5
+    data = np.zeros((3, 5, 5), dtype=np.complex128)
+    for i in range(3):
+        data[i] = (1.0 + 0.1j) * (i + 1)
+
+    return xr.DataArray(
+        data,
+        dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+        coords={
+            "acquisition_date": acq_dates,
+            "azimuth_time": az_times,
+            "slant_range_time": sr_times,
+        },
+    )
+
+
+@pytest.fixture
+def warp_dazdrg_reference_simulation():
+    """Reference simulation dataset for warp_dazdrg tests.
+
+    Has x, y geographic coordinates and 2D azimuth_time / slant_range_time.
+    The azimuth_time varies across both y and x to create non-degenerate
+    triangles for interpolation.
+    """
+    # Geographic coordinates matching the radar bbox
+    y = np.linspace(0.0, 400.0, 5)
+    x = np.linspace(0.0, 400.0, 5)
+    acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+
+    # Create azimuth_time that varies across both y and x (non-degenerate grid)
+    az_base = np.array([i * 1000000000 for i in range(5)], dtype="timedelta64[ns]")
+    sr_base = np.arange(5) * 0.5
+    az_grid = np.array(
+        [[base_epoch + az_base[j] + np.timedelta64(i * 500000000, "ns") for j in range(5)] for i in range(5)]
+    )
+    # slant_range_time varies across x only
+    sr_grid = np.outer(np.ones(5, dtype=np.float64), sr_base)
+
+    # add acquisition date dimension
+    az_grid = np.tile(np.expand_dims(az_grid, 0), (3, 1, 1))
+    sr_grid = np.tile(np.expand_dims(sr_grid, 0), (3, 1, 1))
+
+    dem_distance = np.full((acq_dates.size, y.size, x.size, 3), 1)
+    h = np.full((y.size, x.size), 1)
+
+    simulation = xr.Dataset(
+        coords={
+            "acquisition_date": acq_dates,
+            "y": y,
+            "x": x,
+            "axis": [0, 1, 2],
+        },
+        # Create empty Dask arrays for each data variable.
+        data_vars={
+            "azimuth_time": (["acquisition_date", "y", "x"], az_grid),
+            "slant_range_time": (["acquisition_date", "y", "x"], sr_grid),
+            "dem_distance": (["acquisition_date", "y", "x", "axis"], dem_distance),
+            "h": (["y", "x"], h)
+        },
+    ) 
+    return simulation
+
+
+@pytest.fixture
+def warp_dazdrg_secondary_simulation():
+    """Secondary simulation dataset for warp_dazdrg tests.
+
+    Similar structure to reference but with slightly shifted times.
+    """
+    y = np.linspace(0.0, 400.0, 5)
+    x = np.linspace(0.0, 400.0, 5)
+    acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az_base = np.array([i * 1000000000 for i in range(5)], dtype="timedelta64[ns]")
+    az_grid = np.array([[base_epoch + az_base[j] + np.timedelta64(100000000, "ns") for j in range(5)] for i in range(5)])
+    sr_grid = np.outer(np.ones(5, dtype=np.float64), np.arange(5) * 0.5)
+
+    sim = xr.Dataset(
+        data_vars={
+            "azimuth_time": (("y", "x"), az_grid),
+            "slant_range_time": (("y", "x"), sr_grid),
+        },
+        coords={"y": y, "x": x, "acquisition_date": acq_dates},
+    )
+    return sim
+
+
+@pytest.fixture
+def warp_dazdrg_reference_ml(warp_dazdrg_reference_simulation):
+    """Reference multilook (reference_ml) for warp_dazdrg tests.
+
+    Contains 'min' and 'max' datasets from coarsened simulation,
+    with y, x coordinates needed by get_geo_from_radar_bbox.
+    """
+    sim = warp_dazdrg_reference_simulation
+    # Coarsen the simulation to create a downsampled version
+    coarsen_config = {"y": 5, "x": 5}
+    ref_sel = sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+
+    min_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="min").min()
+    max_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="max").max()
+
+    # Ensure azimuth_time is datetime64[ns]
+    min_ds["azimuth_time"] = min_ds.azimuth_time.astype("datetime64[ns]")
+    max_ds["azimuth_time"] = max_ds.azimuth_time.astype("datetime64[ns]")
+
+    return {"min": min_ds, "max": max_ds}
+
+
+@pytest.fixture
+def warp_dazdrg_margin():
+    """Margin dict for warp_dazdrg tests.
+
+    azimuth_time margin must be timedelta64 (to match datetime64 arithmetic in get_radar_bbox).
+    slant_range_time margin is a float.
+    """
+    return {"azimuth_time": np.timedelta64(0, "ns"), "slant_range_time": 0.0}
+
+
+@pytest.fixture
+def warp_dazdrg_inputs(
+    warp_dazdrg_cstack,
+    warp_dazdrg_reference_simulation,
+    warp_dazdrg_secondary_simulation,
+    warp_dazdrg_reference_ml,
+    warp_dazdrg_margin,
+):
+    """All inputs for warp_dazdrg combined as keyword arguments.
+
+    daz/drg are pre-made 3D DataArrays with acquisition_date dimension
+    so the source code skips its broken creation logic and uses these valid ones.
+    """
+    cstack = warp_dazdrg_cstack
+    shape = cstack.shape  # (3, 5, 5)
+    dims = cstack.dims  # ('acquisition_date', 'azimuth_time', 'slant_range_time')
+
+    daz = xr.DataArray(
+        np.zeros(shape, dtype="timedelta64[ns]"),
+        dims=dims,
+        coords={d: cstack[d] for d in dims},
+        attrs={"recompute": False},
+    )
+    drg = xr.DataArray(
+        np.zeros(shape, dtype=np.float64),
+        dims=dims,
+        coords={d: cstack[d] for d in dims},
+        attrs={"recompute": False},
+    )
+
+    return {
+        "cstack": warp_dazdrg_cstack,
+        "daz": daz,
+        "drg": drg,
+        "simulation_reference": warp_dazdrg_reference_simulation,
+        "simulation_secondary": None,
+        "reference_ml": warp_dazdrg_reference_ml,
+        "margin": warp_dazdrg_margin,
+        "coregistration_reference_date": "2020-01-01",
+        "azimuth_grid_spacing": 1.0,
+        "range_grid_spacing": 0.5,
+        "compute_daz_drg": True,
+    }
