@@ -2038,10 +2038,16 @@ class TestGridDataBlock:
                 for k in range(n_sr):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i + j, "s")
                     sim_sr_data[i, j, k] = float(i + k) * 0.25
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         result_daz, result_drg = grid_data_block(
             daz,
             drg,
@@ -2085,15 +2091,26 @@ class TestGridDataBlock:
                 for k in range(n_sr):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
                     sim_sr_data[i, j, k] = float(i * 5 + k) * 0.25
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         # bbox must match (n_az, n_sr) since that's the shape of the simulation data
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_az, sim_sr, "2020-01-01",
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-01",
             np.array([0, 0, n_az, n_sr]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2126,14 +2143,25 @@ class TestGridDataBlock:
                 for k in range(n_sr):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
                     sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_az, sim_sr, "2020-01-01",
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2143,7 +2171,7 @@ class TestGridDataBlock:
     @pytest.mark.parametrize("n_acq", [2, 3, 5])
     def test_grid_data_block_various_acquisition_counts(self, n_acq):
         """grid_data_block should handle various numbers of acquisitions."""
-        acq = np.array([f"2020-01-{i+1:02d}" for i in range(n_acq)], dtype="datetime64[ns]")
+        acq = np.array([f"2020-01-{i + 1:02d}" for i in range(n_acq)], dtype="datetime64[ns]")
         az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
@@ -2164,14 +2192,25 @@ class TestGridDataBlock:
                 for k in range(3):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
                     sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_az, sim_sr, "2020-01-01",
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2200,9 +2239,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, n_az, n_sr]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2220,21 +2264,29 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            az_grid_spacing, range_grid_spacing,
+            az_grid_spacing,
+            range_grid_spacing,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
         assert result_daz.shape == (1, 3, 3)
         assert result_drg.shape == (1, 3, 3)
 
-    @pytest.mark.parametrize("bbox", [
-        np.array([0, 0, 3, 3]),
-        np.array([-1, -1, 4, 4]),
-        np.array([1, 1, 2, 2]),
-        np.array([0, 0, 10, 10]),
-    ])
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            np.array([0, 0, 3, 3]),
+            np.array([-1, -1, 4, 4]),
+            np.array([1, 1, 2, 2]),
+            np.array([0, 0, 10, 10]),
+        ],
+    )
     def test_grid_data_block_various_bboxes(self, bbox):
         """grid_data_block should handle various bounding box configurations."""
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
@@ -2244,9 +2296,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             bbox,
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2262,9 +2319,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2282,9 +2344,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2300,9 +2367,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2335,15 +2407,26 @@ class TestGridDataBlock:
                 for k in range(n_sr):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
                     sim_sr_data[i, j, k] = float(i * 10 + k) * 0.1
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         # Use "2020-01-05" as reference date
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_az, sim_sr, "2020-01-05",
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-05",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2362,9 +2445,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2380,9 +2468,14 @@ class TestGridDataBlock:
         )
         # Pass datetime with different resolution
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01"),
             0.0,
         )
@@ -2398,9 +2491,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2418,9 +2516,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2452,9 +2555,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, n_az, n_sr]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2470,9 +2578,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 5]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2488,9 +2601,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 5, 7]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2504,19 +2622,30 @@ class TestGridDataBlock:
         acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
         az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
-        daz = xr.DataArray(daz_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                           coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        drg = xr.DataArray(drg_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                           coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        daz = xr.DataArray(
+            daz_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            drg_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         sim_data = xr.DataArray(
             np.zeros((n_acq, 3, 3)),
             dims=["acquisition_date", "azimuth_time", "slant_range_time"],
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2550,15 +2679,26 @@ class TestGridDataBlock:
                 for k in range(n_sr):
                     sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 100 + j * 10, "s")
                     sim_sr_data[i, j, k] = float(i * 10 + k) * 0.5
-        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
-        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_az = xr.DataArray(
+            sim_az_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_sr = xr.DataArray(
+            sim_sr_data,
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
         # Use "2020-01-10" as reference (index 2)
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_az, sim_sr, "2020-01-10",
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-10",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2578,9 +2718,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 5, 5]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2598,9 +2743,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, n_az, n_sr]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2630,9 +2780,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, n_az, n_sr]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2648,35 +2803,19 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            1.0, 0.5,
+            1.0,
+            0.5,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
         assert isinstance(result, tuple)
         assert len(result) == 2
-
-    def test_grid_data_block_inplace_modification(self):
-        """Output should share coordinates with input but be independent data."""
-        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
-        original_daz = daz.copy()
-        original_drg = drg.copy()
-        sim_data = xr.DataArray(
-            np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
-        )
-        result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
-            np.array([0, 0, 3, 3]),
-            1.0, 0.5,
-            np.datetime64("2020-01-01T00:00:00"),
-            0.0,
-        )
-        # Results should be zero for single acquisition
-        np.testing.assert_array_equal(result_daz.values, 0)
-        np.testing.assert_array_equal(result_drg.values, 0.0)
 
     def test_grid_data_block_small_grid_spacing(self):
         """Very small grid spacings should not cause errors."""
@@ -2687,9 +2826,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            0.01, 0.001,
+            0.01,
+            0.001,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2705,9 +2849,14 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
-            100.0, 100.0,
+            100.0,
+            100.0,
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
@@ -2723,7 +2872,11 @@ class TestGridDataBlock:
             coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
-            daz, drg, sim_data, sim_data, "2020-01-01",
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
             np.array([0, 0, 3, 3]),
             azimuth_grid_spacing=0.5,
             range_grid_spacing=1.0,

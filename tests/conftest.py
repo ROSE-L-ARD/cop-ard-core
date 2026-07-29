@@ -860,7 +860,9 @@ def warp_gslc_cstack():
     # 10x10 grid to accommodate kernel margin of 2
     n_az = 15
     n_sr = 15
-    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    az_times = np.array(
+        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+    )
     sr_times = np.arange(0, n_sr) * 1.0  # 10 range pixels, 1s spacing
 
     n_acq = len(acq_dates)
@@ -907,7 +909,9 @@ def warp_gslc_phase_model():
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
     n_az = 15
     n_sr = 15
-    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    az_times = np.array(
+        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+    )
     sr_times = np.arange(0, n_sr) * 1.0
 
     n_acq = len(acq_dates)
@@ -942,7 +946,9 @@ def warp_gslc_phase_demod():
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
     n_az = 15
     n_sr = 15
-    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    az_times = np.array(
+        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+    )
     sr_times = np.arange(0, n_sr) * 1.0
 
     n_acq = len(acq_dates)
@@ -987,7 +993,9 @@ def warp_gslc_anf():
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
     n_az = 15
     n_sr = 15
-    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    az_times = np.array(
+        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+    )
     sr_times = np.arange(0, n_sr) * 1.0
 
     n_acq = len(acq_dates)

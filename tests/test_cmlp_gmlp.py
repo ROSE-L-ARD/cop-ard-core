@@ -182,7 +182,9 @@ class TestGetCurrentReference:
         assert "starting_date" in current.attrs
         assert current.attrs["starting_date"] == "2020-01-01"
 
-    def test_get_current_reference_no_last_or_stable_starting_date_not_set_with_last(self, cstack_3_dates, last_reference):
+    def test_get_current_reference_no_last_or_stable_starting_date_not_set_with_last(
+        self, cstack_3_dates, last_reference
+    ):
         """starting_date should NOT be set when last_reference is provided."""
         current, _ = get_current_reference(cstack_3_dates, last_reference, None)
         assert "starting_date" not in current.attrs

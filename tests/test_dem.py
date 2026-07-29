@@ -1,18 +1,23 @@
 """Unit tests for cop_ard_core.dem."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pyproj
+import pyproj.exceptions
 import pytest
 import xarray as xr
 from pyproj import CRS
 
 from cop_ard_core.dem import (
+    check_available_transformation,
     compute_shape_and_off,
     convert_to_dem_ecef,
     extract_vertical_crs,
     get_default_epsg,
     get_resolution_in_meters,
     interp_dem,
+    validate_vertical_transformation,
 )
 
 
@@ -189,7 +194,9 @@ class TestConvertToDemEcef:
 # ===========================================================================
 
 
-def _make_projected_dem(height: int, width: int, start_x: float = 0.0, start_y: float = 0.0, spacing: float = 10.0, elev: float = 100.0):
+def _make_projected_dem(
+    height: int, width: int, start_x: float = 0.0, start_y: float = 0.0, spacing: float = 10.0, elev: float = 100.0
+):
     """Create a small projected DEM with a valid CRS for testing."""
     y = np.arange(start_y, start_y + height * spacing, spacing)
     x = np.arange(start_x, start_x + width * spacing, spacing)
@@ -628,7 +635,7 @@ class TestInterpDem:
 
     def test_interp_dem_inf_in_input_dem(self):
         """Input DEM with inf values: fillna only handles NaN, not inf.
-        
+
         The interp_dem function uses .fillna(0) which replaces NaN but not inf.
         When inf values are present, scipy interpn may raise an error.
         This test verifies the function's behavior with inf in the input.
@@ -652,10 +659,6 @@ class TestInterpDem:
 # ===========================================================================
 # validate_vertical_transformation tests
 # ===========================================================================
-
-from unittest.mock import MagicMock, patch
-
-from cop_ard_core.dem import validate_vertical_transformation
 
 
 def _make_geographic_data(height: int = 5, width: int = 5):
@@ -683,7 +686,7 @@ class _MockTransformer:
 
     def transform(self, *args, errcheck: bool = False, **kwargs):
         if self._raise_err:
-            raise pyproj.errors.TransformError("Transformation error")
+            raise pyproj.exceptions.ProjError("Transformation error")
         return self._result
 
 
@@ -969,10 +972,6 @@ class TestValidateVerticalTransformation:
 # check_available_transformation tests
 # ===========================================================================
 
-from unittest.mock import MagicMock, patch
-
-from cop_ard_core.dem import check_available_transformation
-
 
 class _MockCRS:
     """Minimal mock CRS that supports to_3d() and vertical CRS extraction."""
@@ -1000,8 +999,7 @@ class _MockCRS:
 class _MockTransformerGroup:
     """Mock TransformerGroup for check_available_transformation tests."""
 
-    def __init__(self, best_available: bool = True, raise_download: bool = False,
-                 expect_validation: bool = False):
+    def __init__(self, best_available: bool = True, raise_download: bool = False, expect_validation: bool = False):
         self.best_available = best_available
         self._raise_download = raise_download
         self._expect_validation = expect_validation
@@ -1014,8 +1012,7 @@ class _MockTransformerGroup:
             raise RuntimeError("Grid download failed")
 
 
-def _make_geographic_data_with_crs(height: int = 5, width: int = 5,
-                                    crs_code: str = "EPSG:4326"):
+def _make_geographic_data_with_crs(height: int = 5, width: int = 5, crs_code: str = "EPSG:4326"):
     """Create a small geographic DataArray with a specified CRS code."""
     y = np.linspace(40.0, 45.0, height)
     x = np.linspace(-75.0, -70.0, width)
@@ -1025,8 +1022,7 @@ def _make_geographic_data_with_crs(height: int = 5, width: int = 5,
     return da
 
 
-def _make_geographic_dataset_with_crs(height: int = 5, width: int = 5,
-                                       crs_code: str = "EPSG:4326"):
+def _make_geographic_dataset_with_crs(height: int = 5, width: int = 5, crs_code: str = "EPSG:4326"):
     """Create a small geographic Dataset with a specified CRS code."""
     da = _make_geographic_data_with_crs(height, width, crs_code)
     return da.to_dataset(name="elevation")
@@ -1239,10 +1235,10 @@ class TestCheckAvailableTransformation:
         mock_tg_class.return_value = mock_tg
 
         mock_crs.side_effect = [
-            self._make_mock_crs("EGM96"),       # check_available: in_crs
-            self._make_mock_crs("EGM2008"),     # check_available: out_crs
-            self._make_mock_crs("EGM96"),       # validate: in_crs
-            self._make_mock_crs("EGM2008"),     # validate: out_crs
+            self._make_mock_crs("EGM96"),  # check_available: in_crs
+            self._make_mock_crs("EGM2008"),  # check_available: out_crs
+            self._make_mock_crs("EGM96"),  # validate: in_crs
+            self._make_mock_crs("EGM2008"),  # validate: out_crs
         ]
 
         # Mock extract to return different vertical CRS strings

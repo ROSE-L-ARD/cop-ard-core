@@ -1195,12 +1195,7 @@ def warp_gslc(
                 if gamma_flattening:
                     acq_mask = mask_A.sel(acquisition_date=acq_date).values
                     acq_anf = sqrt_A.sel(acquisition_date=acq_date).values
-                    np.divide(
-                        slc.values,
-                        acq_anf,
-                        out=slc.data,
-                        where=acq_mask
-                    )
+                    np.divide(slc.values, acq_anf, out=slc.data, where=acq_mask)
                     # Zero out the invalid pixels
                     slc.values[..., ~acq_mask] = 0.0
 
