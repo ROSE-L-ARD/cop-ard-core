@@ -745,3 +745,345 @@ def esd_dataset():
         },
     )
     return esd
+
+
+# ===========================================================================
+# warp_gslc fixtures
+# ===========================================================================
+
+
+@pytest.fixture
+def warp_gslc_geogrid():
+    """Geographic ground grid for warp_gslc tests.
+
+    Creates a 5x5 geocoded ground grid with CRS so rioxarray resolution works.
+    Dimensions: (y, x) = (5, 5), coordinates in meters (UTM-like).
+    """
+    y = np.linspace(0.0, 400.0, 5)
+    x = np.linspace(0.0, 400.0, 5)
+    # Ground-range data: each cell has a value proportional to its position
+    gr_data = np.outer(np.ones(5), np.arange(5.0))
+    az_data = np.outer(np.arange(5.0), np.ones(5))
+    geogrid = xr.Dataset(
+        data_vars={
+            "x": (("y", "x"), x.astype(np.float64)),
+            "y": (("y", "x"), y.astype(np.float64)),
+            "azimuth_time": (("y", "x"), az_data),
+            "slant_range_time": (("y", "x"), gr_data),
+        },
+        coords={"y": y, "x": x},
+    )
+    geogrid = geogrid.rio.write_crs("EPSG:32632", inplace=True)
+    return geogrid
+
+
+@pytest.fixture
+def warp_gslc_gstack():
+    """Geocoded stack (gstack) for warp_gslc.
+
+    Dims: (polarization, acquisition_date, y, x)
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    pols = np.array(["VV", "VH"])
+    ny, nx = 15, 15
+    y = np.linspace(0.0, 900.0, ny)
+    x = np.linspace(0.0, 900.0, nx)
+
+    n_acq = len(acq_dates)
+    n_pol = len(pols)
+
+    # Create complex data with known values
+    data = np.zeros((n_pol, n_acq, ny, nx), dtype=np.complex128)
+    for i in range(n_acq):
+        for j in range(n_pol):
+            data[j, i] = (1.0 + 0.1j) * (i + 1) * (j + 1)
+
+    gstack = xr.DataArray(
+        data,
+        dims=["polarization", "acquisition_date", "y", "x"],
+        coords={
+            "polarization": pols,
+            "acquisition_date": acq_dates,
+            "y": y,
+            "x": x,
+        },
+    )
+    gstack = gstack.rio.write_crs("EPSG:32632", inplace=True)
+    return gstack
+
+
+@pytest.fixture
+def warp_gslc_gphase_model():
+    """Geocoded phase model (gphase_model) for warp_gslc.
+
+    Dims: (acquisition_date, y, x)
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    ny, nx = 15, 15
+    y = np.linspace(0.0, 900.0, ny)
+    x = np.linspace(0.0, 900.0, nx)
+
+    n_acq = len(acq_dates)
+    ny = len(y)
+    nx = len(x)
+
+    data = np.zeros((n_acq, ny, nx), dtype=np.float64)
+    for i in range(n_acq):
+        data[i] = float(i) * np.pi / 4.0
+
+    gphase_model = xr.DataArray(
+        data,
+        dims=["acquisition_date", "y", "x"],
+        coords={
+            "acquisition_date": acq_dates,
+            "y": y,
+            "x": x,
+        },
+    )
+    gphase_model = gphase_model.rio.write_crs("EPSG:32632", inplace=True)
+    return gphase_model
+
+
+@pytest.fixture
+def warp_gslc_cstack():
+    """Coregistered stack (cstack) for warp_gslc.
+
+    Dims: (polarization, acquisition_date, azimuth_time, slant_range_time)
+    azimuth_time uses datetime64 matching simulation.azimuth_time.
+    Uses 10x10 grid to accommodate kernel margin.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    pols = np.array(["VV", "VH"])
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    # 10x10 grid to accommodate kernel margin of 2
+    n_az = 15
+    n_sr = 15
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    sr_times = np.arange(0, n_sr) * 1.0  # 10 range pixels, 1s spacing
+
+    n_acq = len(acq_dates)
+    n_pol = len(pols)
+    n_az = len(az_times)
+    n_sr = len(sr_times)
+
+    data = np.zeros((n_pol, n_acq, n_az, n_sr), dtype=np.complex128)
+    for i in range(n_acq):
+        for j in range(n_pol):
+            data[j, i] = (1.0 + 0.1j) * (i + 1) * (j + 1)
+
+    cstack = xr.DataArray(
+        data,
+        dims=["polarization", "acquisition_date", "azimuth_time", "slant_range_time"],
+        coords={
+            "polarization": pols,
+            "acquisition_date": acq_dates,
+            "azimuth_time": az_times,
+            "slant_range_time": sr_times,
+        },
+    )
+    # Add RMA metadata required by extract_grid (called from do_deramp)
+    cstack = cstack.assign_attrs(
+        {
+            "burst_meta": {
+                "RMA": {"INCA": {"TimeCAPoly": {"Coefs": [0.0, 1.0, 0.0]}}},
+                "ImageData": {"SCPPixel": {"Row": 7, "Col": 7}},
+                "Grid": {"Col": {"SS": 0.01}, "Row": {"SS": 0.5}},
+            }
+        }
+    )
+    return cstack
+
+
+@pytest.fixture
+def warp_gslc_phase_model():
+    """Phase model for coregistered data (phase_model).
+
+    Dims: (acquisition_date, azimuth_time, slant_range_time)
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    n_az = 15
+    n_sr = 15
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    sr_times = np.arange(0, n_sr) * 1.0
+
+    n_acq = len(acq_dates)
+    n_az = len(az_times)
+    n_sr = len(sr_times)
+
+    data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+    for i in range(n_acq):
+        data[i] = float(i) * np.pi / 4.0
+
+    phase_model = xr.DataArray(
+        data,
+        dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+        coords={
+            "acquisition_date": acq_dates,
+            "azimuth_time": az_times,
+            "slant_range_time": sr_times,
+        },
+    )
+    return phase_model
+
+
+@pytest.fixture
+def warp_gslc_phase_demod():
+    """Phase demodulation LUT (phase_demod) for warp_gslc.
+
+    Dims: (acquisition_date, azimuth_time, slant_range_time)
+    Has attrs: reference, scale, deg
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    n_az = 15
+    n_sr = 15
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    sr_times = np.arange(0, n_sr) * 1.0
+
+    n_acq = len(acq_dates)
+    n_az = len(az_times)
+    n_sr = len(sr_times)
+
+    # Create a slowly varying phase surface
+    data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+    for i in range(n_acq):
+        for j in range(n_az):
+            for k in range(n_sr):
+                data[i, j, k] = float(j + k) * 0.1 + float(i) * 0.05
+
+    phase_demod = xr.DataArray(
+        data,
+        dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+        coords={
+            "acquisition_date": acq_dates,
+            "azimuth_time": az_times,
+            "slant_range_time": sr_times,
+        },
+    )
+    phase_demod = phase_demod.assign_attrs(
+        {
+            "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
+            "scale": {"slant_range_time": 1.0, "azimuth_time": 1e-9},
+            "deg": {"slant_range_time": 1, "azimuth_time": 1},
+        }
+    )
+    return phase_demod
+
+
+@pytest.fixture
+def warp_gslc_anf():
+    """Area normalizer field (anf) for warp_gslc.
+
+    Dims: (acquisition_date, azimuth_time, slant_range_time)
+    Values > eps for gamma flattening.
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    n_az = 15
+    n_sr = 15
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+    sr_times = np.arange(0, n_sr) * 1.0
+
+    n_acq = len(acq_dates)
+    n_az = len(az_times)
+    n_sr = len(sr_times)
+
+    # Area normalizer values around 1.0 (always > eps=1e-3)
+    data = np.ones((n_acq, n_az, n_sr), dtype=np.float64) * 1.0
+
+    anf = xr.DataArray(
+        data,
+        dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+        coords={
+            "acquisition_date": acq_dates,
+            "azimuth_time": az_times,
+            "slant_range_time": sr_times,
+        },
+    )
+    return anf
+
+
+@pytest.fixture
+def warp_gslc_simulation():
+    """Simulation dataset for warp_gslc.
+
+    Has 1D y, x coordinates (for rio.resolution) and 2D data variables
+    azimuth_time (datetime64), slant_range_time (float). After isel(acquisition_date=0).squeeze()
+    the result is a 2D Dataset with x, y coords and azimuth_time, slant_range_time vars.
+    Uses 10x10 grid.
+    """
+    acq_dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
+    ny, nx = 15, 15
+    y = np.linspace(0.0, 900.0, ny)
+    x = np.linspace(0.0, 900.0, nx)
+
+    # Base epoch for azimuth_time
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    # azimuth_time as datetime64 matching cstack.azimuth_time (15 pixels)
+    az_base = np.array([i * 1000000000 for i in range(15)], dtype="timedelta64[ns]")
+    az_grid = np.array([[base_epoch + az_base[j] for j in range(nx)] for i in range(ny)], dtype="datetime64[ns]")
+
+    # slant_range_time as float (seconds from reference)
+    sr_grid = np.outer(np.ones(ny, dtype=np.float64), np.arange(nx, dtype=np.float64))
+
+    sim = xr.Dataset(
+        data_vars={
+            "azimuth_time": (("y", "x"), az_grid),
+            "slant_range_time": (("y", "x"), sr_grid),
+        },
+        coords={"y": y, "x": x, "acquisition_date": acq_dates},
+    )
+    sim = sim.rio.write_crs("EPSG:32632", inplace=True)
+    return sim
+
+
+@pytest.fixture
+def warp_gslc_kernel():
+    """Default sinc interpolation kernel for warp_gslc.
+
+    Includes all keys required by sinc_warp: kernel_shape, ov_fact, sinc_x, sinc_y.
+    """
+    from cop_ard_core.warp import sinc
+
+    kernel_shape = (3, 3)
+    ov_fact = 100
+    sinc_x = sinc(size=kernel_shape[1], ov_fact=ov_fact)
+    sinc_y = sinc(size=kernel_shape[0], ov_fact=ov_fact)
+    return {
+        "kernel_shape": kernel_shape,
+        "ov_fact": ov_fact,
+        "sinc_x": sinc_x,
+        "sinc_y": sinc_y,
+    }
+
+
+@pytest.fixture
+def warp_gslc_all_inputs(
+    warp_gslc_gstack,
+    warp_gslc_gphase_model,
+    warp_gslc_simulation,
+    warp_gslc_kernel,
+    warp_gslc_cstack,
+    warp_gslc_phase_model,
+    warp_gslc_phase_demod,
+    warp_gslc_anf,
+):
+    """All inputs for warp_gslc combined as a dict."""
+    return {
+        "gstack": warp_gslc_gstack,
+        "gphase_model": warp_gslc_gphase_model,
+        "simulation": warp_gslc_simulation,
+        "kernel": warp_gslc_kernel,
+        "cstack": warp_gslc_cstack,
+        "phase_model": warp_gslc_phase_model,
+        "phase_demod": warp_gslc_phase_demod,
+        "anf": warp_gslc_anf,
+        "do_reramp": False,
+        "gamma_flattening": False,
+    }
