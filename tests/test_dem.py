@@ -963,3 +963,366 @@ class TestValidateVerticalTransformation:
         data = _make_geographic_data()
         with pytest.raises(Exception):
             validate_vertical_transformation(data, "EPSG:4326")
+
+
+# ===========================================================================
+# check_available_transformation tests
+# ===========================================================================
+
+from unittest.mock import MagicMock, patch
+
+from cop_ard_core.dem import check_available_transformation
+
+
+class _MockCRS:
+    """Minimal mock CRS that supports to_3d() and vertical CRS extraction."""
+
+    def __init__(self, epsg_str: str, vertical_name: str = "EGM96"):
+        self._epsg = epsg_str
+        self._vertical_name = vertical_name
+        self._is_vertical = not epsg_str.startswith(("EPSG:4326", "EPSG:32633", "EPSG:3857"))
+
+    def to_3d(self):
+        return self
+
+    @property
+    def is_vertical(self):
+        return self._is_vertical
+
+    @property
+    def sub_crs_list(self):
+        # sub_crs_list[0] = horizontal CRS, sub_crs_list[1] = vertical CRS
+        vert_crs = MagicMock()
+        vert_crs.to_string.return_value = f"EPSG:{self._vertical_name}"
+        return [MagicMock(), vert_crs]
+
+
+class _MockTransformerGroup:
+    """Mock TransformerGroup for check_available_transformation tests."""
+
+    def __init__(self, best_available: bool = True, raise_download: bool = False,
+                 expect_validation: bool = False):
+        self.best_available = best_available
+        self._raise_download = raise_download
+        self._expect_validation = expect_validation
+        self.download_called = False
+        self.validation_called = expect_validation
+
+    def download_grids(self, directory: str = "", verbose: bool = False):
+        self.download_called = True
+        if self._raise_download:
+            raise RuntimeError("Grid download failed")
+
+
+def _make_geographic_data_with_crs(height: int = 5, width: int = 5,
+                                    crs_code: str = "EPSG:4326"):
+    """Create a small geographic DataArray with a specified CRS code."""
+    y = np.linspace(40.0, 45.0, height)
+    x = np.linspace(-75.0, -70.0, width)
+    data = np.ones((height, width), dtype=np.float64) * 100.0
+    da = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    da.rio.write_crs(crs_code, inplace=True)
+    return da
+
+
+def _make_geographic_dataset_with_crs(height: int = 5, width: int = 5,
+                                       crs_code: str = "EPSG:4326"):
+    """Create a small geographic Dataset with a specified CRS code."""
+    da = _make_geographic_data_with_crs(height, width, crs_code)
+    return da.to_dataset(name="elevation")
+
+
+class TestCheckAvailableTransformation:
+    """Tests for the check_available_transformation function.
+
+    check_available_transformation inspects the PROJ transformation pipeline
+    between a dataset's CRS and a target CRS. It logs the best available
+    transformation and attempts to download missing grid files. When the input
+    and output vertical CRS differ, it validates the vertical shift mathematically.
+
+    Because the function depends on pyproj's TransformerGroup and CRS which
+    require external PROJ grid data files, all tests below mock these dependencies.
+    Additionally, extract_vertical_crs is patched because it uses isinstance(crs, CRS)
+    which is incompatible with mocking CRS.
+    """
+
+    def _make_mock_crs(self, vertical_name: str = "EGM96"):
+        """Create a mock CRS that behaves like pyproj CRS for to_3d() calls."""
+        mock = MagicMock()
+        mock.to_3d.return_value = mock
+        # is_vertical: False for horizontal CRS, True for vertical-only
+        mock.is_vertical = False
+        # sub_crs_list: [horizontal_crs, vertical_crs]
+        vert = MagicMock()
+        vert.to_string.return_value = f"EPSG:{vertical_name}"
+        horiz = MagicMock()
+        horiz.to_string.return_value = "EPSG:4326"
+        mock.sub_crs_list = [horiz, vert]
+        return mock
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_happy_path(self, mock_crs, mock_tg_class, mock_extract):
+        """Happy path: best_available is True, no grids to download, same vertical CRS.
+
+        Should return None without calling download_grids or validate_vertical_transformation.
+        """
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+
+        # Same vertical CRS for input and output => extract returns same string
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs()
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+        mock_tg_class.assert_called_once()
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_dataset_input(self, mock_crs, mock_tg_class, mock_extract):
+        """Dataset input should work the same as DataArray input."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_dataset_with_crs()
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_outproj_without_prefix(self, mock_crs, mock_tg_class, mock_extract):
+        """outproj without 'EPSG:' prefix should be prefixed automatically."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs()
+        result = check_available_transformation(data, "4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_outproj_with_prefix(self, mock_crs, mock_tg_class, mock_extract):
+        """outproj with 'EPSG:' prefix should work as-is."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs()
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_different_crs(self, mock_crs, mock_tg_class, mock_extract):
+        """Different input and output CRS should still work when grids are available."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs(crs_code="EPSG:32633")
+        result = check_available_transformation(data, "EPSG:32632")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_3x3_data(self, mock_crs, mock_tg_class, mock_extract):
+        """Small 3x3 dataset should work."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs(height=3, width=3)
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_single_pixel_data(self, mock_crs, mock_tg_class, mock_extract):
+        """Minimal 2x2 dataset should work."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        data = _make_geographic_data_with_crs(height=2, width=2)
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_high_latitude(self, mock_crs, mock_tg_class, mock_extract):
+        """High latitude dataset should work with available grids."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        y = np.linspace(85.0, 89.0, 5)
+        x = np.linspace(-180.0, 180.0, 10)
+        data = xr.DataArray(
+            np.ones((5, 10)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_equatorial_region(self, mock_crs, mock_tg_class, mock_extract):
+        """Dataset near the equator should work."""
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        y = np.linspace(-2.0, 2.0, 5)
+        x = np.linspace(-2.0, 2.0, 5)
+        data = xr.DataArray(
+            np.ones((5, 5)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+
+        result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_vertical_crs_mismatch(self, mock_crs, mock_tg_class):
+        """Different input and output vertical CRS should trigger vertical validation.
+
+        When the vertical CRS of the input and output differ, validate_vertical_transformation
+        should be called. The mock Transformer inside validate_vertical_transformation
+        must return a transformed Z that changes to avoid raising RuntimeError.
+        """
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=True)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.side_effect = [
+            self._make_mock_crs("EGM96"),       # check_available: in_crs
+            self._make_mock_crs("EGM2008"),     # check_available: out_crs
+            self._make_mock_crs("EGM96"),       # validate: in_crs
+            self._make_mock_crs("EGM2008"),     # validate: out_crs
+        ]
+
+        # Mock extract to return different vertical CRS strings
+        mock_extract = MagicMock(side_effect=["EGM96", "EGM2008"])
+
+        # Mock Transformer: from_crs returns an instance with transform() configured
+        mock_transformer = MagicMock()
+        mock_transformer.transform.return_value = (-72.5, 42.5, 40.0)
+        with patch("cop_ard_core.dem.Transformer") as mock_transformer_class:
+            mock_transformer_class.from_crs.return_value = mock_transformer
+            with patch("cop_ard_core.dem.extract_vertical_crs", mock_extract):
+                data = _make_geographic_data_with_crs()
+                result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_vertical_crs_match(self, mock_crs, mock_tg_class, mock_extract):
+        """Same vertical CRS for input and output should skip vertical validation.
+
+        When input and output vertical CRS are the same, validate_vertical_transformation
+        should NOT be called.
+        """
+        mock_tg = _MockTransformerGroup(best_available=True, expect_validation=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs("EGM96")
+        # Same vertical CRS for both => extract returns same string
+        mock_extract.return_value = "EGM96"
+
+        with patch("cop_ard_core.dem.Transformer") as mock_transformer_factory:
+            data = _make_geographic_data_with_crs()
+            result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+        mock_transformer_factory.assert_not_called()
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_best_available_false_download_fails(
+        self, mock_crs, mock_tg_class, mock_extract
+    ):
+        """best_available=False with failed grid download should raise Exception."""
+        mock_tg = _MockTransformerGroup(best_available=False, raise_download=True)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        with patch("cop_ard_core.dem.datadir") as mock_datadir:
+            mock_datadir.get_data_dir.return_value = "/usr/share/proj"
+            data = _make_geographic_data_with_crs()
+            with pytest.raises(Exception, match="Missing transformation file"):
+                check_available_transformation(data, "EPSG:4326")
+
+    @patch("cop_ard_core.dem.extract_vertical_crs")
+    @patch("cop_ard_core.dem.TransformerGroup")
+    @patch("cop_ard_core.dem.CRS")
+    def test_check_available_transformation_best_available_false_download_succeeds(
+        self, mock_crs, mock_tg_class, mock_extract
+    ):
+        """best_available=False with successful grid download should proceed and return None.
+
+        After successful download, the function should continue processing. The
+        TransformerGroup is re-created internally but our mock returns best_available=True
+        for subsequent calls (only the first call is needed to check best_available).
+        """
+        mock_tg = _MockTransformerGroup(best_available=False, raise_download=False)
+        mock_tg_class.return_value = mock_tg
+
+        mock_crs.return_value = self._make_mock_crs()
+        mock_extract.return_value = "EGM96"
+
+        with patch("cop_ard_core.dem.datadir") as mock_datadir:
+            mock_datadir.get_data_dir.return_value = "/usr/share/proj"
+            data = _make_geographic_data_with_crs()
+            result = check_available_transformation(data, "EPSG:4326")
+
+        assert result is None
+        assert mock_tg.download_called is True
