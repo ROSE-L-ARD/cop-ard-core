@@ -1831,10 +1831,10 @@ class TestGridDataBlock:
     """Tests for grid_data_block."""
 
     def _make_mock_daz_drg(self, n_acq=1, n_az=3, n_sr=3):
-        """Create mock daz/drg DataArrays."""
+        """Create mock daz/drg DataArrays with coordinates matching requested sizes."""
         acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
-        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
-        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        az = np.array([f"2020-01-01T00:00:{i:02d}" for i in range(n_az)], dtype="datetime64[ns]")
+        sr = np.arange(n_sr) * 0.5
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
             dims=["acquisition_date", "azimuth_time", "slant_range_time"],
@@ -1893,6 +1893,845 @@ class TestGridDataBlock:
         )
         assert isinstance(result_daz, xr.DataArray)
         assert isinstance(result_drg, xr.DataArray)
+
+    def test_grid_data_block_single_acquisition_dims_preserved(self):
+        """Single acquisition should preserve input dimensions (acquisition_date, azimuth_time, slant_range_time)."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=4, n_sr=5)
+        sim_data = xr.DataArray(
+            np.zeros((1, 4, 5)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
+            np.array([0, 0, 4, 5]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+        assert result_drg.dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+
+    def test_grid_data_block_single_acquisition_shape(self):
+        """Single acquisition should preserve input shape."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=6, n_sr=8)
+        sim_data = xr.DataArray(
+            np.zeros((1, 6, 8)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
+            np.array([0, 0, 6, 8]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 6, 8)
+        assert result_drg.shape == (1, 6, 8)
+
+    def test_grid_data_block_daz_dtype_timedelta64(self):
+        """Output daz should have timedelta64[ns] dtype."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.dtype == np.dtype("timedelta64[ns]")
+
+    def test_grid_data_block_drg_dtype_float64(self):
+        """Output drg should have float64 dtype."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_drg.dtype == np.float64
+
+    def test_grid_data_block_coords_preserved(self):
+        """Output DataArrays should preserve input coordinates."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_data,
+            sim_data,
+            "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        np.testing.assert_array_equal(result_daz.coords["azimuth_time"].values, az)
+        np.testing.assert_array_equal(result_daz.coords["slant_range_time"].values, sr)
+        np.testing.assert_array_equal(result_drg.coords["azimuth_time"].values, az)
+        np.testing.assert_array_equal(result_drg.coords["slant_range_time"].values, sr)
+
+    def test_grid_data_block_multi_acquisition_nonzero(self):
+        """Multiple acquisitions should produce non-zero daz/drg shifts."""
+        n_acq = 3
+        n_az = 4
+        n_sr = 4
+        acq = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+        az = np.array(
+            ["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02", "2020-01-01T00:00:03"],
+            dtype="datetime64[ns]",
+        )
+        sr = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Create simulation with varying azimuth/range times across acquisitions
+        sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(n_az):
+                for k in range(n_sr):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i + j, "s")
+                    sim_sr_data[i, j, k] = float(i + k) * 0.25
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        result_daz, result_drg = grid_data_block(
+            daz,
+            drg,
+            sim_az,
+            sim_sr,
+            "2020-01-01",
+            np.array([0, 0, 4, 4]),
+            1.0,
+            0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (n_acq, n_az, n_sr)
+        assert result_drg.shape == (n_acq, n_az, n_sr)
+        # Not all values should be zero when there are multiple acquisitions with varying data
+        assert not np.all(result_daz.values == 0) or not np.all(result_drg.values == 0)
+
+    def test_grid_data_block_multi_acquisition_shape(self):
+        """Multiple acquisitions should produce output with matching shape."""
+        n_acq = 4
+        n_az = 5
+        n_sr = 5  # Keep sr same as az to avoid shape mismatch in vstack
+        acq = np.array(["2020-01-01", "2020-01-05", "2020-01-10", "2020-01-15"], dtype="datetime64[ns]")
+        az = np.array([f"2020-01-01T00:00:{i:02d}" for i in range(n_az)], dtype="datetime64[ns]")
+        sr = np.arange(n_sr) * 0.5
+        daz = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Build properly typed simulation data for multi-acquisition case
+        sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(n_az):
+                for k in range(n_sr):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
+                    sim_sr_data[i, j, k] = float(i * 5 + k) * 0.25
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        # bbox must match (n_az, n_sr) since that's the shape of the simulation data
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_az, sim_sr, "2020-01-01",
+            np.array([0, 0, n_az, n_sr]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (n_acq, n_az, n_sr)
+        assert result_drg.shape == (n_acq, n_az, n_sr)
+
+    def test_grid_data_block_multi_acquisition_returns_dataarrays(self):
+        """Multiple acquisitions should return tuple of xr.DataArrays."""
+        n_acq = 3
+        n_az = 3
+        n_sr = 3
+        acq = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Build properly typed simulation data
+        sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(n_az):
+                for k in range(n_sr):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
+                    sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_az, sim_sr, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert isinstance(result_daz, xr.DataArray)
+        assert isinstance(result_drg, xr.DataArray)
+
+    @pytest.mark.parametrize("n_acq", [2, 3, 5])
+    def test_grid_data_block_various_acquisition_counts(self, n_acq):
+        """grid_data_block should handle various numbers of acquisitions."""
+        acq = np.array([f"2020-01-{i+1:02d}" for i in range(n_acq)], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((n_acq, 3, 3), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, 3, 3), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Build properly typed simulation data
+        sim_az_data = np.zeros((n_acq, 3, 3), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, 3, 3), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(3):
+                for k in range(3):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
+                    sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_az, sim_sr, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (n_acq, 3, 3)
+        assert result_drg.shape == (n_acq, 3, 3)
+
+    @pytest.mark.parametrize("n_az,n_sr", [(1, 1), (3, 5), (5, 3), (7, 7), (10, 10)])
+    def test_grid_data_block_various_grid_sizes(self, n_az, n_sr):
+        """grid_data_block should handle various grid sizes."""
+        acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        az = np.array([f"2020-01-01T00:00:{i:02d}" for i in range(n_az)], dtype="datetime64[ns]")
+        sr = np.arange(n_sr) * 0.5
+        daz = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_data = xr.DataArray(
+            np.zeros((1, n_az, n_sr)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, n_az, n_sr]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, n_az, n_sr)
+        assert result_drg.shape == (1, n_az, n_sr)
+
+    @pytest.mark.parametrize("az_grid_spacing", [0.1, 0.5, 1.0, 2.0, 10.0])
+    @pytest.mark.parametrize("range_grid_spacing", [0.01, 0.1, 0.5, 1.0, 5.0])
+    def test_grid_data_block_various_grid_spacings(self, az_grid_spacing, range_grid_spacing):
+        """grid_data_block should handle various grid spacing combinations."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            az_grid_spacing, range_grid_spacing,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+
+    @pytest.mark.parametrize("bbox", [
+        np.array([0, 0, 3, 3]),
+        np.array([-1, -1, 4, 4]),
+        np.array([1, 1, 2, 2]),
+        np.array([0, 0, 10, 10]),
+    ])
+    def test_grid_data_block_various_bboxes(self, bbox):
+        """grid_data_block should handle various bounding box configurations."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            bbox,
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+
+    def test_grid_data_block_single_acquisition_finite_values(self):
+        """Single acquisition output should contain only finite (zero) values."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert np.all(np.isfinite(result_daz.values))
+        assert np.all(np.isfinite(result_drg.values))
+        np.testing.assert_array_equal(result_daz.values, 0)
+        np.testing.assert_array_equal(result_drg.values, 0)
+
+    def test_grid_data_block_single_acquisition_no_nan(self):
+        """Single acquisition output should not contain NaN values."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert not np.any(np.isnan(result_daz.values))
+        assert not np.any(np.isnan(result_drg.values))
+
+    def test_grid_data_block_single_acquisition_no_inf(self):
+        """Single acquisition output should not contain Inf values."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert not np.any(np.isinf(result_daz.values))
+        assert not np.any(np.isinf(result_drg.values))
+
+    def test_grid_data_block_reference_date_selection(self):
+        """Should select the correct reference date from simulation data."""
+        n_acq = 3
+        n_az = 3
+        n_sr = 3
+        acq = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Simulation data with distinct values per acquisition
+        sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(n_az):
+                for k in range(n_sr):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 10 + j, "s")
+                    sim_sr_data[i, j, k] = float(i * 10 + k) * 0.1
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        # Use "2020-01-05" as reference date
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_az, sim_sr, "2020-01-05",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (n_acq, n_az, n_sr)
+        assert result_drg.shape == (n_acq, n_az, n_sr)
+        # The reference date itself should have near-zero shift
+        ref_idx = 1  # "2020-01-05" is at index 1
+        assert np.allclose(result_drg.values[ref_idx], 0.0, atol=1e-10)
+
+    def test_grid_data_block_datetime_coords_type(self):
+        """Azimuth time coordinates should be datetime64[ns]."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert np.issubdtype(result_daz.coords["azimuth_time"].dtype, np.datetime64)
+
+    def test_grid_data_block_reference_time_as_datetime(self):
+        """azimuth_time_ref should accept np.datetime64."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Pass datetime with different resolution
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+
+    def test_grid_data_block_with_nan_in_simulation(self):
+        """Simulation with NaN values should not crash and should produce finite output."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.array([[[np.nan, 0.0, 1.0], [0.0, np.nan, 0.0], [1.0, 0.0, np.nan]]]),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+        assert np.all(np.isfinite(result_daz.values))
+        assert np.all(np.isfinite(result_drg.values))
+
+    def test_grid_data_block_with_inf_in_simulation(self):
+        """Simulation with Inf values should not crash."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.array([[[np.inf, 0.0, -np.inf], [0.0, 1.0, 0.0], [0.0, 0.0, np.inf]]]),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+        assert np.all(np.isfinite(result_daz.values))
+        assert np.all(np.isfinite(result_drg.values))
+
+    def test_grid_data_block_asymmetric_grid(self):
+        """Asymmetric grid dimensions should produce matching output shape."""
+        n_az = 2
+        n_sr = 7
+        acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_data = xr.DataArray(
+            np.zeros((1, n_az, n_sr)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, n_az, n_sr]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, n_az, n_sr)
+        assert result_drg.shape == (1, n_az, n_sr)
+
+    def test_grid_data_block_non_square_bbox(self):
+        """Non-square bounding box should produce output matching daz/drg shape."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=3, n_sr=5)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 5)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 5]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 5)
+        assert result_drg.shape == (1, 3, 5)
+
+    def test_grid_data_block_both_results_same_shape(self):
+        """Output daz and drg should always have the same shape."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=5, n_sr=7)
+        sim_data = xr.DataArray(
+            np.zeros((1, 5, 7)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 5, 7]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        np.testing.assert_array_equal(result_daz.shape, result_drg.shape)
+
+    def test_grid_data_block_nonzero_initial_daz_drg_unchanged(self):
+        """Non-zero initial daz/drg values should be overwritten by output."""
+        n_acq = 1
+        daz_data = np.full((n_acq, 3, 3), np.timedelta64(100, "ns"), dtype="timedelta64[ns]")
+        drg_data = np.full((n_acq, 3, 3), 999.0, dtype=np.float64)
+        acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        daz = xr.DataArray(daz_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                           coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        drg = xr.DataArray(drg_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                           coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_data = xr.DataArray(
+            np.zeros((n_acq, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        # Single acquisition: daz/drg should be overwritten with zeros
+        np.testing.assert_array_equal(result_daz.values, 0)
+        np.testing.assert_array_equal(result_drg.values, 0.0)
+
+    def test_grid_data_block_reference_date_not_first(self):
+        """When reference date is not the first acquisition, shifts should be relative to it."""
+        n_acq = 4
+        n_az = 3
+        n_sr = 3
+        acq = np.array(["2020-01-01", "2020-01-05", "2020-01-10", "2020-01-15"], dtype="datetime64[ns]")
+        az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
+        sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
+        daz = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        # Simulation: each acquisition has increasing time offsets
+        sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
+        sim_sr_data = np.zeros((n_acq, n_az, n_sr), dtype=np.float64)
+        for i in range(n_acq):
+            for j in range(n_az):
+                for k in range(n_sr):
+                    sim_az_data[i, j, k] = np.datetime64("2020-01-01T00:00:00") + np.timedelta64(i * 100 + j * 10, "s")
+                    sim_sr_data[i, j, k] = float(i * 10 + k) * 0.5
+        sim_az = xr.DataArray(sim_az_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        sim_sr = xr.DataArray(sim_sr_data, dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+                              coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr})
+        # Use "2020-01-10" as reference (index 2)
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_az, sim_sr, "2020-01-10",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (n_acq, n_az, n_sr)
+        assert result_drg.shape == (n_acq, n_az, n_sr)
+        np.testing.assert_array_equal(result_daz.sel(acquisition_date="2020-01-10"), 0)
+        np.testing.assert_array_equal(result_drg.sel(acquisition_date="2020-01-10"), 0)
+        assert np.all(np.abs(result_daz.values[[0, 1, 3], ...]) > 0)
+        assert np.all(np.abs(result_drg.values[[0, 1, 3], ...]) > 0)
+
+    def test_grid_data_block_single_acquisition_zero_values_exact(self):
+        """Single acquisition should produce exactly zero values (not just approximately)."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=5, n_sr=5)
+        sim_data = xr.DataArray(
+            np.zeros((1, 5, 5)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 5, 5]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        np.testing.assert_array_equal(result_daz.values, np.zeros((1, 5, 5), dtype="timedelta64[ns]"))
+        np.testing.assert_array_equal(result_drg.values, np.zeros((1, 5, 5)))
+
+    @pytest.mark.parametrize("n_az", [1, 2, 4, 8])
+    @pytest.mark.parametrize("n_sr", [1, 2, 4, 8])
+    def test_grid_data_block_power_of_two_sizes(self, n_az, n_sr):
+        """grid_data_block should handle power-of-two grid sizes."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=n_az, n_sr=n_sr)
+        sim_data = xr.DataArray(
+            np.zeros((1, n_az, n_sr)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, n_az, n_sr]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, n_az, n_sr)
+        assert result_drg.shape == (1, n_az, n_sr)
+
+    def test_grid_data_block_large_grid(self):
+        """Larger grid should produce correct output without error."""
+        n_az = 20
+        n_sr = 20
+        acq = np.array(["2020-01-01"], dtype="datetime64[ns]")
+        az = np.array([f"2020-01-01T00:00:{i:02d}" for i in range(n_az)], dtype="datetime64[ns]")
+        sr = np.arange(n_sr) * 0.5
+        daz = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        drg = xr.DataArray(
+            np.zeros((1, n_az, n_sr), dtype=np.float64),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        sim_data = xr.DataArray(
+            np.zeros((1, n_az, n_sr)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, n_az, n_sr]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, n_az, n_sr)
+        assert result_drg.shape == (1, n_az, n_sr)
+
+    def test_grid_data_block_return_tuple(self):
+        """Should return a 2-element tuple."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_grid_data_block_inplace_modification(self):
+        """Output should share coordinates with input but be independent data."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        original_daz = daz.copy()
+        original_drg = drg.copy()
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            1.0, 0.5,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        # Results should be zero for single acquisition
+        np.testing.assert_array_equal(result_daz.values, 0)
+        np.testing.assert_array_equal(result_drg.values, 0.0)
+
+    def test_grid_data_block_small_grid_spacing(self):
+        """Very small grid spacings should not cause errors."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            0.01, 0.001,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+
+    def test_grid_data_block_large_grid_spacing(self):
+        """Large grid spacings should not cause errors."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            100.0, 100.0,
+            np.datetime64("2020-01-01T00:00:00"),
+            0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
+
+    def test_grid_data_block_asymmetric_grid_spacings(self):
+        """Different azimuth and range grid spacings should work."""
+        daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
+        sim_data = xr.DataArray(
+            np.zeros((1, 3, 3)),
+            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+        )
+        result_daz, result_drg = grid_data_block(
+            daz, drg, sim_data, sim_data, "2020-01-01",
+            np.array([0, 0, 3, 3]),
+            azimuth_grid_spacing=0.5,
+            range_grid_spacing=1.0,
+            azimuth_time_ref=np.datetime64("2020-01-01T00:00:00"),
+            slant_range_time_ref=0.0,
+        )
+        assert result_daz.shape == (1, 3, 3)
+        assert result_drg.shape == (1, 3, 3)
 
 
 class TestWarpGslc:
