@@ -1,6 +1,7 @@
 """Unit tests for cop_ard_core.dem."""
 
 import numpy as np
+import pyproj
 import pytest
 import xarray as xr
 from pyproj import CRS
@@ -646,3 +647,319 @@ class TestInterpDem:
         # fillna(0) does not remove inf, so interpn may fail
         with pytest.raises(ValueError):
             interp_dem(dem_out, dem_in, mid_crs)
+
+
+# ===========================================================================
+# validate_vertical_transformation tests
+# ===========================================================================
+
+from unittest.mock import MagicMock, patch
+
+from cop_ard_core.dem import validate_vertical_transformation
+
+
+def _make_geographic_data(height: int = 5, width: int = 5):
+    """Create a small geographic DataArray (lat/lon) with valid CRS for testing."""
+    y = np.linspace(40.0, 45.0, height)
+    x = np.linspace(-75.0, -70.0, width)
+    data = np.ones((height, width), dtype=np.float64) * 100.0
+    dem = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
+    dem.rio.write_crs("EPSG:4326", inplace=True)
+    return dem
+
+
+def _make_geographic_dataset(height: int = 5, width: int = 5):
+    """Create a small geographic Dataset with valid CRS for testing."""
+    dem_arr = _make_geographic_data(height, width)
+    return dem_arr.to_dataset(name="elevation")
+
+
+class _MockTransformer:
+    """Mock transformer that returns controlled transform results."""
+
+    def __init__(self, transform_result: tuple, raise_err: bool = False):
+        self._result = transform_result
+        self._raise_err = raise_err
+
+    def transform(self, *args, errcheck: bool = False, **kwargs):
+        if self._raise_err:
+            raise pyproj.errors.TransformError("Transformation error")
+        return self._result
+
+
+class TestValidateVerticalTransformation:
+    """Tests for the validate_vertical_transformation function.
+
+    validate_vertical_transformation checks that a PROJ vertical datum shift
+    actually produces a Z change when applied to the center of a dataset.
+    It requires the input data to have a CRS accessible via .rio.crs.
+
+    Because actual grid-based transformations require geoid files that may
+    not be available in the test environment, the Transformer class is
+    mocked in all tests below.
+    """
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_changes_success(self, mock_transformer):
+        """Happy path: Z coordinate changes by more than threshold, function returns None."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_dataset_input(self, mock_transformer):
+        """Happy path: Dataset input should also succeed when Z changes."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 35.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_dataset()
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_unchanged_raises(self, mock_transformer):
+        """Z coordinate does not change at all — should raise RuntimeError."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 50.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        with pytest.raises(RuntimeError, match="Z coordinate did not change"):
+            validate_vertical_transformation(data, "EPSG:4326")
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_changes_below_threshold(self, mock_transformer):
+        """Z changes by less than 1e-5 — should raise RuntimeError."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 50.000009))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        with pytest.raises(RuntimeError, match="Z coordinate did not change"):
+            validate_vertical_transformation(data, "EPSG:4326")
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_changes_at_threshold(self, mock_transformer):
+        """Z changes by exactly 1e-5 — at the boundary, should pass (>= threshold)."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 50.00001))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        # 50.00001 - 50.0 = 1e-5, which is NOT < 1e-5, so it should pass
+        result = validate_vertical_transformation(data, "EPSG:4326")
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_outproj_without_prefix(self, mock_transformer):
+        """outproj passed without 'EPSG:' prefix should be prefixed automatically."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        result = validate_vertical_transformation(data, "4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_outproj_with_prefix(self, mock_transformer):
+        """outproj passed with 'EPSG:' prefix should work as-is."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_decreases(self, mock_transformer):
+        """Z can decrease (negative shift) and still be valid."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 20.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_increases_significantly(self, mock_transformer):
+        """Large Z shift should pass validation."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 200.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_negative_coordinates(self, mock_transformer):
+        """Dataset with negative lon/lat coordinates should work."""
+        mock_instance = _MockTransformer(transform_result=(-175.5, -42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        y = np.linspace(-45.0, -40.0, 5)
+        x = np.linspace(-180.0, -170.0, 5)
+        data = xr.DataArray(
+            np.ones((5, 5)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_single_pixel_data(self, mock_transformer):
+        """Minimal 2x2 dataset should work — smallest valid raster for rioxarray."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = xr.DataArray(
+            np.array([[100.0, 100.0], [100.0, 100.0]]),
+            dims=["y", "x"],
+            coords={"y": [42.0, 43.0], "x": [-73.0, -72.0]},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_different_input_crs(self, mock_transformer):
+        """Different geographic CRS should work."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        y = np.linspace(40.0, 45.0, 5)
+        x = np.linspace(-75.0, -70.0, 5)
+        data = xr.DataArray(
+            np.ones((5, 5)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:3857", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_3x3_data(self, mock_transformer):
+        """Small 3x3 dataset should work."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = xr.DataArray(
+            np.ones((3, 3)),
+            dims=["y", "x"],
+            coords={"y": np.linspace(40.0, 42.0, 3), "x": np.linspace(-75.0, -73.0, 3)},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_5x5_data(self, mock_transformer):
+        """5x5 dataset should work."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = xr.DataArray(
+            np.ones((5, 5)),
+            dims=["y", "x"],
+            coords={"y": np.linspace(40.0, 44.0, 5), "x": np.linspace(-75.0, -71.0, 5)},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_infinity_raises(self, mock_transformer):
+        """If transformer returns inf for Z, errcheck should cause an exception."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, np.inf), raise_err=True)
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        with pytest.raises(Exception):
+            validate_vertical_transformation(data, "EPSG:4326")
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_z_negative_infinity_raises(self, mock_transformer):
+        """If transformer returns -inf for Z, errcheck should cause an exception."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, -np.inf), raise_err=True)
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        with pytest.raises(Exception):
+            validate_vertical_transformation(data, "EPSG:4326")
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_equatorial_region(self, mock_transformer):
+        """Dataset near the equator should work."""
+        mock_instance = _MockTransformer(transform_result=(0.0, 0.0, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        y = np.linspace(-2.0, 2.0, 5)
+        x = np.linspace(-2.0, 2.0, 5)
+        data = xr.DataArray(
+            np.ones((5, 5)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_very_small_area(self, mock_transformer):
+        """Very small geographic extent should still work."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 42.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        y = np.linspace(42.499, 42.501, 3)
+        x = np.linspace(-72.501, -72.499, 3)
+        data = xr.DataArray(
+            np.ones((3, 3)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_high_latitude(self, mock_transformer):
+        """High latitude dataset (near poles) should work."""
+        mock_instance = _MockTransformer(transform_result=(-72.5, 87.5, 40.0))
+        mock_transformer.from_crs.return_value = mock_instance
+
+        y = np.linspace(85.0, 89.0, 5)
+        x = np.linspace(-180.0, 180.0, 10)
+        data = xr.DataArray(
+            np.ones((5, 10)),
+            dims=["y", "x"],
+            coords={"y": y, "x": x},
+        )
+        data.rio.write_crs("EPSG:4326", inplace=True)
+        result = validate_vertical_transformation(data, "EPSG:4326")
+
+        assert result is None
+
+    @patch("cop_ard_core.dem.Transformer")
+    def test_validate_vertical_transformation_transform_error(self, mock_transformer):
+        """If the transformer raises during transform (errcheck), should propagate."""
+        mock_instance = _MockTransformer(transform_result=(np.inf, np.inf, np.inf), raise_err=True)
+        mock_transformer.from_crs.return_value = mock_instance
+
+        data = _make_geographic_data()
+        with pytest.raises(Exception):
+            validate_vertical_transformation(data, "EPSG:4326")
