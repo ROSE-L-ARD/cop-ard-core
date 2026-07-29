@@ -1127,8 +1127,8 @@ def warp_gslc(
         data=simulation, xi=(y_grid, x_grid), common_dims=("y", "x"), method=method, fill_value=0.0
     )
 
-    rg_interp = simul_out.slant_range_time.values.ravel()
-    az_interp = simul_out.azimuth_time.values.ravel()
+    rg_interp = simul_out.x.values.ravel()
+    az_interp = simul_out.y.values.ravel()
 
     (ind,) = np.where(
         (rg_interp >= margin[1])
@@ -1143,7 +1143,8 @@ def warp_gslc(
 
     if ind.size > 0:
         # Define the subset of radar coordinates needed for interpolation.
-        x, y = rg_interp[ind], az_interp[ind]
+        x = simul_out.slant_range_time.values.ravel()[ind]
+        y = simul_out.azimuth_time.values.ravel()[ind]
 
         # Calculate the bounding box to read from the coregistered data.
         xmin, xmax = np.round(x.min() - margin[1]).astype(int), np.round(x.max() + margin[1]).astype(int)
@@ -1164,6 +1165,7 @@ def warp_gslc(
         # Prepare for gamma flattening if enabled.
         if gamma_flattening:
             mask_A = anf > eps
+            sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
 
         # --- Loop over each acquisition date ---
         for date_idx, acq_date in enumerate(acquisition_dates):
@@ -1191,10 +1193,16 @@ def warp_gslc(
 
                 # Apply gamma flattening if enabled.
                 if gamma_flattening:
-                    sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
-                    np.divide(slc.values, sqrt_A.values, out=slc.values, where=mask_A.values)
+                    acq_mask = mask_A.sel(acquisition_date=acq_date).values
+                    acq_anf = sqrt_A.sel(acquisition_date=acq_date).values
+                    np.divide(
+                        slc.values,
+                        acq_anf,
+                        out=slc.data,
+                        where=acq_mask
+                    )
                     # Zero out the invalid pixels
-                    slc.values[..., ~mask_A.values] = 0.0
+                    slc.values[..., ~acq_mask] = 0.0
 
                 # Perform the final sinc interpolation from radar to ground grid.
                 warped_gslc = sinc_warp(slc.values, x, y, kernel)
