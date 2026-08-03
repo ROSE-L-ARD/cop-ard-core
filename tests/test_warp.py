@@ -3428,7 +3428,10 @@ class TestWarpDazdrg:
             coords={
                 "acquisition_date": cstack.acquisition_date,
                 "azimuth_time": np.array(
-                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(7)]
+                    [
+                        np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
+                        for i in range(7)
+                    ]
                 ),
                 "slant_range_time": np.arange(7) * 0.5,
             },
@@ -3462,7 +3465,10 @@ class TestWarpDazdrg:
             coords={
                 "acquisition_date": cstack.acquisition_date,
                 "azimuth_time": np.array(
-                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(3)]
+                    [
+                        np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
+                        for i in range(3)
+                    ]
                 ),
                 "slant_range_time": np.arange(7) * 0.5,
             },
@@ -3525,10 +3531,7 @@ def csi_coreg_az():
     Shape matches csi_slc: (5, 4).
     """
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-    az_vals = np.array(
-        [base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]"
-    )
-    rg_vals = np.arange(4) * 0.5
+    az_vals = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
     az_grid = np.array([[az_vals[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]")
     return xr.DataArray(az_grid, dims=["azimuth_time", "slant_range_time"])
 
@@ -3782,7 +3785,9 @@ class TestComputeSecondaryImageCoordinates:
 
         n_az, n_rg = grid_size
         base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+        az = np.array(
+            [base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+        )
         rg = np.arange(n_rg, dtype=np.float64) * 0.5
 
         slc = xr.DataArray(
@@ -3886,12 +3891,20 @@ class TestComputeSecondaryImageCoordinates:
 
         # Poly with zero coefficients
         y_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         # Poly with non-zero constant coefficient (should shift all values)
         y_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         az_zero, _, _, _ = compute_secondary_image_coordinates(
@@ -3922,8 +3935,8 @@ class TestComputeSecondaryImageCoordinates:
         )
 
         # Remove base epoch
-        az_zero = az_zero - base_epoch       
-        az_nonzero = az_nonzero - base_epoch       
+        az_zero = az_zero - base_epoch
+        az_nonzero = az_nonzero - base_epoch
 
         # The nonzero polynomial should shift azimuth values
         assert not np.allclose(az_zero.astype(float), az_nonzero.astype(float))
@@ -3952,10 +3965,18 @@ class TestComputeSecondaryImageCoordinates:
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         x_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
         x_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         _, rg_zero, _, _ = compute_secondary_image_coordinates(
@@ -4025,10 +4046,18 @@ class TestComputeSecondaryImageCoordinates:
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
         x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
@@ -4047,7 +4076,9 @@ class TestComputeSecondaryImageCoordinates:
         assert az_out.shape == (5, 4)
         assert rg_out.shape == (5, 4)
 
-    def test_csi_etad_nonempty_produces_corrections(self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty):
+    def test_csi_etad_nonempty_produces_corrections(
+        self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty
+    ):
         """Non-empty ETAD grid should apply corrections."""
 
         az, rg, az0, rg0 = compute_secondary_image_coordinates(
@@ -4068,7 +4099,9 @@ class TestComputeSecondaryImageCoordinates:
         assert isinstance(az, np.ndarray)
         assert isinstance(rg, np.ndarray)
 
-    def test_csi_etad_nonempty_finite_values(self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty):
+    def test_csi_etad_nonempty_finite_values(
+        self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty
+    ):
         """ETAD corrections should produce finite output values."""
 
         az, rg, az0, rg0 = compute_secondary_image_coordinates(
@@ -4137,7 +4170,9 @@ class TestComputeSecondaryImageCoordinates:
         # Outputs should differ due to ETAD corrections
         az_empty_float = np.asarray(az_empty, dtype="float64") / 1e9
         az_nonempty_float = np.asarray(az_nonempty, dtype="float64") / 1e9
-        assert not np.allclose(az_empty_float, az_nonempty_float, atol=1e-6) or not np.allclose(rg_empty, rg_nonempty, atol=1e-6)
+        assert not np.allclose(az_empty_float, az_nonempty_float, atol=1e-6) or not np.allclose(
+            rg_empty, rg_nonempty, atol=1e-6
+        )
 
     def test_csi_etad_all_zeros_produces_zero_correction(self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg):
         """ETAD grid with all-zero corrections should produce zero corrections."""
@@ -4198,7 +4233,11 @@ class TestComputeSecondaryImageCoordinates:
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         bad_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "invalid"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "invalid",
+            }
         )
 
         with pytest.raises(RuntimeError, match="Invalid coordinate type"):
@@ -4239,11 +4278,12 @@ class TestComputeSecondaryImageCoordinates:
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
-        good_y = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
-        )
         bad_x = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(0.0), np.float64(0.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "bogus"}
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "bogus",
+            }
         )
 
         with pytest.raises(RuntimeError, match="Invalid coordinate type"):
@@ -4445,10 +4485,18 @@ class TestComputeSecondaryImageCoordinates:
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(2.0), np.float64(1.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
         x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(2.0), np.float64(1.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
@@ -4530,7 +4578,9 @@ class TestComputeSecondaryImageCoordinates:
 
         base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
         n_az, n_rg = 10, 3
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]")
+        az = np.array(
+            [base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+        )
         rg = np.arange(n_rg, dtype=np.float64) * 0.5
         slc = xr.DataArray(
             np.ones((n_az, n_rg), dtype=np.complex128),
@@ -4571,7 +4621,9 @@ class TestComputeSecondaryImageCoordinates:
         """compute_secondary_image_coordinates should handle various grid spacing values."""
 
         base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * int(dtaz * 1_000_000_000), "ns") for i in range(5)], dtype="datetime64[ns]")
+        az = np.array(
+            [base_epoch + np.timedelta64(i * int(dtaz * 1_000_000_000), "ns") for i in range(5)], dtype="datetime64[ns]"
+        )
         rg = np.arange(4, dtype=np.float64) * dtrg
         slc = xr.DataArray(
             np.ones((5, 4), dtype=np.complex128),
@@ -4683,10 +4735,18 @@ class TestComputeSecondaryImageCoordinates:
 
         # Use pixel mode with non-zero offsets and non-zero poly
         y_poly = xr.DataArray(np.array([[1.0, 0.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(2.0), np.float64(1.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
         x_poly = xr.DataArray(np.array([[0.0, 1.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
-            {"offset": [np.float64(1.0), np.float64(2.0)], "scale_fact": [np.float64(1.0), np.float64(1.0)], "type": "pixels"}
+            {
+                "offset": [np.float64(1.0), np.float64(2.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
         )
 
         az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(

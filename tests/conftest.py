@@ -1111,9 +1111,7 @@ def warp_dazdrg_cstack():
     """
     acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-    az_times = np.array(
-        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(5)], dtype="datetime64[ns]"
-    )
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(5)], dtype="datetime64[ns]")
     sr_times = np.arange(5) * 0.5
     data = np.zeros((3, 5, 5), dtype=np.complex128)
     for i in range(3):
@@ -1172,9 +1170,9 @@ def warp_dazdrg_reference_simulation():
             "azimuth_time": (["acquisition_date", "y", "x"], az_grid),
             "slant_range_time": (["acquisition_date", "y", "x"], sr_grid),
             "dem_distance": (["acquisition_date", "y", "x", "axis"], dem_distance),
-            "h": (["y", "x"], h)
+            "h": (["y", "x"], h),
         },
-    ) 
+    )
     return simulation
 
 
@@ -1189,7 +1187,9 @@ def warp_dazdrg_secondary_simulation():
     acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
     az_base = np.array([i * 1000000000 for i in range(5)], dtype="timedelta64[ns]")
-    az_grid = np.array([[base_epoch + az_base[j] + np.timedelta64(100000000, "ns") for j in range(5)] for i in range(5)])
+    az_grid = np.array(
+        [[base_epoch + az_base[j] + np.timedelta64(100000000, "ns") for j in range(5)] for i in range(5)]
+    )
     sr_grid = np.outer(np.ones(5, dtype=np.float64), np.arange(5) * 0.5)
 
     sim = xr.Dataset(
@@ -1212,7 +1212,9 @@ def warp_dazdrg_reference_ml(warp_dazdrg_reference_simulation):
     sim = warp_dazdrg_reference_simulation
     # Coarsen the simulation to create a downsampled version
     coarsen_config = {"y": 5, "x": 5}
-    ref_sel = sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+    ref_sel = (
+        sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+    )
 
     min_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="min").min()
     max_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="max").max()
