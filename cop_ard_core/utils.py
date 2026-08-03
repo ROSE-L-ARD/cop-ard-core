@@ -21,6 +21,7 @@ def compute_interf(
     multilook: dict,
 ) -> xr.DataArray:
     # complex multiplication and average #
+    # consider only secondary image coordianates, as the reference image is assumed to be the same for all secondary images
     return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()  # type: ignore  mean is injected dynamically
 
 
@@ -138,7 +139,10 @@ def time_to_pixel(
         x0 = stack.slant_range_time[0].values
 
     # spacing computation #
-    y_spacing, x_spacing = [(stack[e][1] - stack[e][0]).values for e in ["azimuth_time", "slant_range_time"]]
+    y_spacing, x_spacing = [
+        (stack[e][-1] - stack[e][0]).values / (stack[e].size - 1)
+        for e in ["azimuth_time", "slant_range_time"]
+    ]
 
     # times to pixel coordinates #
     x = np.round((stack.slant_range_time - x0) / x_spacing).values.astype("int32")
@@ -146,3 +150,71 @@ def time_to_pixel(
 
     stack = stack.assign_coords({"y": (["azimuth_time"], y), "x": (["slant_range_time"], x)})
     return stack.swap_dims(azimuth_time="y", slant_range_time="x")
+
+
+def get_best_pol(polarization_values: list) -> str:
+    """
+    Select the preferred polarization based on a priority list.
+
+    Parameters
+    ----------
+    polarization_values : list
+        List of available polarizations.
+
+    Returns
+    -------
+    str
+        The selected polarization.
+    """
+    # select preferred polarization
+    available_pols = {str(i) for i in polarization_values}
+    priorities = ["VV", "HH", "VH", "HV"]
+    pol = next((p for p in priorities if p in available_pols), None)
+    if pol is None:
+        raise Exception(f"No polarization has been found {available_pols}")
+
+    return pol
+
+
+def get_azimuth_time_raw(
+    burst: xr.DataArray, 
+    TimeCOAPoly: np.ndarray, 
+    CollectStart: str,
+    multilook: dict | None = None
+) -> xr.DataArray:
+
+    if multilook is not None:
+        az_slice = slice(
+            multilook["azimuth_time"] // 2, None, multilook["azimuth_time"]
+        )
+        rg_slice = slice(
+            multilook["slant_range_time"] // 2, None, multilook["slant_range_time"]
+        )
+    else:
+        az_slice = slice(None, None, None)
+        rg_slice = slice(None, None, None)
+
+    burst_ = burst.isel(azimuth_time=az_slice, slant_range_time=rg_slice)
+
+    # retrieve axis and coefficients
+    slant_range_m = burst_.slant_range_m.values
+    azimuth_m = burst_.azimuth_m.values
+
+    # compute the relative azimuth time
+    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, TimeCOAPoly).T
+
+    # convert to timedelta in nanoseconds
+    timeCOA = (timeCOA * 1e9).astype("timedelta64[ns]")
+
+    # compute absolute time
+    timeCOA = timeCOA + np.datetime64(CollectStart)
+
+    # return as dataarray
+    return xr.DataArray(
+        timeCOA,
+        dims=["azimuth_time", "slant_range_time"],
+        coords={
+            "azimuth_time": burst_.azimuth_time.values,
+            "slant_range_time": burst_.slant_range_time.values,
+        },
+    )
