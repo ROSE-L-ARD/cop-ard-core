@@ -423,7 +423,7 @@ def compute_secondary_image_coordinates(
             y, x = coreg_azimuth_time, coreg_slant_range_time
         else:
             raise RuntimeError(f"Invalid coordinate type: {coord_type}")
-        return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
+        return ((e - alpha[i]).astype("float64") / beta[i].astype("float64") for i, e in enumerate([y, x]))
 
     # Compute grid spacing (dtaz, dtrg) and reference start times (rg0, az0) from metadata.
     rg0 = slc.isel(slant_range_time=0).slant_range_time.values
