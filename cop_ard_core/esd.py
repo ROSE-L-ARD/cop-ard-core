@@ -5,69 +5,48 @@ from numba import njit
 
 from cop_ard_core.utils import compute_interf_norm, wrap
 
-
-def _to_dataset(X, acquisition_date, poly_degree, t0, r0, s_y, s_x):
-    def to_polygrid2d(c):
-        m = np.zeros((poly_degree + 1, poly_degree + 1), dtype="float64")
-        m[:, 0] = np.flip(c)
-        return m
-
-    axis = np.arange(poly_degree + 1)
-    data_vars = {
-        str(dd): xr.DataArray(
-            data=to_polygrid2d(X[i, :]),
-            dims=["i", "j"],
-            coords={"i": axis, "j": axis},
-            attrs={"deg": poly_degree, "offset": (t0, r0), "scale_fact": (s_y, s_x)},
-        )
-        for i, dd in enumerate(acquisition_date.values)
-    }
-    return xr.Dataset(data_vars)
-
-
 def compute_shift(
     burst0: xr.DataArray,
     burst1: xr.DataArray,
     reference0: xr.DataArray,
     reference1: xr.DataArray,
     acquisition_date: xr.DataArray,
-    reference_date: str,
     multilook: dict,
     coherence_threshold: float,
 ) -> tuple[str, xr.DataArray, xr.DataArray]:
 
+    # output initialization #
     coords = acquisition_date.coords
     data = np.full(acquisition_date.size, np.nan)
     mean_phase = xr.DataArray(name="mean_phase", data=data, coords=coords)
     coherence = xr.DataArray(name="coherence", data=data, coords=coords)
 
-    if all(reference_date in e.acquisition_date for e in [reference0, reference1]):
-        # interferogram multilooked and normalized #
-        interf0 = compute_interf_norm(reference0.sel(acquisition_date=reference_date).squeeze(), burst0, multilook)
-        interf1 = compute_interf_norm(reference1.sel(acquisition_date=reference_date).squeeze(), burst1, multilook)
+    # interferogram multilooked and normalized #
+    interf0 = compute_interf_norm(reference0.squeeze(), burst0, multilook)
+    interf1 = compute_interf_norm(reference1.squeeze(), burst1, multilook)
 
-        # coherence computation #
-        interf_prod = interf1 * interf0.conj()
-        coherence_ = abs(interf0)  # based only on one burst
+    # coherence computation #
+    interf_prod = interf1 * interf0.conj()
+    coherence_ = abs(interf0)  # based only on one burst
 
-        # mask interferogram
-        mask = coherence_ >= coherence_threshold
-        n_valid_points = np.count_nonzero(mask)
+    # mask interferogram
+    mask = coherence_ >= coherence_threshold
+    n_valid_points = np.count_nonzero(mask)
 
-        interf_prod = (interf_prod).where(mask)
-        coherence = coherence_.where(mask, 0).sum(dim=["azimuth_pixel", "slant_range_time"]) / np.sqrt(n_valid_points)
+    interf_prod = (interf_prod).where(mask)
+    coherence = coherence_.where(mask, 0).sum(dim=["azimuth_pixel", "slant_range_time"]) / np.sqrt(n_valid_points)
 
-        # phase mean in the overlap area #
-        mean_phase = xr.ufuncs.angle(interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]))
-        mean_phase = xr.DataArray(
-            data=mean_phase,
-            dims=["acquisition_date"],
-            coords={"acquisition_date": interf_prod.acquisition_date},
-            name="mean_phase",
-        )
-        mean_phase = mean_phase.where(coherence > 0)
+    # phase mean in the overlap area #
+    mean_phase = xr.ufuncs.angle(interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]))
+    mean_phase = xr.DataArray(
+        data=mean_phase,
+        dims=["acquisition_date"],
+        coords={"acquisition_date": interf_prod.acquisition_date},
+        name="mean_phase",
+    )
+    mean_phase = mean_phase.where(coherence > 0)
+
     return (
-        reference_date,
         mean_phase,
         coherence.rename("coherence"),
     )
@@ -78,12 +57,9 @@ def compute_azimuth_shifts(
     burst1: xr.DataArray,
     reference0: xr.DataArray,
     reference1: xr.DataArray,
-    reference_dates: list[str],
     multilook: dict = {"azimuth_pixel": 4, "slant_range_time": 16},
-    coherence_th: float = 0.7,
+    coherence_threshold: float = 0.7,
 ):
-
-    # @timeit
 
     # Computation of doppler frequency at the burst overlap #
     annot0 = burst0.attrs[list(burst0.attrs)[0]]
@@ -92,45 +68,42 @@ def compute_azimuth_shifts(
     annot1 = burst1.attrs[list(burst1.attrs)[0]]
     coeffs1 = annot1["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"]
     dazm1 = annot0["Grid"]["Col"]["SS"]
+
+    # average azimuth spacing in correspondence of burst overlap
     dazm = (dazm1 + dazm0) / 2.0
 
     # compute common area
     sm0, am0 = np.meshgrid(burst0.slant_range_m, burst0.azimuth_m)
     sm1, am1 = np.meshgrid(burst1.slant_range_m, burst1.azimuth_m)
+
+    # doppler centroid in the area of interest
     f_d_0 = np.polynomial.polynomial.polyval2d(sm0, am0, coeffs0)
     f_d_1 = np.polynomial.polynomial.polyval2d(sm1, am1, coeffs1)
+
     with np.errstate(
         invalid="ignore",
         over="ignore",
     ):
-        # shifts estimation for each reference_date that is also a date of burst0
-        reference, mean_phase, cohe = zip(
-            *[
-                compute_shift(
-                    burst0=burst0,
-                    burst1=burst1,
-                    reference0=reference0,
-                    reference1=reference1,
-                    acquisition_date=burst0.acquisition_date,
-                    reference_date=e,
-                    multilook=multilook,
-                    coherence_threshold=coherence_th,
-                )
-                for e in reference_dates
-            ]
+        # shifts estimation in correspondence of the overlapping area
+        mean_phase, coherence = compute_shift(
+            burst0=burst0,
+            burst1=burst1,
+            reference0=reference0,
+            reference1=reference1,
+            acquisition_date=burst0.acquisition_date,
+            multilook=multilook,
+            coherence_threshold=coherence_threshold,
         )
-        # wrap_cycle = tuple([1 / ((f_d_1 - f_d_0) * dazm) for s in mean_phase])
-        wrap_cycle = tuple([xr.full_like(s, 1 / ((f_d_1 - f_d_0).mean() * dazm)) for s in mean_phase])
+        # compute scaling factor according to Doppler frequency difference
+        wrap_cycle = xr.full_like(mean_phase, 1 / ((f_d_1 - f_d_0).mean() * dazm))
 
-    # obtained shifts returned as a xr.Dataset #
-    cohe = xr.concat(cohe, dim="reference_date")
-    mean_phase = xr.concat(mean_phase, dim="reference_date")
-    wrap_cycle = xr.concat(wrap_cycle, dim="reference_date")
+    # init mean_shift with all zeros
+    # the estimated phase has to be unwrapped before rescaling it and provide the mean_shift
     mean_shift = xr.zeros_like(mean_phase)
+    # obtained shifts returned as a xr.Dataset #
     esd = xr.Dataset(
         {
-            "reference_date": list(reference),
-            "coherence": cohe,
+            "coherence": coherence,
             "mean_phase": mean_phase,
             "mean_shift": mean_shift,
             "wrap_cycle": wrap_cycle,
@@ -142,7 +115,7 @@ def compute_azimuth_shifts(
 
 def optimize_curvature(esd, poly_degree: int):
     # extract valid indices
-    ind = np.where(np.isfinite(esd["mean_phase"].values))[0]  # * esd.id.str.startswith(swath))[0]
+    ind = np.where(np.isfinite(esd["mean_phase"].values))[0]
     y = esd["mean_phase"].values[ind]
     w = esd["wrap_cycle"].values[ind]
     az = esd["azimuth_time"].values[ind]
