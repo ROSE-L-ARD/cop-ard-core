@@ -348,7 +348,7 @@ def warp_dazdrg(
     # Create an empty xarray Dataset to hold the azimuth and range shifts.
     shape = cstack.shape[1:]
     dtype = {"daz": "timedelta64[ns]", "drg": "float64"}
-    if daz is None or drg is None or daz.recompute:
+    if daz is None or drg is None or daz.attrs.get("recompute", False):
         daz = xr.DataArray(
             da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
         )
@@ -994,7 +994,12 @@ def extract_rg_az(
     return rg, az
 
 
-def extract_rg0_az0(slc: xr.DataArray, phase_demod: xr.DataArray) -> tuple[float, float, float, float]:
+def extract_rg0_az0(
+    slc: xr.DataArray,
+    phase_demod: xr.DataArray,
+    dtaz: float,
+    dtrg: float,
+) -> tuple[float, float, float, float]:
     """
     Extract range and azimuth coordinates from a simulation dataset in the SLC's pixel reference system.
 
@@ -1019,13 +1024,6 @@ def extract_rg0_az0(slc: xr.DataArray, phase_demod: xr.DataArray) -> tuple[float
         - The range coordinates in relative pixels (`rg`).
         - The azimuth coordinates in relative pixels (`az`).
     """
-    # Extract metadata from the SLC attributes.
-    annot = slc.attrs
-    annot = annot[list(annot)[0]]
-    # Calculate the time interval per pixel in azimuth and range.
-    dtaz = annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9
-    dtrg = 2 * annot["Grid"]["Row"]["SS"] / speed_of_light
-
     rg0 = ((float(phase_demod.reference["slant_range_time"]) - slc.slant_range_time.min()) / dtrg).values
     az0 = ((np.datetime64(phase_demod.reference["azimuth_time"]) - slc.azimuth_time.min()).astype(float) / dtaz).values
     drg, daz = float(phase_demod.scale["slant_range_time"]), float(phase_demod.scale["azimuth_time"])
@@ -1033,7 +1031,8 @@ def extract_rg0_az0(slc: xr.DataArray, phase_demod: xr.DataArray) -> tuple[float
 
 
 def warp_gslc(
-    image: xr.Dataset,
+    gstack: xr.DataArray,
+    gphase_model: xr.DataArray,
     simulation: xr.Dataset,
     kernel: dict,
     cstack: xr.DataArray,
@@ -1046,6 +1045,7 @@ def warp_gslc(
     dtrg: float,
     scp_idx: tuple[int, int],
     eps: float = 1e-3,
+    method: str = "linear",
     **kwargs,
 ) -> xr.Dataset:
     """
@@ -1057,12 +1057,12 @@ def warp_gslc(
 
     Parameters
     ----------
-    image : xarray.Dataset
-        Target geographic grid and output buffers.
+    gstack : xarray.Dataset
+        Geocoded stack
+    gphase_model : xarray.Dataset
+        Phase model for the stack
     simulation : xarray.Dataset
         Radar geometry simulation data mapping the ground grid.
-    cslc : xarray.Dataset
-        Coregistered SLC measurements and phase conditions.
     kernel : dict
         Sinc interpolation kernel parameters (e.g., {"kernel_shape": (L, L)}).
     margin : int or float
@@ -1095,21 +1095,20 @@ def warp_gslc(
         A dataset containing the geocoded SLC data and the corresponding phase model.
     """
     # --- Initialization and Data Loading ---
-    method = kwargs.get("method", "linear")
-    acquisition_dates = image.acquisition_date.values
+    acquisition_dates = gstack.acquisition_date.values
     # Use the first acquisition's simulation as the reference grid.
     simulation = simulation.isel(acquisition_date=0).squeeze()
     # Define the output region for the current chunk.
-    margin = kernel["kernel_shape"] // 2 + 1
+    margin = np.array(kernel["kernel_shape"]) // 2 + 1
 
     # --- Coordinate Transformation ---
     spacing_in = np.abs(simulation.rio.resolution(recalc=True))
-    spacing_out = image.rio.resolution(recalc=True)
+    spacing_out = gstack.rio.resolution(recalc=True)
 
-    xmin = image.x.min().values - margin * spacing_in[0]
-    xmax = image.x.max().values + margin * spacing_in[0]
-    ymin = image.y.min().values - margin * spacing_in[1]
-    ymax = image.y.max().values + margin * spacing_in[1]
+    xmin = gstack.x.min().values - margin[0] * spacing_in[0]
+    xmax = gstack.x.max().values + margin[0] * spacing_in[0]
+    ymin = gstack.y.min().values - margin[1] * spacing_in[1]
+    ymax = gstack.y.max().values + margin[1] * spacing_in[1]
 
     xslice = slice(xmin, xmax) if spacing_out[0] > 0 else slice(xmax, xmin)
     yslice = slice(ymin, ymax) if spacing_out[1] > 0 else slice(ymax, ymin)
@@ -1121,43 +1120,42 @@ def warp_gslc(
     # Average coordinates to find the center of each pixel.
     simulation["azimuth_time"].data = az
     simulation["slant_range_time"].data = rg
-    x_grid, y_grid = np.meshgrid(image.x, image.y)
+    x_grid, y_grid = np.meshgrid(gstack.x, gstack.y)
 
     # Call the generic dataset interpolation function.
     simul_out = interp_dataset(
         data=simulation, xi=(y_grid, x_grid), common_dims=("y", "x"), method=method, fill_value=0.0
     )
 
-    rg_interp = simul_out.slant_range_time.values.ravel()
-    az_interp = simul_out.azimuth_time.values.ravel()
+    rg_interp = simul_out.x.values.ravel()
+    az_interp = simul_out.y.values.ravel()
 
-    # Find the indices of points that can be safely interpolated (i.e., not too close to the edge).
-    kernel_margin = kernel["kernel_shape"] // 2 + 1
     (ind,) = np.where(
-        (rg_interp >= kernel_margin[1])
-        & (az_interp >= kernel_margin[0])
-        & (rg_interp < (cstack.slant_range_time.size - kernel_margin[1]))
-        & (az_interp < (cstack.azimuth_time.size - kernel_margin[0]))
+        (rg_interp >= margin[1])
+        & (az_interp >= margin[0])
+        & (rg_interp < (cstack.slant_range_time.size - margin[1]))
+        & (az_interp < (cstack.azimuth_time.size - margin[0]))
     )
 
     # --- Main Geocoding Loop ---
-    gstack_buffer = np.zeros_like(image.gstack)
-    phase_model_buffer = np.zeros_like(image.phase_model)
+    gstack_buffer = np.zeros_like(gstack)
+    phase_model_buffer = np.zeros_like(gphase_model)
 
     if ind.size > 0:
         # Define the subset of radar coordinates needed for interpolation.
-        x, y = rg_interp[ind], az_interp[ind]
+        x = simul_out.slant_range_time.values.ravel()[ind]
+        y = simul_out.azimuth_time.values.ravel()[ind]
 
         # Calculate the bounding box to read from the coregistered data.
-        xmin, xmax = np.round(x.min() - kernel_margin[1]).astype(int), np.round(x.max() + kernel_margin[1]).astype(int)
-        ymin, ymax = np.round(y.min() - kernel_margin[0]).astype(int), np.round(y.max() + kernel_margin[0]).astype(int)
+        xmin, xmax = np.round(x.min() - margin[1]).astype(int), np.round(x.max() + margin[1]).astype(int)
+        ymin, ymax = np.round(y.min() - margin[0]).astype(int), np.round(y.max() + margin[0]).astype(int)
 
         # Translate coordinates to be relative to the bounding box origin.
         x, y = x - xmin, y - ymin
 
         # --- Prepare Data for Interpolation ---
         # Get reference points and scaling factors for phase calculations.
-        rg0, az0, drg0, daz0 = extract_rg0_az0(cstack, phase_demod)
+        rg0, az0, drg0, daz0 = extract_rg0_az0(cstack, phase_demod, dtaz, dtrg)
 
         # Select the required portion of the input data.
         cstack = cstack.isel(slant_range_time=slice(xmin, xmax), azimuth_time=slice(ymin, ymax))
@@ -1167,6 +1165,7 @@ def warp_gslc(
         # Prepare for gamma flattening if enabled.
         if gamma_flattening:
             mask_A = anf > eps
+            sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
 
         # --- Loop over each acquisition date ---
         for date_idx, acq_date in enumerate(acquisition_dates):
@@ -1194,10 +1193,11 @@ def warp_gslc(
 
                 # Apply gamma flattening if enabled.
                 if gamma_flattening:
-                    sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
-                    np.divide(slc.values, sqrt_A.values, out=slc.values, where=mask_A.values)
+                    acq_mask = mask_A.sel(acquisition_date=acq_date).values
+                    acq_anf = sqrt_A.sel(acquisition_date=acq_date).values
+                    np.divide(slc.values, acq_anf, out=slc.data, where=acq_mask)
                     # Zero out the invalid pixels
-                    slc.values[..., ~mask_A.values] = 0.0
+                    slc.values[..., ~acq_mask] = 0.0
 
                 # Perform the final sinc interpolation from radar to ground grid.
                 warped_gslc = sinc_warp(slc.values, x, y, kernel)
@@ -1209,12 +1209,10 @@ def warp_gslc(
                 # Map the processed 1D array back into the 2D spatial buffer.
                 gstack_buffer[pol_idx, date_idx].ravel()[ind] = warped_gslc
 
-    # --- Write Output ---
-    # Write the resulting GSLC chunk to the temporary Zarr store.
     ds = xr.Dataset(
         data_vars={
-            "gstack": (image.gstack.dims, gstack_buffer),
-            "phase_model": (image.phase_model.dims, phase_model_buffer),
+            "gstack": (gstack.dims, gstack_buffer),
+            "phase_model": (gphase_model.dims, phase_model_buffer),
         }
     )
     return ds
