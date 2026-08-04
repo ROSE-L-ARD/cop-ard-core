@@ -12,7 +12,6 @@ import numpy as np
 import xarray as xr
 
 from cop_ard_core.esd import (
-    _to_dataset,
     angle_phase,
     compute_azimuth_shifts,
     compute_phase,
@@ -21,74 +20,6 @@ from cop_ard_core.esd import (
     optimize_phase,
     scipy_optimize_phase,
 )
-
-# =============================================================================
-#  _to_dataset
-# =============================================================================
-
-
-class TestToDataset:
-    """Tests for the internal _to_dataset helper."""
-
-    def test_to_dataset_degree_0(self):
-        """Degree-0: each date maps to a 1x1 DataArray."""
-        X = np.array([[1.0], [2.0], [3.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=0, t0=0, r0=0, s_y=np.timedelta64(1, "D"), s_x=1.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 3
-        for dv in result.data_vars.values():
-            assert isinstance(dv, xr.DataArray)
-            assert dv.shape == (1, 1)
-            assert dv.attrs["deg"] == 0
-            assert dv.attrs["offset"] == (0, 0)
-            assert dv.attrs["scale_fact"] == (np.timedelta64(1, "D"), 1.0)
-
-    def test_to_dataset_degree_1(self):
-        """Degree-1: each date maps to a 2x2 DataArray."""
-        X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=1, t0=0, r0=0, s_y=np.timedelta64(1, "D"), s_x=1.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 3
-        for dv in result.data_vars.values():
-            assert dv.shape == (2, 2)
-            assert dv.dims == ("i", "j")
-            assert list(dv.coords["i"].values) == [0, 1]
-            assert list(dv.coords["j"].values) == [0, 1]
-
-    def test_to_dataset_degree_2(self):
-        """Degree-2: each date maps to a 3x3 DataArray."""
-        X = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=2, t0=100, r0=200, s_y=np.timedelta64(1, "h"), s_x=2.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 1
-        for dv in result.data_vars.values():
-            assert dv.shape == (3, 3)
-            # Coefficients are reversed: m[:,0] = flip(X[0]) = [3,2,1]
-            np.testing.assert_array_equal(dv.values[:, 0], [3.0, 2.0, 1.0])
-
-    def test_to_dataset_custom_offsets(self):
-        """Custom t0, r0, s_y, s_x should be stored in attrs."""
-        X = np.array([[1.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=0, t0=42, r0=99, s_y=np.timedelta64(5, "h"), s_x=3.14)
-        for dv in result.data_vars.values():
-            assert dv.attrs["offset"] == (42, 99)
-            assert dv.attrs["scale_fact"] == (np.timedelta64(5, "h"), 3.14)
 
 
 # =============================================================================
