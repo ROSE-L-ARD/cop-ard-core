@@ -143,6 +143,9 @@ def estimate_global_surface(
     assert x.shape[1] > 0
     assert degree >= 0
 
+    # init weights
+    w = np.full_like(y, w) if isinstance(w, float | int) else w
+
     # Set minimization norm and method
     if norm == 1:
         cost_function = cost_function_l1
