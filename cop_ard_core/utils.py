@@ -178,8 +178,8 @@ def get_best_pol(polarization_values: list) -> str:
 
 def get_azimuth_time_raw(
     burst: xr.DataArray, 
-    TimeCOAPoly: np.ndarray, 
-    CollectStart: str,
+    timeca_polynomial_coeffs: np.ndarray, 
+    collection_start_time: np.datetime64,
     multilook: dict | None = None
 ) -> xr.DataArray:
 
@@ -201,13 +201,13 @@ def get_azimuth_time_raw(
     azimuth_m = burst_.azimuth_m.values
 
     # compute the relative azimuth time
-    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, TimeCOAPoly).T
+    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, timeca_polynomial_coeffs).T
 
     # convert to timedelta in nanoseconds
     timeCOA = (timeCOA * 1e9).astype("timedelta64[ns]")
 
     # compute absolute time
-    timeCOA = timeCOA + np.datetime64(CollectStart)
+    timeCOA = timeCOA + collection_start_time
 
     # return as dataarray
     return xr.DataArray(
