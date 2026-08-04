@@ -2424,29 +2424,32 @@ class TestJointUnwrap:
     # Return type and shape tests
     # ------------------------------------------------------------------
 
-    def test_joint_unwrap_returns_tuple_of_two_dataarrays(self):
+    def test_joint_unwrap_returns_tuple_of_three_dataarrays(self):
         """Should return a tuple of two xr.DataArray objects."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays()
         result = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert isinstance(result, tuple)
-        assert len(result) == 2
+        assert len(result) == 3
         assert isinstance(result[0], xr.DataArray)
         assert isinstance(result[1], xr.DataArray)
+        assert isinstance(result[2], xr.DataArray)
 
     @pytest.mark.parametrize("shape", [(3, 3), (4, 4), (5, 5), (3, 5), (5, 3)])
     def test_joint_unwrap_preserves_input_shape(self, shape):
         """Output shapes should match input shapes for various array sizes."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=shape)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, cohe_mask = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == shape
         assert ph_h_unw.shape == shape
+        assert cohe_mask.shape == shape
 
     def test_joint_unwrap_preserves_dimensions(self):
         """Output DataArrays should have the same dimensions as inputs."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays()
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, cohe_mask = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.dims == ("azimuth_time", "slant_range_time")
         assert ph_h_unw.dims == ("azimuth_time", "slant_range_time")
+        assert cohe_mask.dims == ("azimuth_time", "slant_range_time")
 
     def test_joint_unwrap_preserves_coordinates(self):
         """Output coordinates should match input coordinates."""
@@ -2458,9 +2461,13 @@ class TestJointUnwrap:
         coh_h = coh_h.assign_coords({"azimuth_time": az, "slant_range_time": sr})
         ph_l = ph_l.assign_coords({"azimuth_time": az, "slant_range_time": sr})
         ph_h = ph_h.assign_coords({"azimuth_time": az, "slant_range_time": sr})
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, cohe_mask = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         xr.testing.assert_allclose(ph_l_unw.coords["azimuth_time"], ph_l.coords["azimuth_time"])
         xr.testing.assert_allclose(ph_l_unw.coords["slant_range_time"], ph_l.coords["slant_range_time"])
+        xr.testing.assert_allclose(ph_h_unw.coords["azimuth_time"], ph_l.coords["azimuth_time"])
+        xr.testing.assert_allclose(ph_h_unw.coords["slant_range_time"], ph_l.coords["slant_range_time"])
+        xr.testing.assert_allclose(cohe_mask.coords["azimuth_time"], ph_l.coords["azimuth_time"])
+        xr.testing.assert_allclose(cohe_mask.coords["slant_range_time"], ph_l.coords["slant_range_time"])
 
     # ------------------------------------------------------------------
     # Happy path tests
@@ -2469,7 +2476,7 @@ class TestJointUnwrap:
     def test_joint_unwrap_constant_phase(self):
         """Constant input phases should produce constant unwrapped phases."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=0.7, phase_h=0.7)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         # With identical phases, both outputs should equal the input phase everywhere
         np.testing.assert_allclose(ph_l_unw.values, 0.7, atol=1e-10)
         np.testing.assert_allclose(ph_h_unw.values, 0.7, atol=1e-10)
@@ -2477,7 +2484,7 @@ class TestJointUnwrap:
     def test_joint_unwrap_zero_phase(self):
         """Zero input phases should yield zero unwrapped phases."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=0.0, phase_h=0.0)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         np.testing.assert_allclose(ph_l_unw.values, 0.0, atol=1e-10)
         np.testing.assert_allclose(ph_h_unw.values, 0.0, atol=1e-10)
 
@@ -2489,7 +2496,7 @@ class TestJointUnwrap:
         phase_l = np.tile(sr, (az, 1)).T * 0.3  # ramp along range direction
         phase_h = np.tile(saz, (rg, 1)) * 0.2  # ramp along azimuth direction
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=(az, rg), phase_l=phase_l, phase_h=phase_h)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         # ph_l_unw should contain the ramp values
         expected_l = np.tile(sr, (az, 1)).T * 0.3
         expected_h = np.tile(saz, (rg, 1)) * 0.2
@@ -2504,7 +2511,7 @@ class TestJointUnwrap:
         phase_l = np.tile(sr, (az, 1)).T * 0.3
         phase_h = np.tile(sr, (az, 1)).T * 0.3 + np.tile(az_coords, (rg, 1)) * 0.2
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=(az, rg), phase_l=phase_l, phase_h=phase_h)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         np.testing.assert_allclose(ph_l_unw.values, phase_l, atol=1e-6)
         np.testing.assert_allclose(ph_h_unw.values, phase_h, atol=1e-6)
 
@@ -2512,7 +2519,7 @@ class TestJointUnwrap:
         """Using the default cohe_th=0.3 should work with normal coherence values."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(coh_l=0.7, coh_h=0.7)
         # No threshold argument - use default 0.3
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == (3, 3)
         assert ph_h_unw.shape == (3, 3)
         assert not np.any(np.isnan(ph_l_unw.values))
@@ -2558,7 +2565,7 @@ class TestJointUnwrap:
         ph_h_da = xr.DataArray(np.full((az, rg), 0.5, dtype=np.float64), **kwargs)  # type: ignore
         # Threshold at 0.5: only pixels where both coherences >= 0.5 should be included
         # sqrt(0.9 * 0.9) = 0.9 > 0.5 for (0,0); sqrt(0.9 * 0.1) = ~0.3 < 0.5 for (0,1)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l_da, coh_h_da, ph_l_da, ph_h_da, cohe_th=0.5)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l_da, coh_h_da, ph_l_da, ph_h_da, cohe_th=0.5)
         assert ph_l_unw.shape == (az, rg)
         # Some pixels may be NaN where coherence was below threshold
         assert ph_l_unw.shape == ph_h_unw.shape
@@ -2578,14 +2585,14 @@ class TestJointUnwrap:
     def test_joint_unwrap_small_arrays(self, shape):
         """Should work with small arrays (minimum 2x2 for Delaunay triangulation)."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=shape)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == shape
         assert ph_h_unw.shape == shape
 
     def test_joint_unwrap_large_array(self):
         """Should handle larger arrays (10x10) within reasonable time."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=(10, 10))
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == (10, 10)
         assert ph_h_unw.shape == (10, 10)
         assert not np.any(np.isnan(ph_l_unw.values))
@@ -2593,7 +2600,7 @@ class TestJointUnwrap:
     def test_joint_unwrap_opposite_phases(self):
         """Opposite phases in the two sub-bands should produce a valid average."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=0.0, phase_h=np.pi)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == (3, 3)
         assert ph_h_unw.shape == (3, 3)
         # When input phases are 0 and pi, outputs should be 0 and pi respectively
@@ -2603,21 +2610,21 @@ class TestJointUnwrap:
     def test_joint_unwrap_pi_phase(self):
         """Phase values near pi should be handled correctly."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=np.pi, phase_h=np.pi)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         np.testing.assert_allclose(ph_l_unw.values, np.pi, atol=1e-10)
         np.testing.assert_allclose(ph_h_unw.values, np.pi, atol=1e-10)
 
     def test_joint_unwrap_negative_phase(self):
         """Negative phase values should be unwrapped correctly."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=-0.7, phase_h=-0.7)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         np.testing.assert_allclose(ph_l_unw.values, -0.7, atol=1e-10)
         np.testing.assert_allclose(ph_h_unw.values, -0.7, atol=1e-10)
 
     def test_joint_unwrap_asymmetric_coherence(self):
         """Different coherence values between sub-bands should still work."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(coh_l=0.5, coh_h=0.95)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == (3, 3)
         assert ph_h_unw.shape == (3, 3)
         assert not np.any(np.isnan(ph_l_unw.values))
@@ -2641,7 +2648,7 @@ class TestJointUnwrap:
         coh_h = xr.DataArray(np.full((az, rg), 0.8, dtype=np.float64), **kwargs)  # type: ignore
         ph_l = xr.DataArray(np.full((az, rg), 0.5, dtype=np.float64), **kwargs)  # type: ignore
         ph_h = xr.DataArray(np.full((az, rg), 0.5, dtype=np.float64), **kwargs)  # type: ignore
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         # NaN in coherence propagates through sqrt to the mask, resulting in NaN outputs
         assert np.isnan(ph_l_unw.values[0, 2])
         assert np.isnan(ph_l_unw.values[2, 1])
@@ -2696,7 +2703,7 @@ class TestJointUnwrap:
         coh_h = xr.DataArray(np.full((az, rg), 0.8, dtype=np.float64), **kwargs)  # type: ignore
         ph_l = xr.DataArray(np.full((az, rg), 0.5, dtype=np.float64), **kwargs)  # type: ignore
         ph_h = xr.DataArray(np.full((az, rg), 0.5, dtype=np.float64), **kwargs)  # type: ignore
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert ph_l_unw.shape == (az, rg)
         assert not np.any(np.isnan(ph_l_unw.values))
         np.testing.assert_allclose(ph_l_unw.values, 0.5, atol=1e-10)
@@ -2774,13 +2781,13 @@ class TestJointUnwrap:
     def test_joint_unwrap_same_phase_l_equals_h(self):
         """When both sub-bands have the same phase, outputs should be equal."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=1.234, phase_h=1.234)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         np.testing.assert_allclose(ph_l_unw.values, ph_h_unw.values, atol=1e-10)
 
     def test_joint_unwrap_different_phases_both_valid(self):
         """Different phases in sub-bands should both produce valid unwrapped results."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(phase_l=0.3, phase_h=1.7)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         assert not np.any(np.isnan(ph_l_unw.values))
         assert not np.any(np.isnan(ph_h_unw.values))
         # Neither output should be purely wrapped (within [-pi, pi] only)
@@ -2792,7 +2799,7 @@ class TestJointUnwrap:
     def test_joint_unwrap_uniform_phase_5x5(self):
         """A uniform phase field on a 5x5 grid should remain uniform after unwrapping."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(shape=(5, 5), phase_l=0.9, phase_h=0.9)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
         # All values should be identical (within numerical tolerance)
         np.testing.assert_allclose(ph_l_unw.values, ph_l_unw.values[0, 0], atol=1e-10)
         np.testing.assert_allclose(ph_h_unw.values, ph_h_unw.values[0, 0], atol=1e-10)
@@ -2801,7 +2808,7 @@ class TestJointUnwrap:
         """A custom float threshold should be accepted and used."""
         coh_l, coh_h, ph_l, ph_h = self._make_arrays(coh_l=0.6, coh_h=0.6)
         # Threshold 0.5 allows unwrapping (0.6 > 0.5)
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h, cohe_th=0.5)
+        ph_l_unw, ph_h_unw, _ = joint_unwrap(coh_l, coh_h, ph_l, ph_h, cohe_th=0.5)
         assert ph_l_unw.shape == (3, 3)
         # Threshold 0.7 excludes (0.6 < 0.7)
         with pytest.raises(ValueError, match="No points"):
@@ -2840,7 +2847,8 @@ class TestJointUnwrap:
         )
         ph_l = xr.DataArray(phase_l, **kwargs)  # type: ignore
         ph_h = xr.DataArray(phase_h, **kwargs)  # type: ignore
-        ph_l_unw, ph_h_unw = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
-        # Both outputs should be float64
+        ph_l_unw, ph_h_unw, cohe_mask = joint_unwrap(coh_l, coh_h, ph_l, ph_h)
+        # All outputs should be float64
         assert ph_l_unw.dtype == np.float64
         assert ph_h_unw.dtype == np.float64
+        assert cohe_mask.dtype == np.float64
