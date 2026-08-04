@@ -343,57 +343,38 @@ class TestComputeShift:
 class TestComputeAzimuthShifts:
     """Tests for the compute_azimuth_shifts function."""
 
-    def test_compute_azimuth_shifts_returns_dataset(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_returns_dataset(self, esd_burst, esd_reference_pair):
         """Should return an xr.Dataset with expected data variables."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
         assert isinstance(result, xr.Dataset)
         assert "coherence" in result.data_vars
         assert "mean_phase" in result.data_vars
         assert "mean_shift" in result.data_vars
         assert "wrap_cycle" in result.data_vars
-        assert "reference_date" in result.coords
+        assert "acquisition_date" in result.coords
 
-    def test_compute_azimuth_shifts_reference_date_coord(self, esd_burst, esd_reference_pair, esd_acquisition_date):
-        """reference_date coordinate should match input list."""
-        ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
-        result = compute_azimuth_shifts(
-            burst0=esd_burst,
-            burst1=esd_burst,
-            reference0=ref0,
-            reference1=ref1,
-            reference_dates=ref_dates,
-            multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
-        )
-        np.testing.assert_array_equal(result.coords["reference_date"].values, ref_dates)
-
-    def test_compute_azimuth_shifts_coherence_shape(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_coherence_shape(self, esd_burst, esd_reference_pair):
         """Coherence should be 2D: (reference_date, acquisition_date)."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13", "2020-01-25"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
-        assert result["coherence"].shape == (3, 3)  # 3 ref_dates x 3 acquisition_dates
+        assert result["coherence"].shape == (3,)  # 3 acquisition_dates
 
-    def test_compute_azimuth_shifts_mean_shift_zeros(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_mean_shift_zeros(self, esd_burst, esd_reference_pair):
         """mean_shift should be all zeros."""
         ref0, ref1 = esd_reference_pair
         ref_dates = ["2020-01-01", "2020-01-13"]
@@ -402,13 +383,12 @@ class TestComputeAzimuthShifts:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
-        np.testing.assert_array_equal(result["mean_shift"].values, np.zeros((2, 3)))
+        np.testing.assert_array_equal(result["mean_shift"].values, np.zeros((3,)))
 
-    def test_compute_azimuth_shifts_wrap_cycle_positive(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_wrap_cycle_positive(self, esd_burst, esd_reference_pair):
         """wrap_cycle should exist and have correct shape (may be inf when bursts are identical)."""
         ref0, ref1 = esd_reference_pair
         ref_dates = ["2020-01-01"]
@@ -417,13 +397,12 @@ class TestComputeAzimuthShifts:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
         # wrap_cycle = 1 / ((f_d1 - f_d0).mean() * dazm)
         # When burst0 == burst1, f_d1 == f_d0, so wrap_cycle is inf
-        assert result["wrap_cycle"].shape == (1, 3)
+        assert result["wrap_cycle"].shape == (3,)
 
 
 class TestOptimizeCurvature:
