@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from cop_ard_core.utils import get_coordinates
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, cast  # noqa: F401
 
 import dask.array as da
@@ -412,7 +413,7 @@ def compute_secondary_image_coordinates(
 
     """
 
-    def get_coordinates(alpha, beta, coord_type: str = "pixels"):
+    def _get_coordinates(alpha, beta, coord_type: str = "pixels"):
         """
         Calculates coordinates for polynomial evaluation based on offsets and scaling.
         """
@@ -423,7 +424,7 @@ def compute_secondary_image_coordinates(
             y, x = coreg_azimuth_time, coreg_slant_range_time
         else:
             raise RuntimeError(f"Invalid coordinate type: {coord_type}")
-        return ((e - alpha[i]).astype("float64") / beta[i].astype("float64") for i, e in enumerate([y, x]))
+        return get_coordinates(y, x, alpha, beta)
 
     # Compute grid spacing (dtaz, dtrg) and reference start times (rg0, az0) from metadata.
     rg0 = slc.isel(slant_range_time=0).slant_range_time.values
@@ -446,13 +447,13 @@ def compute_secondary_image_coordinates(
     )
     # Apply optional polynomial corrections to azimuth coordinates.
     if y_poly is not None:
-        c1, c2 = get_coordinates(y_poly.offset, y_poly.scale_fact, y_poly.type)
+        c1, c2 = _get_coordinates(y_poly.offset, y_poly.scale_fact, y_poly.type)
         corr = np.polynomial.polynomial.polygrid2d(c1, c2, y_poly.values)
         daz = daz + np.round(corr * azimuth_grid_spacing).astype("timedelta64[ns]")
 
     # Apply optional polynomial corrections to range coordinates.
     if x_poly is not None:
-        c1, c2 = get_coordinates(x_poly.offset, x_poly.scale_fact, x_poly.type)
+        c1, c2 = _get_coordinates(x_poly.offset, x_poly.scale_fact, x_poly.type)
         corr = np.polynomial.polynomial.polygrid2d(c1, c2, x_poly.values)
         drg = drg + corr * range_grid_spacing
 

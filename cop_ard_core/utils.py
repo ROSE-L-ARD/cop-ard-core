@@ -58,7 +58,7 @@ def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
     """
-    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
+    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")) for i, e in enumerate([y, x]))
 
 
 # @timeit
