@@ -1531,7 +1531,7 @@ class TestReconstructIonoSurface:
         coeffs = xr.DataArray(coeffs_data, dims=["degree"], coords={"degree": np.arange(coeffs_data.size)})
         coeffs.attrs["offset"] = offset
         coeffs.attrs["scale_fact"] = scale_fact
-        return interf, azimuth_time_raw, coeffs
+        return interf.azimuth_time, interf.slant_range_time, azimuth_time_raw, coeffs
 
     # ------------------------------------------------------------------
     # Return type and shape tests
@@ -1539,9 +1539,10 @@ class TestReconstructIonoSurface:
 
     def test_reconstruct_iono_surface_returns_dataarray(self):
         """Should return xr.DataArray."""
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1552,9 +1553,10 @@ class TestReconstructIonoSurface:
 
     def test_reconstruct_iono_surface_shape(self):
         """Output shape should match azimuth_time_raw shape."""
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1565,9 +1567,10 @@ class TestReconstructIonoSurface:
 
     def test_reconstruct_iono_surface_preserves_dimensions(self):
         """Output DataArrays should have the same dimensions as inputs."""
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1602,7 +1605,8 @@ class TestReconstructIonoSurface:
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
         result = reconstruct_iono_surface(
-            interf,
+            interf.azimuth_time,
+            interf.slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1616,9 +1620,10 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_various_shapes(self, shape):
         """Output shape should match azimuth_time_raw shape for various array sizes."""
         az_size, sr_size = shape
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1628,60 +1633,21 @@ class TestReconstructIonoSurface:
         assert result.shape == shape
 
     # ------------------------------------------------------------------
-    # Dataset input tests
-    # ------------------------------------------------------------------
-
-    def test_reconstruct_iono_surface_with_dataset_input(self):
-        """Should accept xr.Dataset as interf parameter."""
-        az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
-        interf_ds = interf.to_dataset(name="iono_phase")
-        result = reconstruct_iono_surface(
-            interf_ds,
-            azimuth_time_raw,
-            coeffs,
-            H_iono=300000.0,
-            H_orb=800000.0,
-            degree=1,
-        )
-        assert isinstance(result, xr.DataArray)
-
-    def test_reconstruct_iono_surface_dataset_with_multiple_vars(self):
-        """Should work with Dataset containing multiple data variables."""
-        az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
-        interf_ds = interf.to_dataset(name="iono_phase")
-        interf_ds["other_var"] = xr.DataArray(
-            np.zeros((az_size, sr_size)),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": interf.azimuth_time, "slant_range_time": interf.slant_range_time},
-        )
-        result = reconstruct_iono_surface(
-            interf_ds,
-            azimuth_time_raw,
-            coeffs,
-            H_iono=300000.0,
-            H_orb=800000.0,
-            degree=1,
-        )
-        assert isinstance(result, xr.DataArray)
-        assert result.shape == (az_size, sr_size)
-
-    # ------------------------------------------------------------------
     # Numerical correctness tests
     # ------------------------------------------------------------------
 
     def test_reconstruct_iono_surface_constant_coefficients(self):
         """Only constant coefficient (degree=0) should produce a constant surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             degree=0,
             coeffs_data=np.array([42.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1693,7 +1659,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_linear_gradient_correct(self):
         """Linear coefficients should produce a surface matching c0 + c1*x + c2*y with identity normalization."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -1701,7 +1667,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([1.0, 2.0, 3.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1713,7 +1680,7 @@ class TestReconstructIonoSurface:
         # row0: 1*0 + 2*[0,1,2,3,4] + 3 = [3,5,7,9,11]
         # row1: 1*1e9 + 2*[0,1,2,3,4] + 3 ≈ [1e9, 1e9, 1e9, 1e9, 1e9]
         # row2: 1*2e9 + 2*[0,1,2,3,4] + 3 ≈ [2e9, 2e9, 2e9, 2e9, 2e9]
-        y_vals_arr = interf.slant_range_time.values  # [0, 1, 2, 3, 4]
+        y_vals_arr = slant_range_time.values  # [0, 1, 2, 3, 4]
         expected_row0 = 2.0 * y_vals_arr + 3.0
         np.testing.assert_allclose(result.values[0], expected_row0, atol=1e-10)
         # Rows 1,2 dominated by c0*y_norm term
@@ -1723,10 +1690,11 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_same_height_ratio(self):
         """When H_orb == H_iono the scaling should not change azimuth coordinates."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         # With H_orb == H_iono, ratio = 1.0 so az_time is unchanged
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=800000.0,
@@ -1739,7 +1707,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_zero_height_ratio(self):
         """When H_iono = 0 the scaled azimuth component should be zero."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -1747,7 +1715,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.0, 1.0, 1.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=0.0,
@@ -1756,7 +1725,7 @@ class TestReconstructIonoSurface:
         )
         # result = c0*y_norm + c1*x_norm + c2 = 0 + 1*[0,1,2,3,4] + 1 = [1,2,3,4,5]
         # (c0=0 so y contribution is 0 for all rows)
-        y_vals = interf.slant_range_time.values  # [0, 1, 2, 3, 4]
+        y_vals = slant_range_time.values  # [0, 1, 2, 3, 4]
         expected = 1.0 * y_vals + 1.0  # [1,2,3,4,5]
         assert result.shape == (3, 5)
         np.testing.assert_allclose(result.values[0], expected, atol=1e-10)
@@ -1766,7 +1735,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_large_height_ratio(self):
         """With H_iono != H_orb but matching datetime coords, azimuth component is zero."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -1774,7 +1743,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.0, 0.0, 1.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=1600000.0,
@@ -1789,7 +1759,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_negative_coefficients(self):
         """Negative coefficients should produce negative contributions in the surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -1797,7 +1767,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.0, -1.0, -2.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1845,7 +1816,8 @@ class TestReconstructIonoSurface:
         coeffs.attrs["offset"] = np.array([-2.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([4.0, 1.0])
         result = reconstruct_iono_surface(
-            interf,
+            interf.azimuth_time,
+            interf.slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1859,13 +1831,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_all_zeros(self):
         """All-zero coefficients should produce a zero surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([0.0, 0.0, 0.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1876,9 +1849,10 @@ class TestReconstructIonoSurface:
 
     def test_reconstruct_iono_surface_float64_dtype(self):
         """Output should be float64 dtype."""
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs()
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1892,7 +1866,7 @@ class TestReconstructIonoSurface:
         az_size, sr_size = 1, 5
         # degree=2: 6 coeffs [const, x, y, x^2, xy, y^2]
         # With datetime azimuth_time, y_ = 0, so y and y^2 terms don't contribute
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -1900,7 +1874,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.5, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1918,7 +1893,7 @@ class TestReconstructIonoSurface:
         """Non-trivial offset and scale should normalize coordinates before evaluation."""
         az_size, sr_size = 3, 5
         # With offset=[1, 2] and scale_fact=[2, 3], x_norm = (x - 1) / 2, y_norm = 0
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([1.0, 2.0]),
@@ -1926,7 +1901,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.0, 2.0, 3.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1949,9 +1925,10 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_minimum_array_size(self):
         """Should work with minimum 2x2 arrays."""
         az_size, sr_size = 2, 2
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1964,9 +1941,10 @@ class TestReconstructIonoSurface:
         """Should work with asymmetric array shapes."""
         for shape in [(2, 5), (5, 2), (3, 10), (10, 3), (1, 5), (5, 1)]:
             az_size, sr_size = shape
-            interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+            azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
             result = reconstruct_iono_surface(
-                interf,
+                azimuth_time,
+                slant_range_time,
                 azimuth_time_raw,
                 coeffs,
                 H_iono=300000.0,
@@ -1978,13 +1956,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_very_small_coefficients(self):
         """Very small coefficient values should still produce valid output."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([1e-15, 1e-15, 1e-15], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -1997,13 +1976,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_very_large_coefficients(self):
         """Very large coefficient values should still produce valid output."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([1e10, 1e10, 1e10], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2020,13 +2000,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_nan_coefficient_propagates(self):
         """NaN in coefficients should propagate to the output surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([np.nan, 1.0, -0.5], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2038,13 +2019,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_inf_coefficient_propagates(self):
         """Inf in coefficients should propagate to the output surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([np.inf, 1.0, -0.5], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2058,13 +2040,14 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_negative_inf_coefficient_propagates(self):
         """-Inf in coefficients should propagate to the output surface."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             coeffs_data=np.array([-np.inf, 1.0, -0.5], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2078,14 +2061,15 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_nan_offset_propagates(self):
         """NaN in offset attributes should produce NaN output via inf/0 division."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([np.nan, 0.0]),
             scale_fact=np.array([1.0, 1.0]),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2098,14 +2082,15 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_nan_scale_fact_propagates(self):
         """Zero scale_fact with non-zero offset should produce inf, which propagates."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([1.0, 0.0]),
             scale_fact=np.array([0.0, 1.0]),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2118,11 +2103,12 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_nan_in_interf(self):
         """NaN in interf values should not affect reconstruction."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
-        interf_nan = interf.copy()
-        interf_nan[:] = np.nan
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        az_nan = xr.full_like(azimuth_time, fill_value=np.nan)
+        ra_nan = xr.full_like(slant_range_time, fill_value=np.nan)
         result = reconstruct_iono_surface(
-            interf_nan,
+            az_nan,
+            ra_nan,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2134,7 +2120,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_shape_mismatch_raises(self):
         """Mismatched shapes between interf and azimuth_time_raw should raise ValueError."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         # Override with mismatched shape
         base_dt = np.datetime64("2020-01-01T00:00:00", "ns")
         az_dt_new = np.array(
@@ -2148,7 +2134,8 @@ class TestReconstructIonoSurface:
         )
         with pytest.raises(ValueError):
             reconstruct_iono_surface(
-                interf,
+                azimuth_time,
+                slant_range_time,
                 azimuth_time_raw,
                 coeffs,
                 H_iono=300000.0,
@@ -2159,12 +2146,13 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_missing_offset_attr_raises(self):
         """Missing offset attribute should raise KeyError during normalization."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         # Remove the offset attribute
         del coeffs.attrs["offset"]
         with pytest.raises(KeyError):
             reconstruct_iono_surface(
-                interf,
+                azimuth_time,
+                slant_range_time,
                 azimuth_time_raw,
                 coeffs,
                 H_iono=300000.0,
@@ -2175,12 +2163,13 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_missing_scale_fact_attr_raises(self):
         """Missing scale_fact attribute should raise KeyError during normalization."""
         az_size, sr_size = 3, 5
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         # Remove the scale_fact attribute
         del coeffs.attrs["scale_fact"]
         with pytest.raises(KeyError):
             reconstruct_iono_surface(
-                interf,
+                azimuth_time,
+                slant_range_time,
                 azimuth_time_raw,
                 coeffs,
                 H_iono=300000.0,
@@ -2212,7 +2201,8 @@ class TestReconstructIonoSurface:
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
         with pytest.raises(ValueError):
             reconstruct_iono_surface(
-                interf,
+                interf.azimuth_time,
+                interf.slant_range_time,
                 azimuth_time_raw,
                 coeffs,
                 H_iono=300000.0,
@@ -2223,9 +2213,10 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_larger_array(self):
         """Should handle larger arrays (10x10) within reasonable time."""
         az_size, sr_size = 10, 10
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(az_size=az_size, sr_size=sr_size)
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2270,7 +2261,8 @@ class TestReconstructIonoSurface:
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
         result = reconstruct_iono_surface(
-            interf,
+            interf.azimuth_time,
+            interf.slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2314,7 +2306,8 @@ class TestReconstructIonoSurface:
         coeffs.attrs["offset"] = np.array([0.0, 0.0], dtype=np.float64)
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0], dtype=np.float64)
         result = reconstruct_iono_surface(
-            interf,
+            interf.azimuth_time,
+            interf.slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2330,7 +2323,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_only_y_coefficient(self):
         """Only y (azimuth) coefficient should produce uniform columns with varying rows."""
         az_size, sr_size = 4, 6
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -2338,7 +2331,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([2.0, 0.0, 0.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
@@ -2355,7 +2349,7 @@ class TestReconstructIonoSurface:
     def test_reconstruct_iono_surface_only_x_coefficient(self):
         """Only x (range) coefficient should produce uniform rows with varying columns."""
         az_size, sr_size = 4, 6
-        interf, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
+        azimuth_time, slant_range_time, azimuth_time_raw, coeffs = self._make_reconstruct_inputs(
             az_size=az_size,
             sr_size=sr_size,
             offset=np.array([0.0, 0.0]),
@@ -2363,7 +2357,8 @@ class TestReconstructIonoSurface:
             coeffs_data=np.array([0.0, 3.0, 0.0], dtype=np.float64),
         )
         result = reconstruct_iono_surface(
-            interf,
+            azimuth_time,
+            slant_range_time,
             azimuth_time_raw,
             coeffs,
             H_iono=300000.0,
