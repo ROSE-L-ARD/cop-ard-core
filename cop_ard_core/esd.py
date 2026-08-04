@@ -13,7 +13,7 @@ def compute_shift(
     acquisition_date: xr.DataArray,
     multilook: dict,
     coherence_threshold: float,
-) -> tuple[str, xr.DataArray, xr.DataArray]:
+) -> tuple[xr.DataArray, xr.DataArray]:
 
     # output initialization #
     coords = acquisition_date.coords

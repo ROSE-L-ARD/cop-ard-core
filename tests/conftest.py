@@ -431,7 +431,7 @@ def esd_reference_pair(esd_burst):
     The acquisition_date dimension contains the same dates as the burst so
     that `all(reference_date in e.acquisition_date)` returns True.
     """
-    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"])
+    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
     data0 = np.array(
         [[[(i + 1) * (j + 1) * (k + 1) * (1 + 0.1j) for k in range(3)] for j in range(3)] for i in range(3)],
         dtype=np.complex128,

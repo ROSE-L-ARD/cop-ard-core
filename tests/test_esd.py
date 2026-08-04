@@ -222,52 +222,31 @@ class TestComputeShift:
     def test_compute_shift_reference_exists(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When reference_date is in acquisition_date, interferogram is computed."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
-        assert result_ref == ref_date
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
         assert list(mean_phase.dims) == ["acquisition_date"]
         assert len(mean_phase) == 3
-
-    def test_compute_shift_reference_missing(self, esd_burst, esd_reference_pair, esd_acquisition_date):
-        """When reference_date is NOT in acquisition_date, returns NaN arrays."""
-        ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
-            burst0=esd_burst,
-            burst1=esd_burst,
-            reference0=ref0,
-            reference1=ref1,
-            acquisition_date=esd_acquisition_date,
-            reference_date="2025-01-01",
-            multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_threshold=0.5,
-        )
-        assert result_ref == "2025-01-01"
-        assert np.all(np.isnan(mean_phase.values))
-        assert np.all(np.isnan(coherence.values))
 
     def test_compute_shift_coherence_below_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When coherence is below threshold, mean_phase should be masked to NaN."""
         ref0, ref1 = esd_reference_pair
         ref_date = "2020-01-01"
         # Very high threshold so coherence is below it
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=1.0 + 1e-6,
         )
@@ -278,13 +257,12 @@ class TestComputeShift:
         """When coherence exceeds threshold, returns valid type arrays (values depend on data)."""
         ref0, ref1 = esd_reference_pair
         ref_date = "2020-01-01"
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -297,30 +275,27 @@ class TestComputeShift:
     def test_compute_shift_return_types(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Return types: (str, xr.DataArray, xr.DataArray)."""
         ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
-        assert isinstance(result_ref, str)
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
 
     def test_compute_shift_mean_phase_in_range(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Mean phase from xr.ufuncs.angle should be in [-pi, pi]."""
         ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -332,13 +307,12 @@ class TestComputeShift:
     def test_compute_shift_coherence_has_name(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Returned coherence should be renamed to 'coherence'."""
         ref0, ref1 = esd_reference_pair
-        _, _, coherence = compute_shift(
+        _, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -348,13 +322,12 @@ class TestComputeShift:
         """Different multilook factors should still produce valid results."""
         ref0, ref1 = esd_reference_pair
         for ml in [{"azimuth_pixel": 1, "slant_range_time": 1}, {"azimuth_pixel": 2, "slant_range_time": 2}]:
-            result_ref, mean_phase, coherence = compute_shift(
+            mean_phase, coherence = compute_shift(
                 burst0=esd_burst,
                 burst1=esd_burst,
                 reference0=ref0,
                 reference1=ref1,
                 acquisition_date=esd_acquisition_date,
-                reference_date="2020-01-01",
                 multilook=ml,
                 coherence_threshold=0.0,
             )
