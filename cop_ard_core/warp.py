@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from cop_ard_core.utils import get_coordinates
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, cast  # noqa: F401
 
 import dask.array as da
@@ -33,6 +32,7 @@ from cop_ard_core.simul import (
     get_position,
     get_radar_bbox,
 )
+from cop_ard_core.utils import get_coordinates
 
 # Define a default grid size for processing
 GRID = 11, 11

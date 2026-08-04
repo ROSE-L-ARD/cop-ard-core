@@ -5,6 +5,7 @@ from numba import njit
 
 from cop_ard_core.utils import compute_interf_norm, wrap
 
+
 def compute_shift(
     burst0: xr.DataArray,
     burst1: xr.DataArray,

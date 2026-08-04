@@ -8,8 +8,6 @@ Tests all public functions in utils.py covering:
 - Shape and value correctness using np.testing and xr.testing
 """
 
-import warnings
-
 import numpy as np
 import pytest
 import xarray as xr
@@ -24,12 +22,10 @@ from cop_ard_core.utils import (
     get_daz_corr,
     get_interf,
     get_normalized_interf,
-    get_phramp_diff,
     get_power,
     time_to_pixel,
     wrap,
 )
-
 
 # ===========================================================================
 # TestWrap
@@ -570,7 +566,12 @@ class TestGetDazCorr:
         scale_fact = [np.float64(1.0), np.float64(1.0)]
         result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
         # polygrid2d(c1, c2, [[1,1],[1,1]]) = 1 + c1 + c2 + c1*c2
-        expected = np.outer(np.ones(4), np.ones(3)) + np.outer(np.arange(4), np.ones(3)) + np.outer(np.ones(4), np.arange(3)) + np.outer(np.arange(4), np.arange(3))
+        expected = (
+            np.outer(np.ones(4), np.ones(3))
+            + np.outer(np.arange(4), np.ones(3))
+            + np.outer(np.ones(4), np.arange(3))
+            + np.outer(np.arange(4), np.arange(3))
+        )
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_linear_polynomial(self):
@@ -595,7 +596,12 @@ class TestGetDazCorr:
         result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
         # c1 = (az - 1) / 1 = [-1, 0, 1], c2 = (sr - 0.5) / 1 = [-0.5, 0.5, 1.5]
         # polygrid2d(c1, c2, [[1,1],[1,1]]) = 1 + c1 + c2 + c1*c2
-        expected = 1.0 + np.outer([-1, 0, 1], np.ones(3)) + np.outer(np.ones(3), [-0.5, 0.5, 1.5]) + np.outer([-1, 0, 1], [-0.5, 0.5, 1.5])
+        expected = (
+            1.0
+            + np.outer([-1, 0, 1], np.ones(3))
+            + np.outer(np.ones(3), [-0.5, 0.5, 1.5])
+            + np.outer([-1, 0, 1], [-0.5, 0.5, 1.5])
+        )
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_with_scale(self):
@@ -678,7 +684,8 @@ class TestGetCoeffDemod:
         # Each row is integrated independently along axis=1
         for i in range(2):
             np.testing.assert_allclose(
-                result[i, 0], 0.0  # integration constant
+                result[i, 0],
+                0.0,  # integration constant
             )
 
     def test_get_coeff_demod_scalar_coeff(self):
@@ -776,7 +783,11 @@ class TestTimeToPixel:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         data = np.random.rand(3, 3)
         ds = xr.Dataset(
-            {"band": xr.DataArray(data, dims=["azimuth_time", "slant_range_time"], coords={"azimuth_time": az, "slant_range_time": sr})},
+            {
+                "band": xr.DataArray(
+                    data, dims=["azimuth_time", "slant_range_time"], coords={"azimuth_time": az, "slant_range_time": sr}
+                )
+            },
             coords={"azimuth_time": az, "slant_range_time": sr},
         )
         result = time_to_pixel(ds)

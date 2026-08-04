@@ -140,8 +140,7 @@ def time_to_pixel(
 
     # spacing computation #
     y_spacing, x_spacing = [
-        (stack[e][-1] - stack[e][0]).values / (stack[e].size - 1)
-        for e in ["azimuth_time", "slant_range_time"]
+        (stack[e][-1] - stack[e][0]).values / (stack[e].size - 1) for e in ["azimuth_time", "slant_range_time"]
     ]
 
     # times to pixel coordinates #
@@ -177,19 +176,15 @@ def get_best_pol(polarization_values: list) -> str:
 
 
 def get_azimuth_time_raw(
-    burst: xr.DataArray, 
-    timeca_polynomial_coeffs: np.ndarray, 
+    burst: xr.DataArray,
+    timeca_polynomial_coeffs: np.ndarray,
     collection_start_time: np.datetime64,
-    multilook: dict | None = None
+    multilook: dict | None = None,
 ) -> xr.DataArray:
 
     if multilook is not None:
-        az_slice = slice(
-            multilook["azimuth_time"] // 2, None, multilook["azimuth_time"]
-        )
-        rg_slice = slice(
-            multilook["slant_range_time"] // 2, None, multilook["slant_range_time"]
-        )
+        az_slice = slice(multilook["azimuth_time"] // 2, None, multilook["azimuth_time"])
+        rg_slice = slice(multilook["slant_range_time"] // 2, None, multilook["slant_range_time"])
     else:
         az_slice = slice(None, None, None)
         rg_slice = slice(None, None, None)

@@ -21,7 +21,6 @@ from cop_ard_core.esd import (
     scipy_optimize_phase,
 )
 
-
 # =============================================================================
 #  compute_phase  (numba)
 # =============================================================================
@@ -239,7 +238,6 @@ class TestComputeShift:
     def test_compute_shift_coherence_below_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When coherence is below threshold, mean_phase should be masked to NaN."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
         # Very high threshold so coherence is below it
         mean_phase, coherence = compute_shift(
             burst0=esd_burst,
@@ -256,7 +254,6 @@ class TestComputeShift:
     def test_compute_shift_coherence_above_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When coherence exceeds threshold, returns valid type arrays (values depend on data)."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
         mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
@@ -377,7 +374,6 @@ class TestComputeAzimuthShifts:
     def test_compute_azimuth_shifts_mean_shift_zeros(self, esd_burst, esd_reference_pair):
         """mean_shift should be all zeros."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
@@ -391,7 +387,6 @@ class TestComputeAzimuthShifts:
     def test_compute_azimuth_shifts_wrap_cycle_positive(self, esd_burst, esd_reference_pair):
         """wrap_cycle should exist and have correct shape (may be inf when bursts are identical)."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
