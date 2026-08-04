@@ -605,45 +605,7 @@ class TestComputeRasterization:
       - nlook: number of looks per geogrid cell
       - weights: sparse CSR weight dataset (or None)
       - layover: list of (bbox_str, sparse_dataset) tuples (or None)
-
-    Tests mock the internal get_w kernel since it depends on numba acceleration.
     """
-
-    def _make_mock_get_w(self):
-        """Create a mock get_w that returns valid outputs matching the source logic."""
-
-        def mock_get_w(
-            x, y, triang, ymin, ymin_global, xmin, xmin_global, xsize_global, bbox, expected_nlooks, plane_orientation=1
-        ):
-            # Simulate: triang shape determines number of polygons
-            n_tri = triang.shape[0] if hasattr(triang, "shape") else 1
-            nlook = np.ones(n_tri, dtype=np.float32)
-            # Return non-None to trigger weight creation path
-            w = build_sparse_array(
-                data=np.array([1.0], dtype="float32"),
-                row=np.array([0, 1], dtype="int64"),
-                col=np.array([0], dtype="int64"),
-                shape=np.array([n_tri, 10]),
-                format="CSR",
-                chunks=n_tri // 4,
-                attrs={"radar_bbox": np.array([0, 0, 5, 5])},
-            )
-            layover = [
-                (
-                    "0_0_5_5",
-                    build_sparse_array(
-                        data=np.array([0.5], dtype="float32"),
-                        row=np.array([0, 1], dtype="int64"),
-                        col=np.array([0], dtype="int64"),
-                        shape=np.array([5, 5]),
-                        format="CSR",
-                        chunks=n_tri // 4,
-                    ),
-                )
-            ]
-            return (w, nlook, layover)
-
-        return mock_get_w
 
     @patch("cop_ard_core.area_projection.get_w")
     def test_compute_rasterization_returns_tuple(self, mock_get_w, area_proj_simulation, area_proj_bbox):
@@ -829,43 +791,6 @@ class TestComputeRtcAp:
 
     Tests mock the internal computeGammaNaughtArea kernel since it depends on numba.
     """
-
-    def _make_mock_compute_gamma(self):
-        """Create a mock computeGammaNaughtArea that fills GNA and cos_theta arrays."""
-
-        def mock_compute_gamma(**kwargs):
-            radar_grid_pixel_area = kwargs["radar_grid_pixel_area"]
-            num_triangles = kwargs["num_triangles"]
-            GNA = kwargs["GNA"]
-            lia_arr = kwargs["lia"]
-            n_rows = kwargs["n_rows"]
-            n_cols = kwargs["n_cols"]
-            data_out = kwargs["data"]
-            indices_out = kwargs["indices"]
-            indptr_out = kwargs["indptr"]
-            bbox = kwargs["bbox"]
-
-            # Fill GNA and cos_theta with known values
-            for i in range(num_triangles):
-                lia_arr[i] = 0.5  # cos_theta
-                GNA[i] = 1.0 / radar_grid_pixel_area
-
-            # Create a non-zero sparse matrix
-            nnz = min(5, n_rows)
-            for i in range(nnz):
-                data_out[i] = 1.0
-                indices_out[i] = i % n_cols
-                indptr_out[i + 1] = 1
-            for i in range(nnz, n_rows):
-                indptr_out[i + 1] = 0
-            # Cumulative sum for indptr
-            for i in range(1, n_rows + 1):
-                indptr_out[i] += indptr_out[i - 1]
-
-            bbox[:] = np.array([0, nnz - 1, 0, n_cols - 1])
-            return nnz
-
-        return mock_compute_gamma
 
     @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
     def test_compute_rtc_ap_returns_tuple(
@@ -1075,26 +1000,6 @@ class TestGetW:
     Tests mock the internal area_proj_triangles kernel since it has dtype
     sensitivity issues with float64 bbox values.
     """
-
-    def _make_mock_area_proj(self, nnz=4):
-        """Create a mock area_proj_triangles returning valid sparse matrix components."""
-
-        def mock_area_proj(**kwargs):
-            # Return valid CSR components: (data, ind_ptr, col), (l1, ind_ptr_l1, col_l1), (l2, ind_ptr_l2, col_l2), nlook
-            ntr = kwargs.get("triangs", []).size // 4 if hasattr(kwargs.get("triangs", []), "__len__") else 4
-            data = np.arange(nnz, dtype="float64") + 0.1
-            ind_ptr = np.arange(ntr + 1, dtype="int64") * nnz // max(ntr, 1)
-            col = np.arange(nnz, dtype="int64")
-            l1_data = np.zeros(0, dtype="float64")
-            l1_indptr = np.array([0], dtype="int64")
-            l1_col = np.zeros(0, dtype="int64")
-            l2_data = np.zeros(0, dtype="float64")
-            l2_indptr = np.array([0], dtype="int64")
-            l2_col = np.zeros(0, dtype="int64")
-            nlook = np.ones(ntr, dtype="float64") * nnz
-            return ((data, ind_ptr, col), (l1_data, l1_indptr, l1_col), (l2_data, l2_indptr, l2_col), nlook)
-
-        return mock_area_proj
 
     @patch("cop_ard_core.area_projection.area_proj_triangles")
     def test_get_w_returns_tuple(self, mock_area_proj, get_w_simple_inputs):
