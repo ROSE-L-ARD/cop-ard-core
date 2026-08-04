@@ -1279,3 +1279,256 @@ def warp_dazdrg_inputs(
         "range_grid_spacing": 0.5,
         "compute_daz_drg": True,
     }
+
+
+# ===========================================================================
+# warp test fixtures
+# ===========================================================================
+
+
+@pytest.fixture
+def image_7x7():
+    """7x7 real-valued image for boundary testing."""
+    return np.arange(49, dtype=np.float64).reshape(7, 7)
+
+
+@pytest.fixture
+def csi_slc():
+    """SLC DataArray used to extract az0/rg0 reference values.
+
+    Dims: (azimuth_time, slant_range_time) with datetime and float coords.
+    Shape: (5, 4).
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float64)
+    data = np.ones((5, 4), dtype=np.complex128)
+    return xr.DataArray(
+        data,
+        dims=["azimuth_time", "slant_range_time"],
+        coords={"azimuth_time": az, "slant_range_time": rg},
+    )
+
+
+@pytest.fixture
+def csi_coreg_az():
+    """Coregistration azimuth time grid (5x4).
+
+    Values are datetime64[ns] representing shifted acquisition times.
+    Shape matches csi_slc: (5, 4).
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az_vals = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    az_grid = np.array([[az_vals[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]")
+    return xr.DataArray(az_grid, dims=["azimuth_time", "slant_range_time"])
+
+
+@pytest.fixture
+def csi_coreg_rg():
+    """Coregistration slant range time grid (5x4).
+
+    Values are float64 representing shifted slant range times.
+    Shape matches csi_slc: (5, 4).
+    """
+    base_rg = np.arange(4, dtype=np.float64) * 0.5
+    rg_grid = np.array([[base_rg[j] for j in range(4)] for i in range(5)], dtype=np.float64)
+    return xr.DataArray(rg_grid, dims=["azimuth_time", "slant_range_time"])
+
+
+@pytest.fixture
+def csi_daz():
+    """Azimuth correction DataArray (5x4) with zero offsets.
+
+    dtype is timedelta64[ns].
+    """
+    return xr.DataArray(
+        np.zeros((5, 4), dtype="timedelta64[ns]"),
+        dims=["azimuth_time", "slant_range_time"],
+    )
+
+
+@pytest.fixture
+def csi_drg():
+    """Range correction DataArray (5x4) with zero offsets.
+
+    dtype is float64.
+    """
+    return xr.DataArray(
+        np.zeros((5, 4), dtype=np.float64),
+        dims=["azimuth_time", "slant_range_time"],
+    )
+
+
+@pytest.fixture
+def csi_etad_empty():
+    """Empty ETAD correction grid (no data variables).
+
+    Must have azimuth_time and slant_range_time coords matching csi_slc grid.
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.arange(4, dtype=np.float64) * 0.5
+    # Empty dataset but with required coordinates
+    return xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+
+@pytest.fixture
+def csi_etad_nonempty():
+    """Non-empty ETAD correction grid with azcorr and rgcorr variables.
+
+    Shape: (5, 4) — needs at least 4 points per dimension for cubic interpolation.
+    Values create known correction patterns for testing.
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.arange(4, dtype=np.float64) * 0.5
+
+    # Correction grid — azimuth correction: 0 ns everywhere
+    azcorr = np.zeros((5, 4), dtype=np.float64)
+    # Range correction: small gradient
+    rgcorr = np.outer(np.ones(5), np.arange(4, dtype=np.float64) * 0.01)
+
+    return xr.Dataset(
+        data_vars={
+            "azcorr": (["azimuth_time", "slant_range_time"], azcorr),
+            "rgcorr": (["azimuth_time", "slant_range_time"], rgcorr),
+        },
+        coords={"azimuth_time": az, "slant_range_time": rg},
+    )
+
+
+@pytest.fixture
+def csi_y_poly():
+    """y_poly DataArray with polynomial attributes for azimuth correction.
+
+    Shape: (2, 2).
+    attrs: offset, scale_fact, type ("pixels").
+    """
+    poly_values = np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float64)
+    y_poly = xr.DataArray(poly_values, dims=["i", "j"])
+    y_poly = y_poly.assign_attrs(
+        {
+            "offset": [np.float64(0.0), np.float64(0.0)],
+            "scale_fact": [np.float64(1.0), np.float64(1.0)],
+            "type": "pixels",
+        }
+    )
+    return y_poly
+
+
+@pytest.fixture
+def csi_x_poly():
+    """x_poly DataArray with polynomial attributes for range correction.
+
+    Shape: (2, 2).
+    attrs: offset, scale_fact, type ("pixels").
+    """
+    poly_values = np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float64)
+    x_poly = xr.DataArray(poly_values, dims=["i", "j"])
+    x_poly = x_poly.assign_attrs(
+        {
+            "offset": [np.float64(0.0), np.float64(0.0)],
+            "scale_fact": [np.float64(1.0), np.float64(1.0)],
+            "type": "pixels",
+        }
+    )
+    return x_poly
+
+
+@pytest.fixture
+def csi_inputs(csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_empty):
+    """All basic inputs for compute_secondary_image_coordinates combined.
+
+    No polynomial corrections, empty ETAD grid.
+    """
+    return {
+        "coreg_azimuth_time": csi_coreg_az,
+        "coreg_slant_range_time": csi_coreg_rg,
+        "slc": csi_slc,
+        "etad_correction_grid": csi_etad_empty,
+        "daz": csi_daz,
+        "drg": csi_drg,
+        "azimuth_grid_spacing": 1.0,
+        "range_grid_spacing": 0.5,
+        "y_poly": None,
+        "x_poly": None,
+        "offset": {"azimuth_time": 0.0, "slant_range_time": 0.0},
+    }
+
+
+@pytest.fixture
+def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
+    """Inputs with y_poly correction enabled."""
+    inputs = dict(csi_inputs)
+    inputs["y_poly"] = csi_y_poly
+    return inputs
+
+
+@pytest.fixture
+def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
+    """Inputs with x_poly correction enabled."""
+    inputs = dict(csi_inputs)
+    inputs["x_poly"] = csi_x_poly
+    return inputs
+
+
+@pytest.fixture
+def csi_inputs_with_both_polys(csi_inputs, csi_y_poly, csi_x_poly):
+    """Inputs with both y_poly and x_poly corrections enabled."""
+    inputs = dict(csi_inputs)
+    inputs["y_poly"] = csi_y_poly
+    inputs["x_poly"] = csi_x_poly
+    return inputs
+
+
+# ===========================================================================
+# cmlp_gmlp fixtures (get_current_reference)
+# ===========================================================================
+
+
+@pytest.fixture
+def cstack_3_dates():
+    """3-date cstack with string acquisition_date coordinates."""
+    return xr.DataArray(
+        np.ones((3, 4, 4)),
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+    )
+
+
+@pytest.fixture
+def cstack_5_dates():
+    """5-date cstack with regularly spaced dates."""
+    return xr.DataArray(
+        np.arange(60, dtype=np.float64).reshape(5, 3, 4),
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]},
+    )
+
+
+@pytest.fixture
+def last_reference():
+    """A last_reference DataArray with a date before cstack's start.
+
+    Uses scalar np.datetime64 for acquisition_date coordinate, which is
+    required by the function's date_l parsing logic.
+    """
+    return xr.DataArray(
+        np.ones((1, 4, 4)) * 99.0,
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": np.datetime64("2019-12-15")},
+    )
+
+
+@pytest.fixture
+def stable_reference():
+    """A stable_reference DataArray with a date before cstack's start.
+
+    Uses 1D string array for acquisition_date coordinate, which is
+    required by the function's date_s parsing and .sel() logic.
+    """
+    return xr.DataArray(
+        np.ones((1, 4, 4)) * 77.0,
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": np.array(["2019-12-20"])},
+    )
