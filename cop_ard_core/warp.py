@@ -595,7 +595,7 @@ def warp_cslc(
     # Optional: Apply phase flattening based on the range displacement.
     if do_flattening:
         f0 = (max_tx_frequency + min_tx_frequency) / 2.0
-        flattening_rg = drg.sel(acquisition_date=acquisition_date).transpose("azimuth_time", "slant_range_time")
+        flattening_rg = drg.transpose("azimuth_time", "slant_range_time")
         coreg_phase_model[acquisition_date_index, :, :] = (2 * np.pi * f0) * flattening_rg
         coreg_cstack[:, acquisition_date_index, :, :] *= np.exp(1j * coreg_phase_model[acquisition_date_index, :, :])
 
