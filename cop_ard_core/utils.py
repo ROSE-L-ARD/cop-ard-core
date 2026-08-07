@@ -3,16 +3,32 @@ import xarray as xr
 from scipy.constants import speed_of_light
 
 
-def get_interf(a: xr.DataArray, b: xr.DataArray, ml_factor: dict[str, int]):
-    return (a * b.conj()).coarsen(ml_factor, boundary="trim").mean()  # type: ignore mean is injected dynamically
+def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
+
+    multilook = {k: v * 2 for k, v in posting.items()}
+    win_dims = {k: f"win_{k}" for k in multilook}
+    slices = {k: slice(v - 1, None, posting[k]) for k, v in multilook.items()}
+
+    # 1. Compute the complex interferogram
+    interf = a * b.conj()
+    # 2. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False), 
+    # xarray places the result at the end of the window.
+
+    # 3. Build the rolling view, decimate, and calculate the mean efficiently
+    interf_view = interf.rolling(multilook).construct(win_dims)
+    interf_view_sel = interf_view.isel(slices)
+    interf_rolling = interf_view_sel.mean(dim=list(win_dims.values()))
+
+    return interf_rolling
 
 
 def get_normalized_interf(
     a: xr.DataArray,
     b: xr.DataArray,
-    ml_factor: dict[str, int],
+    posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, ml_factor) / np.sqrt(get_interf(a, a, ml_factor) * get_interf(b, b, ml_factor))).fillna(0j)
+    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting) * get_interf(b, b, posting))).fillna(0j)
 
 
 def compute_interf(
