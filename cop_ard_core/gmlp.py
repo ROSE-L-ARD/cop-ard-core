@@ -14,8 +14,8 @@ def get_radar_spacing(azimuth_time: xr.DataArray, slant_range_time: xr.DataArray
     unique_sr, counts_sr = np.unique(sr_diffs, return_counts=True)
 
     az_step, rg_step = unique_az[np.argmax(counts_az)], unique_sr[np.argmax(counts_sr)]
-
-    return az_step, rg_step
+    spacing = {"azimuth_time":az_step,"slant_range_time":rg_step}
+    return spacing
 
 
 @timeit
@@ -29,13 +29,12 @@ def warp_cmlp(
     is_phase: bool,
     is_coherence: bool,
 ) -> None:
-
     # Create memory-mapped VIEWS
     spatial_size = target.shape[-2] * target.shape[-1]
     # target_view is now (N_leading, Y * X)
-    target_view = target.reshape(-1, spatial_size)
+    target_view = target.data.reshape(-1, spatial_size)
     # source_view is (N_leading, Y, X)
-    source_view = source.reshape(-1, source.shape[-2], source.shape[-1])
+    source_view = source.data.reshape(-1, source.shape[-2], source.shape[-1])
     # Loop and insert
     for i in range(target_view.shape[0]):
         inp = source_view[i]
