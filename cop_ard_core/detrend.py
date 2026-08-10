@@ -176,7 +176,7 @@ def estimate_global_surface(
         output = scipy.optimize.minimize(
             cost_function,
             sol_prec,
-            args=(X[mask, :], y[mask], w[mask]),
+            args=(X[mask, :], y[mask], w[mask] if isinstance(w, np.ndarray) else np.ones_like(y[mask])),
             method=method_opt,
         )
 
@@ -198,15 +198,14 @@ def estimate_global_surface(
     return output
 
 
-def fit_2d_poly(
-    x: np.ndarray, y: np.ndarray, data: np.ndarray, w: np.ndarray | None = None, degree: int = 1, norm: int = 1
-):
+def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, w: np.ndarray| None=None, degree: int = 1, norm: int = 1, weights: np.ndarray | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
-
+    print(np.sum(mask))
     # select points
     xx, yy, data_sel = x[mask], y[mask], data[mask]
+    weight_sel = weights[mask] if weights is not None else np.ones_like(data_sel)
 
     # Axis normalization
     x_ = np.vstack([xx, yy]).T
@@ -216,9 +215,8 @@ def fit_2d_poly(
     x_ = x_ / x_sc
 
     return (
-        estimate_global_surface(
-            x_, data_sel, w if w is not None else np.ones_like(data_sel), regions=None, degree=degree, norm=norm
-        ),
+        estimate_global_surface(x_, data_sel, weight_sel, 
+                                regions=None, degree=degree, norm=norm),
         x_sc,
         x_0,
     )

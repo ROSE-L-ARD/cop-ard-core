@@ -3,6 +3,7 @@ import xarray as xr
 
 from cop_ard_core.detrend import fit, fit_2d_poly, get_model_matrix
 from cop_ard_core.unwrap import unwrap_phase
+from cop_ard_core.logger import timeit
 
 
 def joint_unwrap(
@@ -63,7 +64,7 @@ def scale_azimuth_time(
 
     return az_time
 
-
+@timeit
 def fit_ionosphere(
     phase_iono: xr.DataArray,
     azimuth_time_raw: xr.DataArray,
@@ -71,6 +72,7 @@ def fit_ionosphere(
     H_orb: float,
     degree: int = 1,
     norm: int = 1,
+    weights: xr.DataArray | None = None,
 ) -> xr.DataArray:
 
     y_ = scale_azimuth_time(azimuth_time_raw, phase_iono.azimuth_time, H_orb, H_iono)
@@ -79,8 +81,11 @@ def fit_ionosphere(
     x_ = np.tile(phase_iono.slant_range_time.values, phase_iono.azimuth_time.size).ravel()
     y_ = (y_ - y_[0, 0]).astype(float).values.ravel()
     data = phase_iono.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
+    w_stack = weights.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values if weights is not None else None
+    
+    # print(data.dtype, x_.shape, y_.shape)
     # compute polynomial fit coefficients
-    coeffs, x_0, x_sc = fit_2d_poly(x_, y_, data, degree=degree, norm=norm)
+    coeffs, x_0, x_sc = fit_2d_poly(x_, y_, data, degree=degree, norm=norm, weights=w_stack)
 
     # costruct dataarray with fit coefficients and attributes for rescaling and centering the coordinates
     coeffs = xr.DataArray(coeffs.x, dims=["degree"], coords={"degree": np.arange(coeffs.x.size)})
@@ -111,8 +116,10 @@ def reconstruct_iono_surface(
 
     # reconstruct the surface in correspondence of the coordinates x_full
     surf = fit(get_model_matrix(x_full, degree=degree), coeffs.values)
-    surf = surf.reshape(azimuth_time_raw.shape)
-    surf = xr.DataArray(surf, dims=["azimuth_time", "slant_range_time"])
+    surf = surf.reshape(azimuth_time.size, slant_range_time.size)
+    surf = xr.DataArray(surf, dims=["azimuth_time", "slant_range_time"],
+                        coords={"azimuth_time": azimuth_time.values,
+                                "slant_range_time": slant_range_time.values})
 
     # return coefficients and attributes for rescaling and centering the coordinates
     return surf
