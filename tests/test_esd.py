@@ -12,7 +12,6 @@ import numpy as np
 import xarray as xr
 
 from cop_ard_core.esd import (
-    _to_dataset,
     angle_phase,
     compute_azimuth_shifts,
     compute_phase,
@@ -21,75 +20,6 @@ from cop_ard_core.esd import (
     optimize_phase,
     scipy_optimize_phase,
 )
-
-# =============================================================================
-#  _to_dataset
-# =============================================================================
-
-
-class TestToDataset:
-    """Tests for the internal _to_dataset helper."""
-
-    def test_to_dataset_degree_0(self):
-        """Degree-0: each date maps to a 1x1 DataArray."""
-        X = np.array([[1.0], [2.0], [3.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=0, t0=0, r0=0, s_y=np.timedelta64(1, "D"), s_x=1.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 3
-        for dv in result.data_vars.values():
-            assert isinstance(dv, xr.DataArray)
-            assert dv.shape == (1, 1)
-            assert dv.attrs["deg"] == 0
-            assert dv.attrs["offset"] == (0, 0)
-            assert dv.attrs["scale_fact"] == (np.timedelta64(1, "D"), 1.0)
-
-    def test_to_dataset_degree_1(self):
-        """Degree-1: each date maps to a 2x2 DataArray."""
-        X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=1, t0=0, r0=0, s_y=np.timedelta64(1, "D"), s_x=1.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 3
-        for dv in result.data_vars.values():
-            assert dv.shape == (2, 2)
-            assert dv.dims == ("i", "j")
-            assert list(dv.coords["i"].values) == [0, 1]
-            assert list(dv.coords["j"].values) == [0, 1]
-
-    def test_to_dataset_degree_2(self):
-        """Degree-2: each date maps to a 3x3 DataArray."""
-        X = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=2, t0=100, r0=200, s_y=np.timedelta64(1, "h"), s_x=2.0)
-        assert isinstance(result, xr.Dataset)
-        assert len(result.data_vars) == 1
-        for dv in result.data_vars.values():
-            assert dv.shape == (3, 3)
-            # Coefficients are reversed: m[:,0] = flip(X[0]) = [3,2,1]
-            np.testing.assert_array_equal(dv.values[:, 0], [3.0, 2.0, 1.0])
-
-    def test_to_dataset_custom_offsets(self):
-        """Custom t0, r0, s_y, s_x should be stored in attrs."""
-        X = np.array([[1.0]])
-        dates = xr.DataArray(
-            data=np.array(["2020-01-01"], dtype="datetime64[ns]"),
-            dims=["acquisition_date"],
-        )
-        result = _to_dataset(X, dates, poly_degree=0, t0=42, r0=99, s_y=np.timedelta64(5, "h"), s_x=3.14)
-        for dv in result.data_vars.values():
-            assert dv.attrs["offset"] == (42, 99)
-            assert dv.attrs["scale_fact"] == (np.timedelta64(5, "h"), 3.14)
-
 
 # =============================================================================
 #  compute_phase  (numba)
@@ -291,52 +221,30 @@ class TestComputeShift:
     def test_compute_shift_reference_exists(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When reference_date is in acquisition_date, interferogram is computed."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
-        assert result_ref == ref_date
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
         assert list(mean_phase.dims) == ["acquisition_date"]
         assert len(mean_phase) == 3
 
-    def test_compute_shift_reference_missing(self, esd_burst, esd_reference_pair, esd_acquisition_date):
-        """When reference_date is NOT in acquisition_date, returns NaN arrays."""
-        ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
-            burst0=esd_burst,
-            burst1=esd_burst,
-            reference0=ref0,
-            reference1=ref1,
-            acquisition_date=esd_acquisition_date,
-            reference_date="2025-01-01",
-            multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_threshold=0.5,
-        )
-        assert result_ref == "2025-01-01"
-        assert np.all(np.isnan(mean_phase.values))
-        assert np.all(np.isnan(coherence.values))
-
     def test_compute_shift_coherence_below_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When coherence is below threshold, mean_phase should be masked to NaN."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
         # Very high threshold so coherence is below it
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=1.0 + 1e-6,
         )
@@ -346,14 +254,12 @@ class TestComputeShift:
     def test_compute_shift_coherence_above_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """When coherence exceeds threshold, returns valid type arrays (values depend on data)."""
         ref0, ref1 = esd_reference_pair
-        ref_date = "2020-01-01"
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date=ref_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -366,30 +272,27 @@ class TestComputeShift:
     def test_compute_shift_return_types(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Return types: (str, xr.DataArray, xr.DataArray)."""
         ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
-        assert isinstance(result_ref, str)
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
 
     def test_compute_shift_mean_phase_in_range(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Mean phase from xr.ufuncs.angle should be in [-pi, pi]."""
         ref0, ref1 = esd_reference_pair
-        result_ref, mean_phase, coherence = compute_shift(
+        mean_phase, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -401,13 +304,12 @@ class TestComputeShift:
     def test_compute_shift_coherence_has_name(self, esd_burst, esd_reference_pair, esd_acquisition_date):
         """Returned coherence should be renamed to 'coherence'."""
         ref0, ref1 = esd_reference_pair
-        _, _, coherence = compute_shift(
+        _, coherence = compute_shift(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
             acquisition_date=esd_acquisition_date,
-            reference_date="2020-01-01",
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -417,13 +319,12 @@ class TestComputeShift:
         """Different multilook factors should still produce valid results."""
         ref0, ref1 = esd_reference_pair
         for ml in [{"azimuth_pixel": 1, "slant_range_time": 1}, {"azimuth_pixel": 2, "slant_range_time": 2}]:
-            result_ref, mean_phase, coherence = compute_shift(
+            mean_phase, coherence = compute_shift(
                 burst0=esd_burst,
                 burst1=esd_burst,
                 reference0=ref0,
                 reference1=ref1,
                 acquisition_date=esd_acquisition_date,
-                reference_date="2020-01-01",
                 multilook=ml,
                 coherence_threshold=0.0,
             )
@@ -439,87 +340,64 @@ class TestComputeShift:
 class TestComputeAzimuthShifts:
     """Tests for the compute_azimuth_shifts function."""
 
-    def test_compute_azimuth_shifts_returns_dataset(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_returns_dataset(self, esd_burst, esd_reference_pair):
         """Should return an xr.Dataset with expected data variables."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
         assert isinstance(result, xr.Dataset)
         assert "coherence" in result.data_vars
         assert "mean_phase" in result.data_vars
         assert "mean_shift" in result.data_vars
         assert "wrap_cycle" in result.data_vars
-        assert "reference_date" in result.coords
+        assert "acquisition_date" in result.coords
 
-    def test_compute_azimuth_shifts_reference_date_coord(self, esd_burst, esd_reference_pair, esd_acquisition_date):
-        """reference_date coordinate should match input list."""
-        ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
-        result = compute_azimuth_shifts(
-            burst0=esd_burst,
-            burst1=esd_burst,
-            reference0=ref0,
-            reference1=ref1,
-            reference_dates=ref_dates,
-            multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
-        )
-        np.testing.assert_array_equal(result.coords["reference_date"].values, ref_dates)
-
-    def test_compute_azimuth_shifts_coherence_shape(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_coherence_shape(self, esd_burst, esd_reference_pair):
         """Coherence should be 2D: (reference_date, acquisition_date)."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13", "2020-01-25"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 2, "slant_range_time": 2},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
-        assert result["coherence"].shape == (3, 3)  # 3 ref_dates x 3 acquisition_dates
+        assert result["coherence"].shape == (3,)  # 3 acquisition_dates
 
-    def test_compute_azimuth_shifts_mean_shift_zeros(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_mean_shift_zeros(self, esd_burst, esd_reference_pair):
         """mean_shift should be all zeros."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01", "2020-01-13"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
-        np.testing.assert_array_equal(result["mean_shift"].values, np.zeros((2, 3)))
+        np.testing.assert_array_equal(result["mean_shift"].values, np.zeros((3,)))
 
-    def test_compute_azimuth_shifts_wrap_cycle_positive(self, esd_burst, esd_reference_pair, esd_acquisition_date):
+    def test_compute_azimuth_shifts_wrap_cycle_positive(self, esd_burst, esd_reference_pair):
         """wrap_cycle should exist and have correct shape (may be inf when bursts are identical)."""
         ref0, ref1 = esd_reference_pair
-        ref_dates = ["2020-01-01"]
         result = compute_azimuth_shifts(
             burst0=esd_burst,
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            reference_dates=ref_dates,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
-            coherence_th=0.5,
+            coherence_threshold=0.5,
         )
         # wrap_cycle = 1 / ((f_d1 - f_d0).mean() * dazm)
         # When burst0 == burst1, f_d1 == f_d0, so wrap_cycle is inf
-        assert result["wrap_cycle"].shape == (1, 3)
+        assert result["wrap_cycle"].shape == (3,)
 
 
 class TestOptimizeCurvature:

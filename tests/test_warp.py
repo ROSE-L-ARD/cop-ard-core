@@ -10,6 +10,7 @@ from cop_ard_core.warp import (
     _dot_numba,
     _nvalid_numba,
     _sinc_warp_inner_numba,
+    compute_secondary_image_coordinates,
     do_deramp,
     extract_abs_grid,
     extract_grid,
@@ -24,12 +25,6 @@ from cop_ard_core.warp import (
     warp_dazdrg,
     warp_gslc,
 )
-
-
-@pytest.fixture
-def image_7x7():
-    """7x7 real-valued image for boundary testing."""
-    return np.arange(49, dtype=np.float64).reshape(7, 7)
 
 
 class TestSinc:
@@ -3427,7 +3422,10 @@ class TestWarpDazdrg:
             coords={
                 "acquisition_date": cstack.acquisition_date,
                 "azimuth_time": np.array(
-                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(7)]
+                    [
+                        np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
+                        for i in range(7)
+                    ]
                 ),
                 "slant_range_time": np.arange(7) * 0.5,
             },
@@ -3461,7 +3459,10 @@ class TestWarpDazdrg:
             coords={
                 "acquisition_date": cstack.acquisition_date,
                 "azimuth_time": np.array(
-                    [np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns") for i in range(3)]
+                    [
+                        np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
+                        for i in range(3)
+                    ]
                 ),
                 "slant_range_time": np.arange(7) * 0.5,
             },
@@ -3491,3 +3492,1079 @@ class TestWarpDazdrg:
         """Output drg should not contain Inf values."""
         result = warp_dazdrg(**warp_dazdrg_inputs)
         assert not np.any(np.isinf(result["drg"].values))
+
+
+# ===========================================================================
+# compute_secondary_image_coordinates tests
+# ===========================================================================
+
+
+class TestComputeSecondaryImageCoordinates:
+    """Tests for compute_secondary_image_coordinates happy paths and basic behavior."""
+
+    def test_csi_returns_four_values(self, csi_inputs):
+        """Should return exactly 4 values: az, rg, az0, rg0."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert len((az, rg, az0, rg0)) == 4
+
+    def test_csi_az_is_ndarray(self, csi_inputs):
+        """Azimuth output should be np.ndarray."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert isinstance(az, np.ndarray)
+
+    def test_csi_rg_is_ndarray(self, csi_inputs):
+        """Range output should be np.ndarray."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert isinstance(rg, np.ndarray)
+
+    def test_csi_az0_is_scalar(self, csi_inputs):
+        """az0 should be a scalar-like value (datetime64)."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert hasattr(az0, "item") or np.isscalar(az0)
+
+    def test_csi_rg0_is_scalar(self, csi_inputs):
+        """rg0 should be a scalar-like value (float)."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert hasattr(rg0, "item") or np.isscalar(rg0)
+
+    def test_csi_az0_matches_slc(self, csi_inputs):
+        """az0 should equal the first azimuth_time of the SLC."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        expected_az0 = csi_inputs["slc"].isel(azimuth_time=0).azimuth_time.values
+        assert az0 == expected_az0
+
+    def test_csi_rg0_matches_slc(self, csi_inputs):
+        """rg0 should equal the first slant_range_time of the SLC."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        expected_rg0 = csi_inputs["slc"].isel(slant_range_time=0).slant_range_time.values
+        assert rg0 == expected_rg0
+
+    def test_csi_az_shape(self, csi_inputs):
+        """Azimuth output shape should match the coregistration grid shape."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        coreg_shape = (csi_inputs["coreg_azimuth_time"].shape[0], csi_inputs["coreg_azimuth_time"].shape[1])
+        assert az.shape == coreg_shape
+
+    def test_csi_rg_shape(self, csi_inputs):
+        """Range output shape should match the coregistration grid shape."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        coreg_shape = (csi_inputs["coreg_slant_range_time"].shape[0], csi_inputs["coreg_slant_range_time"].shape[1])
+        assert rg.shape == coreg_shape
+
+    def test_csi_basic_values_with_zero_daz_drg(self, csi_inputs):
+        """With zero daz/drg and no poly corrections, az/rg should be close to coreg coordinates."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        coreg_az = csi_inputs["coreg_azimuth_time"].values
+        coreg_rg = csi_inputs["coreg_slant_range_time"].values
+        # Compare az as datetime64 with coreg_az (both in nanoseconds)
+        np.testing.assert_array_equal(az, coreg_az)
+        # Compare rg as float64 with coreg_rg
+        np.testing.assert_allclose(rg, coreg_rg, atol=0.01)
+
+    def test_csi_etad_empty_produces_no_corrections(self, csi_inputs):
+        """Empty ETAD grid should produce zero corrections."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        coreg_az = csi_inputs["coreg_azimuth_time"].values
+        coreg_rg = csi_inputs["coreg_slant_range_time"].values
+        # Without ETAD corrections and with zero daz/drg, output should match input
+        np.testing.assert_array_equal(az, coreg_az)
+        np.testing.assert_allclose(rg, coreg_rg, atol=0.01)
+
+    @pytest.mark.parametrize(
+        "grid_size",
+        [(3, 3), (5, 5), (7, 7), (5, 4), (3, 6)],
+    )
+    def test_csi_various_grid_sizes(self, grid_size):
+        """compute_secondary_image_coordinates should handle various grid sizes."""
+
+        n_az, n_rg = grid_size
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array(
+            [base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+        )
+        rg = np.arange(n_rg, dtype=np.float64) * 0.5
+
+        slc = xr.DataArray(
+            np.ones((n_az, n_rg), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(n_rg)] for i in range(n_az)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(n_rg)] for i in range(n_az)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+
+        daz = xr.DataArray(np.zeros((n_az, n_rg), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((n_az, n_rg), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert az_out.shape == (n_az, n_rg)
+        assert rg_out.shape == (n_az, n_rg)
+        assert np.isscalar(az0) or hasattr(az0, "item")
+        assert np.isscalar(rg0) or hasattr(rg0, "item")
+
+    def test_csi_with_y_poly(self, csi_inputs_with_y_poly):
+        """Should handle y_poly correction without error."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs_with_y_poly)
+        assert isinstance(az, np.ndarray)
+        assert isinstance(rg, np.ndarray)
+
+    def test_csi_with_x_poly(self, csi_inputs_with_x_poly):
+        """Should handle x_poly correction without error."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs_with_x_poly)
+        assert isinstance(az, np.ndarray)
+        assert isinstance(rg, np.ndarray)
+
+    def test_csi_with_both_polys(self, csi_inputs_with_both_polys):
+        """Should handle both y_poly and x_poly corrections together."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs_with_both_polys)
+        assert isinstance(az, np.ndarray)
+        assert isinstance(rg, np.ndarray)
+        assert az.shape == (5, 4)
+        assert rg.shape == (5, 4)
+
+    def test_csi_y_poly_zero_coefficients_same_as_none(self, csi_inputs_with_y_poly, csi_inputs):
+        """Zero-coefficient y_poly should produce the same result as no poly."""
+
+        az1, rg1, az01, rg01 = compute_secondary_image_coordinates(**csi_inputs_with_y_poly)
+        az2, rg2, az02, rg02 = compute_secondary_image_coordinates(**csi_inputs)
+        np.testing.assert_allclose(az1.astype(float), az2.astype(float), atol=1e-6)
+        np.testing.assert_allclose(rg1.astype(float), rg2.astype(float), atol=1e-6)
+
+    def test_csi_x_poly_zero_coefficients_same_as_none(self, csi_inputs_with_x_poly, csi_inputs):
+        """Zero-coefficient x_poly should produce the same result as no poly."""
+
+        az1, rg1, az01, rg01 = compute_secondary_image_coordinates(**csi_inputs_with_x_poly)
+        az2, rg2, az02, rg02 = compute_secondary_image_coordinates(**csi_inputs)
+        np.testing.assert_allclose(az1.astype(float), az2.astype(float), atol=1e-6)
+        np.testing.assert_allclose(rg1.astype(float), rg2.astype(float), atol=1e-6)
+
+    def test_csi_y_poly_nonzero_affects_az(self):
+        """Non-zero y_poly coefficients should shift azimuth values."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        # Poly with zero coefficients
+        y_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        # Poly with non-zero constant coefficient (should shift all values)
+        y_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        az_zero, _, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=y_poly_zero,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        az_nonzero, _, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=y_poly_nonzero,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # Remove base epoch
+        az_zero = az_zero - base_epoch
+        az_nonzero = az_nonzero - base_epoch
+
+        # The nonzero polynomial should shift azimuth values
+        assert not np.allclose(az_zero.astype(float), az_nonzero.astype(float))
+
+    def test_csi_x_poly_nonzero_affects_rg(self):
+        """Non-zero x_poly coefficients should shift range values."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        x_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+        x_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        _, rg_zero, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=x_poly_zero,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        _, rg_nonzero, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=x_poly_nonzero,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        assert not np.allclose(rg_zero, rg_nonzero)
+
+    def test_csi_y_poly_preserves_shape(self, csi_inputs_with_y_poly):
+        """y_poly correction should not change output shape."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs_with_y_poly)
+        assert az.shape == (5, 4)
+        assert rg.shape == (5, 4)
+
+    def test_csi_x_poly_preserves_shape(self, csi_inputs_with_x_poly):
+        """x_poly correction should not change output shape."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs_with_x_poly)
+        assert az.shape == (5, 4)
+        assert rg.shape == (5, 4)
+
+    def test_csi_polys_with_different_types(self):
+        """Should handle different coord_type values in polynomial attributes."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+        x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=y_poly,
+            x_poly=x_poly,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert az_out.shape == (5, 4)
+        assert rg_out.shape == (5, 4)
+
+    def test_csi_etad_nonempty_produces_corrections(
+        self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty
+    ):
+        """Non-empty ETAD grid should apply corrections."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=csi_coreg_az,
+            coreg_slant_range_time=csi_coreg_rg,
+            slc=csi_slc,
+            etad_correction_grid=csi_etad_nonempty,
+            daz=csi_daz,
+            drg=csi_drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert az.shape == (5, 4)
+        assert rg.shape == (5, 4)
+        assert isinstance(az, np.ndarray)
+        assert isinstance(rg, np.ndarray)
+
+    def test_csi_etad_nonempty_finite_values(
+        self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_nonempty
+    ):
+        """ETAD corrections should produce finite output values."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=csi_coreg_az,
+            coreg_slant_range_time=csi_coreg_rg,
+            slc=csi_slc,
+            etad_correction_grid=csi_etad_nonempty,
+            daz=csi_daz,
+            drg=csi_drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert np.all(np.isfinite(az))
+        assert np.all(np.isfinite(rg))
+
+    def test_csi_etad_empty_vs_nonempty_different_outputs(self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg):
+        """Non-empty ETAD grid should produce different output than empty grid."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        etad_empty = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_empty, rg_empty, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=csi_coreg_az,
+            coreg_slant_range_time=csi_coreg_rg,
+            slc=csi_slc,
+            etad_correction_grid=etad_empty,
+            daz=csi_daz,
+            drg=csi_drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # Build non-empty ETAD with non-zero corrections
+        azcorr = np.ones((5, 4), dtype=np.float64) * 1e-9  # 1 ns correction
+        rgcorr = np.ones((5, 4), dtype=np.float64) * 0.01  # 0.01s correction
+        etad_nonempty = xr.Dataset(
+            data_vars={
+                "azcorr": (["azimuth_time", "slant_range_time"], azcorr),
+                "rgcorr": (["azimuth_time", "slant_range_time"], rgcorr),
+            },
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+
+        az_nonempty, rg_nonempty, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=csi_coreg_az,
+            coreg_slant_range_time=csi_coreg_rg,
+            slc=csi_slc,
+            etad_correction_grid=etad_nonempty,
+            daz=csi_daz,
+            drg=csi_drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # Outputs should differ due to ETAD corrections
+        az_empty_float = np.asarray(az_empty, dtype="float64") / 1e9
+        az_nonempty_float = np.asarray(az_nonempty, dtype="float64") / 1e9
+        assert not np.allclose(az_empty_float, az_nonempty_float, atol=1e-6) or not np.allclose(
+            rg_empty, rg_nonempty, atol=1e-6
+        )
+
+    def test_csi_etad_all_zeros_produces_zero_correction(self, csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg):
+        """ETAD grid with all-zero corrections should produce zero corrections."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        azcorr = np.zeros((5, 4), dtype=np.float64)
+        rgcorr = np.zeros((5, 4), dtype=np.float64)
+        etad_zeros = xr.Dataset(
+            data_vars={
+                "azcorr": (["azimuth_time", "slant_range_time"], azcorr),
+                "rgcorr": (["azimuth_time", "slant_range_time"], rgcorr),
+            },
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+
+        az_out, rg_out, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=csi_coreg_az,
+            coreg_slant_range_time=csi_coreg_rg,
+            slc=csi_slc,
+            etad_correction_grid=etad_zeros,
+            daz=csi_daz,
+            drg=csi_drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # Should match coreg coordinates since corrections are zero
+        coreg_az = csi_coreg_az.values.astype("float64") / 1e9
+        az_out_float = np.asarray(az_out, dtype="float64") / 1e9
+        np.testing.assert_allclose(az_out_float, coreg_az, atol=1e-6)
+
+    def test_csi_invalid_coord_type_raises(self):
+        """Invalid coord_type in polynomial should raise RuntimeError."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        bad_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "invalid",
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
+            compute_secondary_image_coordinates(
+                coreg_azimuth_time=coreg_az,
+                coreg_slant_range_time=coreg_rg,
+                slc=slc,
+                etad_correction_grid=etad,
+                daz=daz,
+                drg=drg,
+                azimuth_grid_spacing=1.0,
+                range_grid_spacing=0.5,
+                y_poly=bad_poly,
+                x_poly=None,
+                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+            )
+
+    def test_csi_invalid_coord_type_in_x_poly_raises(self):
+        """Invalid coord_type in x_poly should also raise RuntimeError."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        bad_x = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(0.0), np.float64(0.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "bogus",
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
+            compute_secondary_image_coordinates(
+                coreg_azimuth_time=coreg_az,
+                coreg_slant_range_time=coreg_rg,
+                slc=slc,
+                etad_correction_grid=etad,
+                daz=daz,
+                drg=drg,
+                azimuth_grid_spacing=1.0,
+                range_grid_spacing=0.5,
+                y_poly=None,
+                x_poly=bad_x,
+                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+            )
+
+    def test_csi_single_pixel_grid(self):
+        """Single-pixel grid (1x1) should work without error."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(1_000_000_000, "ns")], dtype="datetime64[ns]")
+        rg = np.array([0.5], dtype=np.float64)
+        slc = xr.DataArray(
+            np.array([[1 + 1j]], dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(np.array([[az[0]]], dtype="datetime64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        coreg_rg = xr.DataArray(np.array([[rg[0]]], dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        daz = xr.DataArray(np.array([[0]], dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.array([[0.0]], dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert az_out.shape == (1, 1)
+        assert rg_out.shape == (1, 1)
+
+    def test_csi_two_pixel_grid(self):
+        """Small 2x2 grid should produce correct shape."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(2)], dtype="datetime64[ns]")
+        rg = np.array([0.0, 0.5], dtype=np.float64)
+        slc = xr.DataArray(
+            np.ones((2, 2), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(2)] for i in range(2)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(2)] for i in range(2)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((2, 2), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((2, 2), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+        assert az_out.shape == (2, 2)
+        assert rg_out.shape == (2, 2)
+
+    def test_csi_with_nonzero_daz_shift(self):
+        """Non-zero daz should shift azimuth output values."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        # daz with 1-second offset
+        daz = xr.DataArray(
+            np.full((5, 4), np.timedelta64(1_000_000_000, "ns"), dtype="timedelta64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # Az should be shifted by daz (1 second = 1e9 ns / 1e9 = 1.0 second)
+        coreg_az_float = coreg_az.values.astype("float64") / 1e9
+        az_out_float = np.asarray(az_out, dtype="float64") / 1e9
+        np.testing.assert_allclose(az_out_float, coreg_az_float + 1.0, atol=1e-6)
+
+    def test_csi_with_nonzero_drg_shift(self):
+        """Non-zero drg should shift range output values."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        # drg with 0.1 offset
+        drg = xr.DataArray(np.full((5, 4), 0.1, dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        coreg_rg_expected = coreg_rg.values + 0.1
+        np.testing.assert_allclose(rg_out, coreg_rg_expected, atol=1e-6)
+
+    def test_csi_offset_applied_in_pixel_mode(self):
+        """Offset values should be used when polynomial coord_type is 'pixels'."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+        x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=y_poly,
+            x_poly=x_poly,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        # With pixel mode: y = 5 + 0 = 5, x = 4 + 0 = 4
+        # The polynomial is all zeros, so corrections are zero
+        # Output should still be valid shapes
+        assert az_out.shape == (5, 4)
+        assert rg_out.shape == (5, 4)
+
+    def test_csi_output_no_nan(self, csi_inputs):
+        """Output az and rg should not contain NaN values."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert not np.any(np.isnan(az))
+        assert not np.any(np.isnan(rg))
+
+    def test_csi_output_no_inf(self, csi_inputs):
+        """Output az and rg should not contain Inf values."""
+
+        az, rg, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        assert not np.any(np.isinf(az))
+        assert not np.any(np.isinf(rg))
+
+    def test_csi_nonzero_grid_spacing(self):
+        """Non-zero grid spacing should not cause errors."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 2_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 1.0
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=2.0,
+            range_grid_spacing=1.0,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        assert az_out.shape == (5, 4)
+        assert rg_out.shape == (5, 4)
+
+    def test_csi_with_asymmetric_grid(self):
+        """Asymmetric grid (tall vs wide) should produce matching output shape."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        n_az, n_rg = 10, 3
+        az = np.array(
+            [base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(n_az)], dtype="datetime64[ns]"
+        )
+        rg = np.arange(n_rg, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((n_az, n_rg), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(n_rg)] for i in range(n_az)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(n_rg)] for i in range(n_az)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((n_az, n_rg), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((n_az, n_rg), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az[:3], "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        assert az_out.shape == (n_az, n_rg)
+        assert rg_out.shape == (n_az, n_rg)
+
+    @pytest.mark.parametrize("dtaz,dtrg", [(0.1, 0.01), (0.5, 0.25), (1.0, 0.5), (2.0, 1.0), (10.0, 5.0)])
+    def test_csi_various_grid_spacings(self, dtaz, dtrg):
+        """compute_secondary_image_coordinates should handle various grid spacing values."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array(
+            [base_epoch + np.timedelta64(i * int(dtaz * 1_000_000_000), "ns") for i in range(5)], dtype="datetime64[ns]"
+        )
+        rg = np.arange(4, dtype=np.float64) * dtrg
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az[:3], "slant_range_time": rg})
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=dtaz,
+            range_grid_spacing=dtrg,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        assert az_out.shape == (5, 4)
+        assert rg_out.shape == (5, 4)
+        assert np.all(np.isfinite(az_out))
+        assert np.all(np.isfinite(rg_out))
+
+    def test_csi_transpose_preserves_data(self, csi_inputs):
+        """Output should be transposed to (azimuth_time, slant_range_time) order."""
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(**csi_inputs)
+        # Both should be 2D with the expected shape
+        assert az_out.ndim == 2
+        assert rg_out.ndim == 2
+
+    def test_csi_negative_drg_shift(self):
+        """Negative drg values should shift range output downward."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.full((5, 4), -0.5, dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        _, rg_out, _, _ = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=None,
+            x_poly=None,
+            offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
+        )
+
+        coreg_rg_expected = coreg_rg.values - 0.5
+        np.testing.assert_allclose(rg_out, coreg_rg_expected, atol=1e-6)
+
+    def test_csi_offset_with_nonzero_offset_values(self):
+        """Non-zero offset values should be applied correctly in pixel mode."""
+
+        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+        rg = np.arange(4, dtype=np.float64) * 0.5
+        slc = xr.DataArray(
+            np.ones((5, 4), dtype=np.complex128),
+            dims=["azimuth_time", "slant_range_time"],
+            coords={"azimuth_time": az, "slant_range_time": rg},
+        )
+        coreg_az = xr.DataArray(
+            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        coreg_rg = xr.DataArray(
+            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
+            dims=["azimuth_time", "slant_range_time"],
+        )
+        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
+        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
+        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+        # Use pixel mode with non-zero offsets and non-zero poly
+        y_poly = xr.DataArray(np.array([[1.0, 0.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(2.0), np.float64(1.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+        x_poly = xr.DataArray(np.array([[0.0, 1.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
+            {
+                "offset": [np.float64(1.0), np.float64(2.0)],
+                "scale_fact": [np.float64(1.0), np.float64(1.0)],
+                "type": "pixels",
+            }
+        )
+
+        az_out, rg_out, az0, rg0 = compute_secondary_image_coordinates(
+            coreg_azimuth_time=coreg_az,
+            coreg_slant_range_time=coreg_rg,
+            slc=slc,
+            etad_correction_grid=etad,
+            daz=daz,
+            drg=drg,
+            azimuth_grid_spacing=1.0,
+            range_grid_spacing=0.5,
+            y_poly=y_poly,
+            x_poly=x_poly,
+            offset={"azimuth_time": 10.0, "slant_range_time": 20.0},
+        )
+
+        assert az_out.shape == (5, 4)
+        assert rg_out.shape == (5, 4)

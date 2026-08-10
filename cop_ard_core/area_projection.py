@@ -263,7 +263,7 @@ def compute_rtc_ap(
     radar_grid_pixel_area: float,
     normal_order: bool,
     bbox: np.ndarray,
-) -> tuple[xr.DataArray, xr.DataArray, xr.Dataset | None]:
+) -> tuple[xr.DataArray, xr.DataArray, xr.Dataset | None, np.ndarray]:
     """
     Compute rasterization weights and the accumulated gamma-naught area (RTC-AP)
     for a block of the radar data simulation.
@@ -388,7 +388,7 @@ def compute_rtc_ap(
         xr.DataArray(np.arccos(cos_theta).reshape(dim_y, dim_x, 4).sum(axis=2), dims=["y", "x"]).astype("float32") / 4.0
     )
 
-    return anf, lia, a_block
+    return anf, lia, a_block, bbox_radar
 
 
 def get_w(
@@ -511,11 +511,8 @@ def get_w(
             attrs={"radar_bbox": bbox_w},  # Store the bounding box as metadata
         )
 
-        # Save the layover masks (l1 and l2) to the temporary directory
         # File name is based on the sparse block's bounding box
         # data_path=f"{data_path_tmp}/sparse_dir/layover_block_{i}/{'.'.join([str(j) for j in b])}",
-        # skip_read=True,  # We don't need to read these back
-        # storage_options=get_storage_options(kwargs, key="storage_options_static"),
         layover: list[tuple[str, xr.Dataset]] = []
         for i, (ll, b) in enumerate([(l1, bbox_l1), (l2, bbox_l2)]):
             ds = build_sparse_array(

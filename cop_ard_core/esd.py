@@ -5,6 +5,7 @@ from numba import njit
 
 from cop_ard_core.utils import compute_interf_norm, wrap
 
+
 def compute_shift(
     burst0: xr.DataArray,
     burst1: xr.DataArray,
@@ -13,7 +14,7 @@ def compute_shift(
     acquisition_date: xr.DataArray,
     multilook: dict,
     coherence_threshold: float,
-) -> tuple[str, xr.DataArray, xr.DataArray]:
+) -> tuple[xr.DataArray, xr.DataArray]:
 
     # output initialization #
     coords = acquisition_date.coords

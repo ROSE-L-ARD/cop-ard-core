@@ -8,9 +8,7 @@ from astropy import stats as ast
 from cop_ard_core.logger import logger
 
 
-def cost_function_l2(
-    params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0
-) -> np.ndarray:
+def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0) -> np.ndarray:
     """
     L2 cost function
 
@@ -30,9 +28,7 @@ def cost_function_l2(
     return np.sum((y - fit(X, params)) ** 2 * w)
 
 
-def cost_function_l1(
-    params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0
-) -> np.ndarray:
+def cost_function_l1(params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0) -> np.ndarray:
     """
     L1 cost function
 
@@ -143,6 +139,9 @@ def estimate_global_surface(
     assert x.shape[1] > 0
     assert degree >= 0
 
+    # init weights
+    w = np.full_like(y, w) if isinstance(w, float | int) else w
+
     # Set minimization norm and method
     if norm == 1:
         cost_function = cost_function_l1
@@ -167,13 +166,12 @@ def estimate_global_surface(
 
         mask = (
             (
-                ~ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask
-            )  # ty: ignore[unresolved-attribute]  mask is present as masked=True by default
+                ~ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask  # ty: ignore[unresolved-attribute]  mask is present as masked=True by default
+            )
             & (diff > range[0])
             & (diff < range[1])
             & np.isfinite(diff * w)
         )
-        
         # Call minimization on selected points
         output = scipy.optimize.minimize(
             cost_function,

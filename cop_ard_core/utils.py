@@ -3,16 +3,32 @@ import xarray as xr
 from scipy.constants import speed_of_light
 
 
-def get_interf(a: xr.DataArray, b: xr.DataArray, ml_factor: dict[str, int]):
-    return (a * b.conj()).coarsen(ml_factor, boundary="trim").mean()  # type: ignore mean is injected dynamically
+def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
+
+    multilook = {k: v * 2 for k, v in posting.items()}
+    win_dims = {k: f"win_{k}" for k in multilook}
+    slices = {k: slice(v - 1, None, posting[k]) for k, v in multilook.items()}
+
+    # 1. Compute the complex interferogram
+    interf = a * b.conj()
+    # 2. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False), 
+    # xarray places the result at the end of the window.
+
+    # 3. Build the rolling view, decimate, and calculate the mean efficiently
+    interf_view = interf.rolling(multilook).construct(win_dims)
+    interf_view_sel = interf_view.isel(slices)
+    interf_rolling = interf_view_sel.mean(dim=list(win_dims.values()))
+
+    return interf_rolling
 
 
 def get_normalized_interf(
     a: xr.DataArray,
     b: xr.DataArray,
-    ml_factor: dict[str, int],
+    posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, ml_factor) / np.sqrt(get_interf(a, a, ml_factor) * get_interf(b, b, ml_factor))).fillna(0j)
+    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting) * get_interf(b, b, posting))).fillna(0j)
 
 
 def compute_interf(
@@ -58,7 +74,7 @@ def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
     """
-    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")).values for i, e in enumerate([y, x]))
+    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")) for i, e in enumerate([y, x]))
 
 
 # @timeit
@@ -140,8 +156,7 @@ def time_to_pixel(
 
     # spacing computation #
     y_spacing, x_spacing = [
-        (stack[e][-1] - stack[e][0]).values / (stack[e].size - 1)
-        for e in ["azimuth_time", "slant_range_time"]
+        (stack[e][-1] - stack[e][0]).values / (stack[e].size - 1) for e in ["azimuth_time", "slant_range_time"]
     ]
 
     # times to pixel coordinates #
@@ -177,19 +192,15 @@ def get_best_pol(polarization_values: list) -> str:
 
 
 def get_azimuth_time_raw(
-    burst: xr.DataArray, 
-    TimeCOAPoly: np.ndarray, 
-    CollectStart: str,
-    multilook: dict | None = None
+    burst: xr.DataArray,
+    timeca_polynomial_coeffs: np.ndarray,
+    collection_start_time: np.datetime64,
+    multilook: dict | None = None,
 ) -> xr.DataArray:
 
     if multilook is not None:
-        az_slice = slice(
-            multilook["azimuth_time"] // 2, None, multilook["azimuth_time"]
-        )
-        rg_slice = slice(
-            multilook["slant_range_time"] // 2, None, multilook["slant_range_time"]
-        )
+        az_slice = slice(multilook["azimuth_time"] // 2, None, multilook["azimuth_time"])
+        rg_slice = slice(multilook["slant_range_time"] // 2, None, multilook["slant_range_time"])
     else:
         az_slice = slice(None, None, None)
         rg_slice = slice(None, None, None)
@@ -201,13 +212,13 @@ def get_azimuth_time_raw(
     azimuth_m = burst_.azimuth_m.values
 
     # compute the relative azimuth time
-    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, TimeCOAPoly).T
+    timeCOA = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, timeca_polynomial_coeffs).T
 
     # convert to timedelta in nanoseconds
     timeCOA = (timeCOA * 1e9).astype("timedelta64[ns]")
 
     # compute absolute time
-    timeCOA = timeCOA + np.datetime64(CollectStart)
+    timeCOA = timeCOA + collection_start_time
 
     # return as dataarray
     return xr.DataArray(

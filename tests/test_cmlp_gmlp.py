@@ -88,50 +88,6 @@ class TestCalculateStableDates:
 class TestGetCurrentReference:
     """Unit tests for get_current_reference."""
 
-    @pytest.fixture
-    def cstack_3_dates(self):
-        """3-date cstack with string acquisition_date coordinates."""
-        return xr.DataArray(
-            np.ones((3, 4, 4)),
-            dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
-        )
-
-    @pytest.fixture
-    def cstack_5_dates(self):
-        """5-date cstack with regularly spaced dates."""
-        return xr.DataArray(
-            np.arange(60, dtype=np.float64).reshape(5, 3, 4),
-            dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]},
-        )
-
-    @pytest.fixture
-    def last_reference(self):
-        """A last_reference DataArray with a date before cstack's start.
-
-        Uses scalar np.datetime64 for acquisition_date coordinate, which is
-        required by the function's date_l parsing logic.
-        """
-        return xr.DataArray(
-            np.ones((1, 4, 4)) * 99.0,
-            dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.datetime64("2019-12-15")},
-        )
-
-    @pytest.fixture
-    def stable_reference(self):
-        """A stable_reference DataArray with a date before cstack's start.
-
-        Uses 1D string array for acquisition_date coordinate, which is
-        required by the function's date_s parsing and .sel() logic.
-        """
-        return xr.DataArray(
-            np.ones((1, 4, 4)) * 77.0,
-            dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-20"])},
-        )
-
     def test_get_current_reference_no_last_or_stable(self):
         """With no last_reference or stable_reference, should use cstack's earliest date."""
         cstack = xr.DataArray(

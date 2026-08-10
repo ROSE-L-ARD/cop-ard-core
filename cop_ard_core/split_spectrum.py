@@ -22,14 +22,8 @@ def joint_unwrap(
     ph_mean_unw = unwrap_phase(ph_mean, cohe_mask, threshold=cohe_th)
 
     # unwrap sub-band residues and add back the average phase
-    ph_l_unw = (
-        unwrap_phase(mosaic_l_phase - ph_mean_unw, cohe_mask, threshold=cohe_th)
-        + ph_mean_unw
-    )
-    ph_h_unw = (
-        unwrap_phase(mosaic_h_phase - ph_mean_unw, cohe_mask, threshold=cohe_th)
-        + ph_mean_unw
-    )
+    ph_l_unw = unwrap_phase(mosaic_l_phase - ph_mean_unw, cohe_mask, threshold=cohe_th) + ph_mean_unw
+    ph_h_unw = unwrap_phase(mosaic_h_phase - ph_mean_unw, cohe_mask, threshold=cohe_th) + ph_mean_unw
     return ph_l_unw, ph_h_unw, cohe_mask
 
 
@@ -43,17 +37,11 @@ def split_spectrum_core(
 
     # dispersive component
     phase_iono = (
-        (phase_unw_l * (f_h_tot / f0) - phase_unw_h * (f_l_tot / f0))
-        * (f_l_tot * f_h_tot)
-        / (f_h_tot**2 - f_l_tot**2)
+        (phase_unw_l * (f_h_tot / f0) - phase_unw_h * (f_l_tot / f0)) * (f_l_tot * f_h_tot) / (f_h_tot**2 - f_l_tot**2)
     )
 
     # non-dispersive component
-    phase_nd = (
-        (phase_unw_h * (f_h_tot / f0) - phase_unw_l * (f_l_tot / f0))
-        * f0
-        / (2 * (f_h_tot - f_l_tot))
-    )
+    phase_nd = (phase_unw_h * (f_h_tot / f0) - phase_unw_l * (f_l_tot / f0)) * f0 / (2 * (f_h_tot - f_l_tot))
 
     return phase_iono, phase_nd
 
@@ -61,8 +49,8 @@ def split_spectrum_core(
 def scale_azimuth_time(
     azimuth_time_raw: xr.DataArray,
     azimuth_time: xr.DataArray,
-    H_orb: float,
-    H_target: float,
+    H_orb: xr.DataArray | float,
+    H_target: xr.DataArray | float,
 ):
 
     # compute difference between azimuth time on the ground and at orbit level
@@ -90,9 +78,7 @@ def fit_ionosphere(
     y_ = scale_azimuth_time(azimuth_time_raw, phase_iono.azimuth_time, H_orb, H_iono)
 
     # compute minimization axis
-    x_ = np.tile(
-        phase_iono.slant_range_time.values, phase_iono.azimuth_time.size
-    ).ravel()
+    x_ = np.tile(phase_iono.slant_range_time.values, phase_iono.azimuth_time.size).ravel()
     y_ = (y_ - y_[0, 0]).astype(float).values.ravel()
     data = phase_iono.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
     w_stack = weights.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values if weights is not None else None
@@ -102,9 +88,7 @@ def fit_ionosphere(
     coeffs, x_0, x_sc = fit_2d_poly(x_, y_, data, degree=degree, norm=norm, weights=w_stack)
 
     # costruct dataarray with fit coefficients and attributes for rescaling and centering the coordinates
-    coeffs = xr.DataArray(
-        coeffs.x, dims=["degree"], coords={"degree": np.arange(coeffs.x.size)}
-    )
+    coeffs = xr.DataArray(coeffs.x, dims=["degree"], coords={"degree": np.arange(coeffs.x.size)})
     coeffs.attrs["offset"] = x_0
     coeffs.attrs["scale_fact"] = x_sc
 
@@ -113,12 +97,12 @@ def fit_ionosphere(
 
 
 def reconstruct_iono_surface(
-    azimuth_time: xr.DataArray, 
+    azimuth_time: xr.DataArray,
     slant_range_time: xr.DataArray,
     azimuth_time_raw: xr.DataArray,
     coeffs: xr.DataArray,
     H_iono: xr.DataArray | float,
-    H_orb: xr.DataArray |float,
+    H_orb: xr.DataArray | float,
     degree: int = 1,
 ) -> xr.DataArray:
 

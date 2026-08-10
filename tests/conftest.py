@@ -46,49 +46,6 @@ def complex_5x5():
 
 
 @pytest.fixture
-def complex_stack_3x3x3():
-    """3D complex DataArray (acquisition x azimuth x range)."""
-    data = np.array([[(i + 1) * (j + 1) * (k + 1) * (1 + 0.25j) for k in range(3)] for j in range(3)] for i in range(3))
-    data = np.array(data, dtype=np.complex128)
-    return xr.DataArray(
-        data,
-        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
-        coords={
-            "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
-            "azimuth_pixel": np.arange(3),
-            "slant_range_time": np.arange(3),
-        },
-    )
-
-
-@pytest.fixture
-def real_3x3():
-    """3x3 real-valued DataArray."""
-    data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], dtype=np.float64)
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={
-            "azimuth_time": np.arange(3),
-            "slant_range_time": np.arange(3),
-        },
-    )
-
-
-@pytest.fixture
-def dataset_with_coords():
-    """Small xr.Dataset with azimuth_time and slant_range_time coordinates."""
-    az = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:01", "2020-01-01T00:00:02"], dtype="datetime64[ns]")
-    sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
-    data = np.random.rand(3, 3) + 1j * np.random.rand(3, 3)
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": az, "slant_range_time": sr},
-    ).to_dataset(name="data")
-
-
-@pytest.fixture
 def orbit_xml_element():
     """Create a minimal orbit XML ElementTree for testing build_orbit_dataset."""
     root = Element("ROOT")
@@ -121,93 +78,6 @@ def orbit_xml_element():
 def multilook_factor():
     """Default multilook factor dict."""
     return {"azimuth_time": 3, "slant_range_time": 3}
-
-
-@pytest.fixture
-def small_real_4x4():
-    """4x4 real-valued DataArray for multilook operations."""
-    data = np.arange(16, dtype=np.float64).reshape(4, 4)
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(4), "slant_range_time": np.arange(4)},
-    )
-
-
-@pytest.fixture
-def small_complex_4x4():
-    """4x4 complex-valued DataArray for multilook operations."""
-    data = np.array(
-        [[i * 4 + j + 1j * (i * 4 + j) for j in range(4)] for i in range(4)],
-        dtype=np.complex128,
-    )
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(4), "slant_range_time": np.arange(4)},
-    )
-
-
-@pytest.fixture
-def coherence_data_3x3():
-    """3x3 real DataArray with coherence-like values (0 to 1)."""
-    data = np.array([[0.9, 0.7, 0.5], [0.8, 0.6, 0.4], [0.3, 0.2, 0.1]])
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
-    )
-
-
-@pytest.fixture
-def phase_data_3x3():
-    """3x3 DataArray with wrapped phase values."""
-    data = np.array(
-        [[0.0, np.pi / 2, np.pi], [3 * np.pi / 2, np.pi / 4, -np.pi / 4], [-np.pi / 2, -np.pi / 3, np.pi / 6]]
-    )
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
-    )
-
-
-@pytest.fixture
-def nan_3x3():
-    """3x3 DataArray with NaN values."""
-    data = np.array([[1.0, np.nan, 3.0], [np.nan, 5.0, np.nan], [7.0, 8.0, 9.0]], dtype=np.float64)
-    return xr.DataArray(
-        data,
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(3), "slant_range_time": np.arange(3)},
-    )
-
-
-@pytest.fixture
-def daz_drg_data():
-    """Small daz/drg DataArrays for testing."""
-    daz = xr.DataArray(
-        np.array(
-            [["2020-01-01T00:00:00", "2020-01-01T00:00:01"], ["2020-01-01T00:00:02", "2020-01-01T00:00:03"]],
-            dtype="datetime64[ns]",
-        ),
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(2), "slant_range_time": np.arange(2)},
-    )
-    drg = xr.DataArray(
-        np.array([[0.0, 0.5], [1.0, 1.5]], dtype=np.float64),
-        dims=["azimuth_time", "slant_range_time"],
-        coords={"azimuth_time": np.arange(2), "slant_range_time": np.arange(2)},
-    )
-    return daz, drg
-
-
-@pytest.fixture
-def triang_4x4():
-    """Triangle indices for a 4x4 grid (3x3 cells = 36 triangles)."""
-    from cop_ard_core.area_projection import triangulate_regular
-
-    return triangulate_regular(ysize=4, xsize=4)
 
 
 @pytest.fixture
@@ -320,58 +190,6 @@ def compute_shadow_simulation_ml():
 @pytest.fixture
 def compute_shadow_margin():
     return {"azimuth_time": 0.0, "slant_range_time": 0.0}
-
-
-@pytest.fixture
-def compute_shadow_h_sloped():
-    """DEM with a slope: height increases toward negative x (creates shadow geometry)."""
-    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
-    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
-    # Height decreases as x increases (facing the radar from -x side)
-    data = np.full((len(y), len(x)), 100.0, dtype=np.float64)
-    for i in range(len(x)):
-        data[:, i] = 500.0 - i * 60.0
-    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
-    h.rio.write_crs("EPSG:4326", inplace=True)
-    return h
-
-
-@pytest.fixture
-def compute_shadow_h_zero():
-    """DEM with zero elevation everywhere."""
-    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
-    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
-    data = np.zeros((len(y), len(x)), dtype=np.float64)
-    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
-    h.rio.write_crs("EPSG:4326", inplace=True)
-    return h
-
-
-@pytest.fixture
-def compute_shadow_h_high():
-    """DEM with very high elevation (mountain peak)."""
-    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
-    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
-    data = np.full((len(y), len(x)), 5000.0, dtype=np.float64)
-    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
-    h.rio.write_crs("EPSG:4326", inplace=True)
-    return h
-
-
-@pytest.fixture
-def compute_shadow_h_nan():
-    """DEM with some NaN values scattered in the grid."""
-    y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
-    x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
-    data = np.full((len(y), len(x)), 100.0, dtype=np.float64)
-    data[1:3, 2:5] = np.nan
-    h = xr.DataArray(data, dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
-    h.rio.write_crs("EPSG:4326", inplace=True)
-    return h
 
 
 @pytest.fixture
@@ -494,23 +312,6 @@ def area_proj_csr_matrix():
 
 
 @pytest.fixture
-def area_proj_csr_matrix_empty():
-    """Empty CSR sparse matrix Dataset for edge case testing."""
-    shape_arr = np.array([2, 2])
-
-    ds = xr.Dataset(
-        data_vars={
-            "data": ("point", np.array([], dtype=np.float64)),
-            "indices": ("point", np.array([], dtype=np.int64)),
-            "indptr": ("indptr", np.array([0, 0], dtype=np.int64)),
-            "nnz": ((), np.int64(0)),
-            "shape": ("dim", shape_arr),
-        }
-    )
-    return ds
-
-
-@pytest.fixture
 def area_proj_geocoded_csr_matrix():
     """CSR matrix for compute_geocoded_mask tests.
 
@@ -534,14 +335,6 @@ def area_proj_geocoded_csr_matrix():
         }
     )
     return ds
-
-
-@pytest.fixture
-def triang_3x4():
-    """Triangle indices for a 4x5 grid (3x4 cells = 24 triangles)."""
-    from cop_ard_core.area_projection import triangulate_regular
-
-    return triangulate_regular(ysize=4, xsize=5)
 
 
 @pytest.fixture
@@ -638,7 +431,7 @@ def esd_reference_pair(esd_burst):
     The acquisition_date dimension contains the same dates as the burst so
     that `all(reference_date in e.acquisition_date)` returns True.
     """
-    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"])
+    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
     data0 = np.array(
         [[[(i + 1) * (j + 1) * (k + 1) * (1 + 0.1j) for k in range(3)] for j in range(3)] for i in range(3)],
         dtype=np.complex128,
@@ -750,31 +543,6 @@ def esd_dataset():
 # ===========================================================================
 # warp_gslc fixtures
 # ===========================================================================
-
-
-@pytest.fixture
-def warp_gslc_geogrid():
-    """Geographic ground grid for warp_gslc tests.
-
-    Creates a 5x5 geocoded ground grid with CRS so rioxarray resolution works.
-    Dimensions: (y, x) = (5, 5), coordinates in meters (UTM-like).
-    """
-    y = np.linspace(0.0, 400.0, 5)
-    x = np.linspace(0.0, 400.0, 5)
-    # Ground-range data: each cell has a value proportional to its position
-    gr_data = np.outer(np.ones(5), np.arange(5.0))
-    az_data = np.outer(np.arange(5.0), np.ones(5))
-    geogrid = xr.Dataset(
-        data_vars={
-            "x": (("y", "x"), x.astype(np.float64)),
-            "y": (("y", "x"), y.astype(np.float64)),
-            "azimuth_time": (("y", "x"), az_data),
-            "slant_range_time": (("y", "x"), gr_data),
-        },
-        coords={"y": y, "x": x},
-    )
-    geogrid = geogrid.rio.write_crs("EPSG:32632", inplace=True)
-    return geogrid
 
 
 @pytest.fixture
@@ -1111,9 +879,7 @@ def warp_dazdrg_cstack():
     """
     acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-    az_times = np.array(
-        [base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(5)], dtype="datetime64[ns]"
-    )
+    az_times = np.array([base_epoch + np.timedelta64(i * 1000000000, "ns") for i in range(5)], dtype="datetime64[ns]")
     sr_times = np.arange(5) * 0.5
     data = np.zeros((3, 5, 5), dtype=np.complex128)
     for i in range(3):
@@ -1172,9 +938,9 @@ def warp_dazdrg_reference_simulation():
             "azimuth_time": (["acquisition_date", "y", "x"], az_grid),
             "slant_range_time": (["acquisition_date", "y", "x"], sr_grid),
             "dem_distance": (["acquisition_date", "y", "x", "axis"], dem_distance),
-            "h": (["y", "x"], h)
+            "h": (["y", "x"], h),
         },
-    ) 
+    )
     return simulation
 
 
@@ -1189,7 +955,9 @@ def warp_dazdrg_secondary_simulation():
     acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
     base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
     az_base = np.array([i * 1000000000 for i in range(5)], dtype="timedelta64[ns]")
-    az_grid = np.array([[base_epoch + az_base[j] + np.timedelta64(100000000, "ns") for j in range(5)] for i in range(5)])
+    az_grid = np.array(
+        [[base_epoch + az_base[j] + np.timedelta64(100000000, "ns") for j in range(5)] for i in range(5)]
+    )
     sr_grid = np.outer(np.ones(5, dtype=np.float64), np.arange(5) * 0.5)
 
     sim = xr.Dataset(
@@ -1212,7 +980,9 @@ def warp_dazdrg_reference_ml(warp_dazdrg_reference_simulation):
     sim = warp_dazdrg_reference_simulation
     # Coarsen the simulation to create a downsampled version
     coarsen_config = {"y": 5, "x": 5}
-    ref_sel = sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+    ref_sel = (
+        sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+    )
 
     min_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="min").min()
     max_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="max").max()
@@ -1277,3 +1047,232 @@ def warp_dazdrg_inputs(
         "range_grid_spacing": 0.5,
         "compute_daz_drg": True,
     }
+
+
+# ===========================================================================
+# warp test fixtures
+# ===========================================================================
+
+
+@pytest.fixture
+def image_7x7():
+    """7x7 real-valued image for boundary testing."""
+    return np.arange(49, dtype=np.float64).reshape(7, 7)
+
+
+@pytest.fixture
+def csi_slc():
+    """SLC DataArray used to extract az0/rg0 reference values.
+
+    Dims: (azimuth_time, slant_range_time) with datetime and float coords.
+    Shape: (5, 4).
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float64)
+    data = np.ones((5, 4), dtype=np.complex128)
+    return xr.DataArray(
+        data,
+        dims=["azimuth_time", "slant_range_time"],
+        coords={"azimuth_time": az, "slant_range_time": rg},
+    )
+
+
+@pytest.fixture
+def csi_coreg_az():
+    """Coregistration azimuth time grid (5x4).
+
+    Values are datetime64[ns] representing shifted acquisition times.
+    Shape matches csi_slc: (5, 4).
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az_vals = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    az_grid = np.array([[az_vals[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]")
+    return xr.DataArray(az_grid, dims=["azimuth_time", "slant_range_time"])
+
+
+@pytest.fixture
+def csi_coreg_rg():
+    """Coregistration slant range time grid (5x4).
+
+    Values are float64 representing shifted slant range times.
+    Shape matches csi_slc: (5, 4).
+    """
+    base_rg = np.arange(4, dtype=np.float64) * 0.5
+    rg_grid = np.array([[base_rg[j] for j in range(4)] for i in range(5)], dtype=np.float64)
+    return xr.DataArray(rg_grid, dims=["azimuth_time", "slant_range_time"])
+
+
+@pytest.fixture
+def csi_daz():
+    """Azimuth correction DataArray (5x4) with zero offsets.
+
+    dtype is timedelta64[ns].
+    """
+    return xr.DataArray(
+        np.zeros((5, 4), dtype="timedelta64[ns]"),
+        dims=["azimuth_time", "slant_range_time"],
+    )
+
+
+@pytest.fixture
+def csi_drg():
+    """Range correction DataArray (5x4) with zero offsets.
+
+    dtype is float64.
+    """
+    return xr.DataArray(
+        np.zeros((5, 4), dtype=np.float64),
+        dims=["azimuth_time", "slant_range_time"],
+    )
+
+
+@pytest.fixture
+def csi_etad_empty():
+    """Empty ETAD correction grid (no data variables).
+
+    Must have azimuth_time and slant_range_time coords matching csi_slc grid.
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.arange(4, dtype=np.float64) * 0.5
+    # Empty dataset but with required coordinates
+    return xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
+
+
+@pytest.fixture
+def csi_etad_nonempty():
+    """Non-empty ETAD correction grid with azcorr and rgcorr variables.
+
+    Shape: (5, 4) — needs at least 4 points per dimension for cubic interpolation.
+    Values create known correction patterns for testing.
+    """
+    base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
+    az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
+    rg = np.arange(4, dtype=np.float64) * 0.5
+
+    # Correction grid — azimuth correction: 0 ns everywhere
+    azcorr = np.zeros((5, 4), dtype=np.float64)
+    # Range correction: small gradient
+    rgcorr = np.outer(np.ones(5), np.arange(4, dtype=np.float64) * 0.01)
+
+    return xr.Dataset(
+        data_vars={
+            "azcorr": (["azimuth_time", "slant_range_time"], azcorr),
+            "rgcorr": (["azimuth_time", "slant_range_time"], rgcorr),
+        },
+        coords={"azimuth_time": az, "slant_range_time": rg},
+    )
+
+
+@pytest.fixture
+def csi_y_poly():
+    """y_poly DataArray with polynomial attributes for azimuth correction.
+
+    Shape: (2, 2).
+    attrs: offset, scale_fact, type ("pixels").
+    """
+    poly_values = np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float64)
+    y_poly = xr.DataArray(poly_values, dims=["i", "j"])
+    y_poly = y_poly.assign_attrs(
+        {
+            "offset": [np.float64(0.0), np.float64(0.0)],
+            "scale_fact": [np.float64(1.0), np.float64(1.0)],
+            "type": "pixels",
+        }
+    )
+    return y_poly
+
+
+@pytest.fixture
+def csi_x_poly():
+    """x_poly DataArray with polynomial attributes for range correction.
+
+    Shape: (2, 2).
+    attrs: offset, scale_fact, type ("pixels").
+    """
+    poly_values = np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float64)
+    x_poly = xr.DataArray(poly_values, dims=["i", "j"])
+    x_poly = x_poly.assign_attrs(
+        {
+            "offset": [np.float64(0.0), np.float64(0.0)],
+            "scale_fact": [np.float64(1.0), np.float64(1.0)],
+            "type": "pixels",
+        }
+    )
+    return x_poly
+
+
+@pytest.fixture
+def csi_inputs(csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_empty):
+    """All basic inputs for compute_secondary_image_coordinates combined.
+
+    No polynomial corrections, empty ETAD grid.
+    """
+    return {
+        "coreg_azimuth_time": csi_coreg_az,
+        "coreg_slant_range_time": csi_coreg_rg,
+        "slc": csi_slc,
+        "etad_correction_grid": csi_etad_empty,
+        "daz": csi_daz,
+        "drg": csi_drg,
+        "azimuth_grid_spacing": 1.0,
+        "range_grid_spacing": 0.5,
+        "y_poly": None,
+        "x_poly": None,
+        "offset": {"azimuth_time": 0.0, "slant_range_time": 0.0},
+    }
+
+
+@pytest.fixture
+def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
+    """Inputs with y_poly correction enabled."""
+    inputs = dict(csi_inputs)
+    inputs["y_poly"] = csi_y_poly
+    return inputs
+
+
+@pytest.fixture
+def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
+    """Inputs with x_poly correction enabled."""
+    inputs = dict(csi_inputs)
+    inputs["x_poly"] = csi_x_poly
+    return inputs
+
+
+@pytest.fixture
+def csi_inputs_with_both_polys(csi_inputs, csi_y_poly, csi_x_poly):
+    """Inputs with both y_poly and x_poly corrections enabled."""
+    inputs = dict(csi_inputs)
+    inputs["y_poly"] = csi_y_poly
+    inputs["x_poly"] = csi_x_poly
+    return inputs
+
+
+# ===========================================================================
+# cmlp_gmlp fixtures (get_current_reference)
+# ===========================================================================
+
+
+@pytest.fixture
+def cstack_3_dates():
+    """3-date cstack with string acquisition_date coordinates."""
+    return xr.DataArray(
+        np.ones((3, 4, 4)),
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+    )
+
+
+@pytest.fixture
+def last_reference():
+    """A last_reference DataArray with a date before cstack's start.
+
+    Uses scalar np.datetime64 for acquisition_date coordinate, which is
+    required by the function's date_l parsing logic.
+    """
+    return xr.DataArray(
+        np.ones((1, 4, 4)) * 99.0,
+        dims=["acquisition_date", "az", "rg"],
+        coords={"acquisition_date": np.datetime64("2019-12-15")},
+    )
