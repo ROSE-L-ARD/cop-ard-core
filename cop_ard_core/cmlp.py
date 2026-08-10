@@ -111,7 +111,6 @@ def calculate_stable_dates(
             # Advance threshold relative to the *current* cycle
             threshold = (int(cycle // stable_reference_step) + 1) * stable_reference_step
             
-    print(f"stable reference dates: {stable_refs}")
     return np.array(stable_refs)
 
 def get_current_reference(
