@@ -1,3 +1,4 @@
+from typing import Union
 import numpy as np
 import xarray as xr
 
@@ -54,12 +55,16 @@ def update_recursive_reference(
     return current_reference.copy(data=new_ref_data)
 
 
+import numpy as np
+import xarray as xr
+from typing import Union
+
 def calculate_stable_dates(
     acquisition_dates: np.ndarray,
     revisit_cycle: np.timedelta64,
     stable_reference_step: int,
-    stable_reference: xr.DataArray | xr.Dataset | None = None,
-    starting_date: str | None = None,
+    stable_reference: Union[xr.DataArray, xr.Dataset, None] = None,
+    starting_date: Union[str, None] = None,
 ) -> np.ndarray:
     """
     Determines the dates that serve as stable reference milestones.
@@ -79,22 +84,35 @@ def calculate_stable_dates(
         Subset of dates selected as stable references.
     """
     dates_ns = acquisition_dates.astype("datetime64[ns]")
-    start_date = np.min(dates_ns) if starting_date is None else np.datetime64(starting_date, "ns")
-    if stable_reference is not None:
-        start_date = np.min(stable_reference.acquisition_date.values.astype("datetime64[ns]"))
+    
+    if stable_reference is not None and len(stable_reference.acquisition_date.values) > 0:
+        ref_dates = stable_reference.acquisition_date.values
+        ref_dates_ns = ref_dates.astype("datetime64[ns]")
+        
+        start_date = np.min(ref_dates_ns)
+        stable_refs = list(ref_dates)
+
+        max_ref_date = np.max(ref_dates_ns)
+        max_ref_cycle = (max_ref_date - start_date) / revisit_cycle.astype("timedelta64[ns]")
+        
+        # Set threshold to the strictly NEXT expected milestone
+        threshold = (int(max_ref_cycle // stable_reference_step) + 1) * stable_reference_step
+    else:
+        start_date = np.min(dates_ns) if starting_date is None else np.datetime64(starting_date, "ns")
+        stable_refs = []
+        threshold = stable_reference_step
+
     # Vectorized calculation of elapsed cycles
     elapsed_cycles = (dates_ns - start_date) / revisit_cycle.astype("timedelta64[ns]")
-    # We use the iterative approach to match original logic exactly
-    stable_refs = [] if stable_reference is None else list(stable_reference.acquisition_date.values)
-    threshold = stable_reference_step
-
+    
     for i, cycle in enumerate(elapsed_cycles):
-        if cycle > threshold:
+        if cycle >= threshold:
             stable_refs.append(acquisition_dates[i])
-            threshold += stable_reference_step
-
+            # Advance threshold relative to the *current* cycle
+            threshold = (int(cycle // stable_reference_step) + 1) * stable_reference_step
+            
+    print(f"stable reference dates: {stable_refs}")
     return np.array(stable_refs)
-
 
 def get_current_reference(
     cstack: xr.DataArray,
