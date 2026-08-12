@@ -137,7 +137,7 @@ def refit_orbit_coefficients(
         return None
 
     # Calculate the time vector relative to the reference time for polynomial fitting.
-    times = (orbit.azimuth_time - t0).astype("float64") / 1e9
+    times = (orbit.azimuth_time - np.datetime64(t0, "ns")).astype("float64") / 1e9
     # Use Sarpy's utility to fit new polynomials to the position and velocity data.
     X, Y, Z = sarpy.io.complex.utils.fit_position_xvalidation(
         times.values, orbit.position.values, orbit.velocity.values, max_degree=poly_degree

@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
@@ -12,7 +14,7 @@ def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
     # 1. Compute the complex interferogram
     interf = a * b.conj()
     # 2. Apply a rolling mean (moving window)
-    # This computes the mean for EVERY pixel. By default (center=False), 
+    # This computes the mean for EVERY pixel. By default (center=False),
     # xarray places the result at the end of the window.
 
     # 3. Build the rolling view, decimate, and calculate the mean efficiently
@@ -189,6 +191,65 @@ def get_best_pol(polarization_values: list) -> str:
         raise Exception(f"No polarization has been found {available_pols}")
 
     return pol
+
+
+def sync_sicd_metadata(sicd_dict):
+    """
+    Synchronizes SICD metadata across polarizations to ensure that
+    polarization-independent fields are identical to the best polarization.
+
+    Parameters
+    ----------
+    sicd_dict : dict
+        A dictionary containing SICD metadata dictionaries, keyed by
+        polarization strings (e.g., 'VV', 'VH').
+
+    Returns
+    -------
+    dict
+        The synchronized SICD metadata dictionary with uniform shared blocks.
+    """
+    # Early exit if there is only one (or zero) polarization
+    if len(sicd_dict) <= 1:
+        return sicd_dict
+
+    best_pol = get_best_pol(list(sicd_dict))
+    best_meta = sicd_dict[best_pol]
+
+    shared_blocks = [
+        "GeoData",
+        "Grid",
+        "Timeline",
+        "Position",
+        "SCPCOA",
+        "RMA",
+        "ImageCreation",
+        "ImageData",
+        "RadarCollection",
+    ]
+
+    blocks_to_copy = [block for block in shared_blocks if block in best_meta]
+    # Parameters to preserve during the copy
+    keys_to_save = ["PREDICTED_RNIIRS", "INFORMATION_DENSITY"]
+
+    for pol, meta in sicd_dict.items():
+        if pol == best_pol:
+            continue
+
+        # 1. COPY SHARED BLOCKS
+        for block in blocks_to_copy:
+            meta[block] = copy.deepcopy(best_meta[block])
+
+        # 2. MANAGE COLLECTION INFO (Mixed)
+        params = meta.get("CollectionInfo", {}).get("Parameters", {})
+        pol_specific_params = {k: params[k] for k in keys_to_save if k in params}
+
+        # Copy the entire CollectionInfo block from the best metadata
+        if "CollectionInfo" in best_meta:
+            meta["CollectionInfo"] = copy.deepcopy(best_meta["CollectionInfo"])
+            meta["CollectionInfo"].setdefault("Parameters", {}).update(pol_specific_params)
+
+    return sicd_dict
 
 
 def get_azimuth_time_raw(
