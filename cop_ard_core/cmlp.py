@@ -1,4 +1,5 @@
 from typing import Union
+
 import numpy as np
 import xarray as xr
 
@@ -23,14 +24,14 @@ def update_recursive_reference(
     # 2. Extract shapes
     _, coarse_az, coarse_rg = phasor_interf.shape
     n_bands, full_az, full_rg = slc.shape
-    
+
     # Calculate posting (block size) dynamically
     block_az = full_az // coarse_az
     block_rg = full_rg // coarse_rg
-    
+
     valid_az = coarse_az * block_az
     valid_rg = coarse_rg * block_rg
-    
+
     # Get just the valid data slice as a numpy array for the calculation
     # Using [:, ...] handles the polarization dimension automatically
     slc_valid_data = slc.data[:, :valid_az, :valid_rg]
@@ -42,11 +43,11 @@ def update_recursive_reference(
     # 4. Apply phase rotation
     correction = slc_valid_data.reshape(blocked_slc_shape) * phasor_interf.reshape(broadcast_phasor_shape).conj()
     correction = np.where(np.isnan(correction), 0, correction)
-    
+
     # 5. Build the full-sized new reference
     # Step A: Apply fading memory to the ENTIRE original grid (including margins)
     new_ref_data = current_reference.data * memory_param
-    
+
     # Step B: Add the computed correction ONLY to the valid spatial bounds
     correction_reshaped = correction.reshape((n_bands, valid_az, valid_rg))
     new_ref_data[:, :valid_az, :valid_rg] += correction_reshaped
@@ -55,63 +56,74 @@ def update_recursive_reference(
     return current_reference.copy(data=new_ref_data)
 
 
-import numpy as np
-import xarray as xr
-from typing import Union
-
 def calculate_stable_dates(
     acquisition_dates: np.ndarray,
-    revisit_cycle: np.timedelta64,
-    stable_reference_step: int,
+    stable_interval_days: int,
     stable_reference: Union[xr.DataArray, xr.Dataset, None] = None,
     starting_date: Union[str, None] = None,
 ) -> np.ndarray:
     """
-    Determines the dates that serve as stable reference milestones.
+    Determines the dates that serve as stable reference milestones based on a fixed time interval.
 
     Parameters
     ----------
     acquisition_dates : np.ndarray
         Array of all acquisition dates.
-    revisit_cycle : np.timedelta64
-        Time delta representing one revisit cycle.
-    stable_reference_step : int
-        Number of cycles between stable references.
+    stable_interval_days : int
+        Number of days between each stable reference milestone (e.g., 24).
+    stable_reference : Union[xr.DataArray, xr.Dataset, None], optional
+        Previously calculated stable reference dataset to continue from. Default is None.
+    starting_date : Union[str, None], optional
+        Optional starting date to use as the baseline. If None, the minimum date
+        in `acquisition_dates` is used. Default is None.
 
     Returns
     -------
     stable_reference_dates : np.ndarray
         Subset of dates selected as stable references.
     """
+    # Convert acquisition dates to nanoseconds precision for accurate time delta math
     dates_ns = acquisition_dates.astype("datetime64[ns]")
-    
+
+    # Convert the interval in days directly to a nanosecond timedelta
+    interval_ns = np.timedelta64(stable_interval_days, "D").astype("timedelta64[ns]")
+
     if stable_reference is not None and len(stable_reference.acquisition_date.values) > 0:
+        # Extract past stable reference dates
         ref_dates = stable_reference.acquisition_date.values
         ref_dates_ns = ref_dates.astype("datetime64[ns]")
-        
+
+        # The start date is the earliest date in the stable reference history
         start_date = np.min(ref_dates_ns)
         stable_refs = list(ref_dates)
 
+        # Find the most recent stable reference date to calculate elapsed time
         max_ref_date = np.max(ref_dates_ns)
-        max_ref_cycle = (max_ref_date - start_date) / revisit_cycle.astype("timedelta64[ns]")
-        
-        # Set threshold to the strictly NEXT expected milestone
-        threshold = (int(max_ref_cycle // stable_reference_step) + 1) * stable_reference_step
+        max_elapsed_time = max_ref_date - start_date
+
+        # Set the threshold strictly to the NEXT expected milestone interval
+        threshold = (max_elapsed_time // interval_ns + 1) * interval_ns
     else:
+        # If no history exists, use starting_date or the first available date
         start_date = np.min(dates_ns) if starting_date is None else np.datetime64(starting_date, "ns")
         stable_refs = []
-        threshold = stable_reference_step
 
-    # Vectorized calculation of elapsed cycles
-    elapsed_cycles = (dates_ns - start_date) / revisit_cycle.astype("timedelta64[ns]")
-    
-    for i, cycle in enumerate(elapsed_cycles):
-        if cycle >= threshold:
+        # The first threshold is simply one interval ahead
+        threshold = interval_ns
+
+    # Vectorized calculation of elapsed time for all acquisition dates
+    elapsed_time = dates_ns - start_date
+
+    for i, elapsed in enumerate(elapsed_time):
+        # When the elapsed time reaches or exceeds the threshold, we found a new stable date
+        if elapsed >= threshold:
             stable_refs.append(acquisition_dates[i])
-            # Advance threshold relative to the *current* cycle
-            threshold = (int(cycle // stable_reference_step) + 1) * stable_reference_step
-            
+
+            # Advance the threshold relative to the *current* elapsed time
+            threshold = (elapsed // interval_ns + 1) * interval_ns
+
     return np.array(stable_refs)
+
 
 def get_current_reference(
     cstack: xr.DataArray,
