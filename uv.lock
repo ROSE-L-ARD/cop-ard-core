@@ -678,6 +678,7 @@ dependencies = [
     { name = "numpy" },
     { name = "ortools" },
     { name = "psutil" },
+    { name = "pyiri" },
     { name = "pyproj" },
     { name = "rasterio" },
     { name = "retry" },
@@ -758,6 +759,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.4" },
     { name = "ortools", specifier = ">=9.15.6755" },
     { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pyiri", specifier = ">=0.1.7" },
     { name = "pyproj", specifier = ">=3.7.2" },
     { name = "pytest-env", marker = "extra == 'dev'" },
     { name = "rasterio", specifier = ">=1.5.0" },
@@ -1320,6 +1322,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/f6/53a1e9469331a23dcc400970a27a4caa3d9f6edbf5baab0260285238b884/fonttools-4.62.1-cp313-cp313-win32.whl", hash = "sha256:93c316e0f5301b2adbe6a5f658634307c096fd5aae60a5b3412e4f3e1728ab24", size = 2279928, upload-time = "2026-03-13T13:53:32.352Z" },
     { url = "https://files.pythonhosted.org/packages/38/60/35186529de1db3c01f5ad625bde07c1f576305eab6d86bbda4c58445f721/fonttools-4.62.1-cp313-cp313-win_amd64.whl", hash = "sha256:7aa21ff53e28a9c2157acbc44e5b401149d3c9178107130e82d74ceb500e5056", size = 2330514, upload-time = "2026-03-13T13:53:34.991Z" },
     { url = "https://files.pythonhosted.org/packages/fd/ba/56147c165442cc5ba7e82ecf301c9a68353cede498185869e6e02b4c264f/fonttools-4.62.1-py3-none-any.whl", hash = "sha256:7487782e2113861f4ddcc07c3436450659e3caa5e470b27dc2177cade2d8e7fd", size = 1152647, upload-time = "2026-03-13T13:54:22.735Z" },
+]
+
+[[package]]
+name = "fortranformat"
+version = "2.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/00/26767cab9ec32594d24e7fd54172184be495c0ce205943ed2d06c0694c5c/fortranformat-2.0.3.tar.gz", hash = "sha256:1e765c01a66208d54d75cae140ba9f1adda0548aaad8538cba8da39e69ac178c", size = 18657, upload-time = "2025-04-08T21:49:51.134Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/41/fa1f52754036081ff6b53c972a37ab16cf9f972d6170de1a8442382ab108/fortranformat-2.0.3-py3-none-any.whl", hash = "sha256:88c8e7a3eac16c23420e8a1c4b21ddc7108f48e8dcbd2e0da6c8ecc48b051bb2", size = 23291, upload-time = "2025-04-08T21:49:49.993Z" },
 ]
 
 [[package]]
@@ -2876,6 +2887,15 @@ wheels = [
 ]
 
 [[package]]
+name = "opt-einsum"
+version = "3.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/b9/2ac072041e899a52f20cf9510850ff58295003aa75525e58343591b0cbfb/opt_einsum-3.4.0.tar.gz", hash = "sha256:96ca72f1b886d148241348783498194c577fa30a8faac108586b14f1ba4473ac", size = 63004, upload-time = "2024-09-26T14:33:24.483Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl", hash = "sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd", size = 71932, upload-time = "2024-09-26T14:33:23.039Z" },
+]
+
+[[package]]
 name = "orderly-set"
 version = "5.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3410,6 +3430,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+]
+
+[[package]]
+name = "pyiri"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fortranformat" },
+    { name = "matplotlib" },
+    { name = "netcdf4" },
+    { name = "numpy" },
+    { name = "opt-einsum" },
+    { name = "pandas" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/c5/fc162e84d4804760e8245a5fcf7d2814a9e4c69a91a56bad7896add33bf9/pyiri-0.1.7.tar.gz", hash = "sha256:f30098cfaf73a916f8363e752f1f1bfb2015b19b915bf707b797640c473300c3", size = 20150954, upload-time = "2026-07-14T15:28:50.103Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/f1/541c244347462bc8018dc6f1b6f20fc0891ab04d73736b53b2597cd150d6/pyiri-0.1.7-py3-none-any.whl", hash = "sha256:6f86cec1dc919f7f576e8cfc68d0bdb761e8ff062b9be0c2b66c55e92a662db8", size = 20170379, upload-time = "2026-07-14T15:28:47.151Z" },
 ]
 
 [[package]]
