@@ -99,9 +99,9 @@ def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
 
 def refit_orbit_coefficients(
     burst_id: str,
-    acquisition_date: str,
+    acquisition_id: str,
     orbit: xr.Dataset | None,
-    t0: np.datetime64,
+    t0: str,
     reference_time: np.ndarray,
     poly_degree: int,
 ) -> xr.Dataset | None:
@@ -158,7 +158,7 @@ def refit_orbit_coefficients(
             )
         },
         coords={
-            "acquisition_date": np.array([acquisition_date], dtype=object),
+            "acquisition_date": np.array([acquisition_id], dtype=object),
             "degree": range(poly_degree + 1),
             "axis": range(3),
         },
