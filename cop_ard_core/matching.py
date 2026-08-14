@@ -3,7 +3,7 @@ from typing import Literal, Sequence
 import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
-from xrspatial.convolution import convolution_2d
+from scipy.signal import convolve2d
 
 from cop_ard_core.detrend import estimate_global_surface
 from cop_ard_core.logger import logger
@@ -228,11 +228,87 @@ def backward_flatten(
     return i1, i2
 
 
+def to_polygrid2d(c, deg):
+    j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
+
+    return np.flip(
+        np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
+        axis=1,
+    )
+
+
+def shift_update(
+    i: xr.DataArray,
+    i0: xr.DataArray,
+    x: xr.DataArray,
+    y: xr.DataArray,
+    kernel: np.ndarray,
+) -> xr.DataArray:
+
+    # Remove mean, convert to float64, and remove degenerate dimensions
+    o = (i - i.mean()).astype("float64").squeeze()
+
+    # Perform 2D convolution using scipy
+    # mode='same' ensures the output shape matches the input 'o'
+    # boundary='symm' (symmetrical) minimizes edge artifacts compared to zero-padding
+    # .fillna(0) prevents any existing NaNs in the SAR grid from bleeding into the convolution
+    o_np_conv = convolve2d(o.fillna(0).values, kernel, mode="same", boundary="symm")
+
+    # Reconstruct the DataArray to utilize xarray's advanced nearest-neighbor selection
+    o_conv = xr.DataArray(o_np_conv, coords=o.coords, dims=o.dims)
+
+    # Sample at the specified azimuth and slant range coordinates
+    o_sampled = o_conv.sel(azimuth_time=y, slant_range_time=x, method="nearest")
+
+    # Split the sampled array in half along the point dimension
+    half_idx = o_sampled.point.size // 2
+    o1 = o_sampled.isel(point=slice(half_idx))
+    o2 = o_sampled.isel(point=slice(half_idx, None))
+
+    diff_data = o1.data - o2.data
+
+    # Cast back to the original datatype (e.g., timedelta64[ns]) and wrap in a DataArray
+    diff = xr.DataArray(diff_data, coords=o1.coords, dims=o1.dims).astype(i0.dtype).compute()
+    # Return the final shifted array
+    return diff - i0
+
+
+def poly_estimate(
+    v: np.ndarray,
+    x: np.ndarray,
+    name: str,
+    attrs: dict,
+    deg: int,
+    **kwargs,
+):
+    output = estimate_global_surface(x, v, degree=deg, **kwargs)
+
+    poly = xr.DataArray(
+        data=to_polygrid2d(output.x, deg),
+        dims=["i", "j"],
+        name=name,
+        coords={k: np.arange(deg + 1) for k in ["i", "j"]},
+        attrs=attrs,
+    )
+    return poly.to_dataset()  # .assign_attrs({"type": disparity.type})
+
+
+# def create_attrs(offset, scale_fact):
+#     y0, x0 = offset.values
+#     s_y, s_x = scale_fact.values * disparity.pixel_to_time
+#     y0 = daz.azimuth_time[0] + np.round((disparity.pixel_to_time[0] * y0)).astype("timedelta64[ns]")
+#     x0 = drg.slant_range_time[0] + x0 * disparity.pixel_to_time[1]
+#     y0, x0 = [e.values for e in [y0, x0]]
+#     s_y = np.round(s_y).astype("timedelta64[ns]")
+#     return {"deg": deg, "offset": (y0, x0), "scale_fact": (s_y, s_x)}
+
+
 def polyfit(
+    burst_id: str,
+    acquisition_id: str,
     disparity: xr.DataArray,
     drg: xr.DataArray,
     daz: xr.DataArray,
-    annot: dict,
     cohe_th: float = 0.3,
     deg: int = 3,
     kernel_shape: list[int] = [15, 15],
@@ -241,102 +317,37 @@ def polyfit(
     # kernel creation for drg and daz multilooking #
     kernel = np.ones(kernel_shape) / np.prod(kernel_shape)
 
-    def to_polygrid2d(c):
-        j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
+    # image position correction #
+    disparity = disparity.squeeze().compute()
+    uv = disparity.groupby(disparity.sel(variable="cohe") >= cohe_th)[True]
+    dy, dx = (uv.sel(variable=["dy", "dx"])).values.T
+    dy = dy.astype("timedelta64[ns]")
+    x = uv.x
+    y = uv.y.astype("datetime64[ns]")
+    m0_x = x
+    m0_y = y
+    m1_x = x + dx
+    m1_y = y + dy
 
-        return np.flip(
-            np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
-            axis=1,
-        )
-
-    def shift_update(
-        i: xr.DataArray,
-        i0: xr.DataArray,
-        scale_fact: float,
-        x: xr.DataArray,
-        y: xr.DataArray,
-    ) -> xr.DataArray:
-        o = (i - i.mean()).astype("float64").squeeze()
-        o = convolution_2d(o, kernel).isel(azimuth_time=y, slant_range_time=x)
-
-        o1 = o.isel(point=slice(o.point.size // 2))
-        o2 = o.isel(point=slice(o.point.size // 2, None))
-        return (o1 - o2) / scale_fact - i0
-
-    def poly_estimate(
-        v: np.ndarray,
-        x: np.ndarray,
-        name: str,
-        attrs: dict,
-    ):
-        output = estimate_global_surface(x, v, degree=deg, **kwargs)
-
-        poly = xr.DataArray(
-            data=to_polygrid2d(output.x),
-            dims=["i", "j"],
-            name=name,
-            coords={k: np.arange(deg + 1) for k in ["i", "j"]},
-            attrs=attrs,
-        )
-        return poly.to_dataset().assign_attrs({"type": disparity.type})
-
-    def create_attrs(offset, scale_fact):
-        y0, x0 = offset.values
-        s_y, s_x = scale_fact.values * disparity.pixel_to_time
-        if disparity.type == "times":
-            y0 = daz.azimuth_time[0] + np.round((disparity.pixel_to_time[0] * y0)).astype("timedelta64[ns]")
-            x0 = drg.slant_range_time[0] + x0 * disparity.pixel_to_time[1]
-            y0, x0 = [e.values for e in [y0, x0]]
-            s_y = np.round(s_y).astype("timedelta64[ns]")
-        return {"deg": deg, "offset": (y0, x0), "scale_fact": (s_y, s_x)}
-
-    try:
-        # image position correction #
-        disparity = disparity.squeeze()
-        uv = disparity.groupby(disparity.sel(variable="cohe") >= cohe_th)[True]
-        dy, dx = (uv.sel(variable=["dy", "dx"]) / disparity.pixel_to_time).values.astype("float64").T
-
-        if disparity.type == "times":
-            x = uv.x - drg.slant_range_time[0]
-            y = uv.y.astype("datetime64[ns]") - daz.azimuth_time[0]
-            m0 = xr.concat(
-                (v.astype("float64") / disparity.pixel_to_time[k] for k, v in enumerate([y, x])),
-                dim="variable",
-            )
-        else:
-            m0 = xr.concat((uv.y, uv.x), dim="variable")
-
-        # from here on all coordinates are in pixels #
-        m0 = m0.assign_coords({"variable": ["y", "x"]})
-        m1 = m0 + np.vstack((dy, dx))
-    except Exception as e:
-        logger.critical(f"Error: {type(e).__name__} - {e}")
-        raise RuntimeError("No valid points found")
-
-    # concatenation of points (m0, m1) #
-    y, x = np.round(xr.concat((e.drop_vars("point", errors="ignore") for e in (m0, m1)), dim="point")).astype("int32")
+    x = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_x, m1_x)), dim="point")
+    y = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_y, m1_y)), dim="point")
 
     # shift in the x direction updating #
-    dx = shift_update(drg, dx, (2 * annot["Grid"]["Row"]["SS"] / speed_of_light), x, y)
+    dx = shift_update(drg, dx, x, y, kernel)
+    dy = shift_update(daz, dy, x, y, kernel)
 
-    # shift in the y direction updating #
-    dy = shift_update(
-        daz,
-        dy,
-        (annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9),
-        x,
-        y,
-    )
-    # coordinates rescaling to avoid numeric instability issues #
-    offset = m1.mean(dim="point")
-    scale_fact = (m1.max(dim="point") - m1.min(dim="point")) / 2.0
-    m1 = ((m1 - offset) / scale_fact).values.T
+    return burst_id, acquisition_id, m1_x, m1_y, dx, dy
 
-    # polynomial (both for x and y) estimation #
-    name = str(disparity.acquisition_date.values)
-    attrs = create_attrs(offset, scale_fact)
-    print("-" * 50)
-    return list(poly_estimate(v.values, m1, name, attrs) for v in (dy, dx))
+    # offset = m1.mean(dim="point")
+    # scale_fact = (m1.max(dim="point") - m1.min(dim="point")) / 2.0
+    # m1 = ((m1 - offset) / scale_fact).values.T
+    #
+    # # polynomial (both for x and y) estimation #
+    # name = str(disparity.acquisition_date.values)
+    # attrs = create_attrs(offset, scale_fact)
+    # print("-" * 50)
+    # raise
+    # return list(poly_estimate(v.values, m1, name, attrs) for v in (dy, dx))
 
 
 def initialize_patches(
@@ -387,11 +398,9 @@ def compute_pearson_coefficient(
     reference: xr.DataArray,
     pixel_to_time: np.ndarray,
     peak_window_size: Sequence[int],
-    forward: bool,
     y_dim: str,
     x_dim: str,
     correlation_kernel_size: Sequence[int] | None,
-    data_type: Literal["times", "pixels"] = "times",
 ):
 
     # Number of images and number of points
@@ -405,11 +414,7 @@ def compute_pearson_coefficient(
     else:
         # Correlation window dimension
         nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
-        i1, i2 = (
-            forward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
-            if forward
-            else backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
-        )
+        i1, i2 = backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
 
         # Remove bias
         i1 = i1 - i1.mean(axis=0)
@@ -425,16 +430,15 @@ def compute_pearson_coefficient(
         corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
 
         dy, dx, cohe, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
-
     return xr.DataArray(
         data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, cohe, sy, sx)).T.reshape(nim, -1, 5),
         dims=["acquisition_date", "point", "variable"],
         coords={
             "acquisition_date": stack.z.values,
-            "point": patch.patch.values,
+            "point": [patch.patch.values],
             "y": (["point"], [stack[y_dim].mean().values]),
             "x": (["point"], [stack[x_dim].mean().values]),
             "variable": ["dy", "dx", "cohe", "s_y", "s_x"],
         },
-        attrs={"type": data_type, "pixel_to_time": pixel_to_time.flatten()},
+        attrs={"pixel_to_time": pixel_to_time.flatten()},
     )
