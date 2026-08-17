@@ -152,13 +152,13 @@ def refit_orbit_coefficients(
     orbit_ = xr.Dataset(
         data_vars={
             "coeffs": (
-                ["acquisition_date", "degree", "axis"],
+                ["acquisition_id", "degree", "axis"],
                 # Structure the new coefficients into the correct shape.
                 np.array([v for v in [X, Y, Z]]).T[None, ...],
             )
         },
         coords={
-            "acquisition_date": np.array([acquisition_id], dtype=object),
+            "acquisition_id": np.array([acquisition_id], dtype=object),
             "degree": range(poly_degree + 1),
             "axis": range(3),
         },

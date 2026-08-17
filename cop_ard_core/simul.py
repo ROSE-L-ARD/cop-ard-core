@@ -127,7 +127,7 @@ def get_velocity(azimuth_time: xr.DataArray, t0: np.datetime64, arp_coeffs: dict
 
 
 def init_simulation(
-    acquisition_dates: np.ndarray,
+    acquisition_ids: np.ndarray,
     crs: CRS,
     x: np.ndarray,
     y: np.ndarray,
@@ -156,7 +156,7 @@ def init_simulation(
     xr.Dataset
         An xarray.Dataset representing the initialized (but mostly empty) simulation data
     """
-    n_dates = acquisition_dates.size
+    n_dates = acquisition_ids.size
 
     # Define the shape for each variable in the simulation dataset.
     shape = {
@@ -169,7 +169,7 @@ def init_simulation(
     # --- Create the Dataset Structure ---
     simulation = xr.Dataset(
         coords={
-            "acquisition_date": acquisition_dates,
+            "acquisition_id": acquisition_ids,
             "y": y,
             "x": x,
             "axis": [0, 1, 2],
@@ -456,7 +456,7 @@ def extract_simul_on_radar_chunk(
     return selection
 
 
-def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_config: dict[str, int]):
+def extract_simulation_ml(simulation: xr.Dataset, reference_id: str, coarsen_config: dict[str, int]):
     """
     Create a downsampled ("multilooked") version of the simulation data.
 
@@ -487,7 +487,7 @@ def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_c
         # For the 'min' dataset, coarsen the data and take the minimum value in each block.
         "min": cast(
             xr.Dataset,
-            simulation.sel(acquisition_date=reference_date)
+            simulation.sel(acquisition_id=reference_id)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="min"),
@@ -495,7 +495,7 @@ def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_c
         # For the 'max' dataset, do the same but take the maximum value.
         "max": cast(
             xr.Dataset,
-            simulation.sel(acquisition_date=reference_date)
+            simulation.sel(acquisition_id=reference_id)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="max"),
