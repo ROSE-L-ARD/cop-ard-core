@@ -680,7 +680,7 @@ def compute_shadow(
         raise ValueError("Could not determine geographic bounding box from radar bounding box.")
     # Extract the relevant simulation data corresponding to this radar chunk + margin
     selection = extract_simul_on_radar_chunk(
-        simulation, simulation.acquisition_date.values[0], bbox_radar, bbox_geo
+        simulation, simulation.acquisition_id.values[0], bbox_radar, bbox_geo
     ).squeeze()
 
     # define slices

@@ -43,7 +43,7 @@ SIGMA_ORB_2 = {
     "AUX_MOEORB": 0.05**2,
     "AUX_POEORB": 0.05**2,
 }
-DIMENSIONS_ = ["acquisition_date", "azimuth_time", "slant_range_time"]
+DIMENSIONS_ = ["acquisition_id", "azimuth_time", "slant_range_time"]
 OV_FACT = 100_000
 
 
@@ -302,7 +302,7 @@ def warp_dazdrg(
     simulation_secondary: xr.Dataset | None,
     reference_ml: dict,
     margin: dict,
-    coregistration_reference_date: str,
+    coregistration_reference_id: str,
     azimuth_grid_spacing: float,
     range_grid_spacing: float,
     compute_daz_drg: bool,
@@ -370,7 +370,7 @@ def warp_dazdrg(
         selection = extract_simul_on_radar_chunk(
             simulation=simulation_reference,
             simulation_secondary=simulation_secondary,
-            reference_date=coregistration_reference_date,
+            reference_date=coregistration_reference_id,
             bbox_radar=bbox_radar_buffered,
             bbox_geo=bbox_geo,
         )
@@ -382,7 +382,7 @@ def warp_dazdrg(
             drg,
             selection.azimuth_time,
             selection.slant_range_time,
-            coregistration_reference_date,
+            coregistration_reference_id,
             bbox_radar,
             azimuth_grid_spacing,
             range_grid_spacing,
@@ -469,9 +469,9 @@ def warp_cslc(
     slc: xr.DataArray,
     daz: xr.DataArray,
     drg: xr.DataArray,
-    acquisition_date: np.datetime64,
+    acquisition_id: np.datetime64,
     acquisition_date_index: int,
-    coregistration_reference_date: np.datetime64,
+    coregistration_reference_id: np.datetime64,
     etad_correction_grid: xr.Dataset,
     kernel: dict,
     azimuth_grid_spacing: float,
@@ -545,17 +545,17 @@ def warp_cslc(
     # --- Warping Execution ---
     # Optimization: If it's the reference image with no corrections, just copy the data without warping.
     if (
-        (acquisition_date == coregistration_reference_date)
+        (acquisition_id == coregistration_reference_id)
         & (y_poly is None)
         & (x_poly is None)
         & (etad_correction_grid is None)
     ):
         # No warping is required; directly slice the original image.
         y, x = np.round(y).astype(int), np.round(x).astype(int)
-        coreg_cstack.loc[:, acquisition_date] = (
+        coreg_cstack.loc[:, acquisition_id] = (
             slc.isel(azimuth_time=slice(y.min(), y.max() + 1), slant_range_time=slice(x.min(), x.max() + 1))
             .sel(polarization=coreg_cstack.polarization)
-            .squeeze("acquisition_date", drop=True)
+            .squeeze("acquisition_id", drop=True)
         )
     else:
         # --- Perform Sinc Warping ---
@@ -570,7 +570,7 @@ def warp_cslc(
 
         # Select the input data from the original SLC based on the bounding box.
         im_in = slc.isel(azimuth_time=slice(ymin, ymax), slant_range_time=slice(xmin, xmax))
-        im_in = im_in.squeeze("acquisition_date", drop=True)
+        im_in = im_in.squeeze("acquisition_id", drop=True)
 
         # Identify the output indices that are safely inside the input image boundaries.
         iy, ix = np.where(
@@ -1036,7 +1036,7 @@ def grid_data_block(
     drg: xr.DataArray,
     simulation_azimuth_time: xr.DataArray,
     simulation_slant_range_time: xr.DataArray,
-    reference_date: str,
+    reference_id: str,
     bbox: np.ndarray,
     azimuth_grid_spacing: float,
     range_grid_spacing: float,
@@ -1072,17 +1072,15 @@ def grid_data_block(
         and `drg` values.
     """
     # If there is more than one acquisition, we compute the shifts.
-    if simulation_azimuth_time.acquisition_date.size > 1:
+    if simulation_azimuth_time.acquisition_id.size > 1:
         # Keep only the essential variables for shift calculation.
         # Select the simulation data corresponding to the reference date.
-        reference_azimuth_time = simulation_azimuth_time.sel(acquisition_date=reference_date)
-        reference_slant_range_time = simulation_slant_range_time.sel(acquisition_date=reference_date)
+        reference_azimuth_time = simulation_azimuth_time.sel(acquisition_id=reference_id)
+        reference_slant_range_time = simulation_slant_range_time.sel(acquisition_id=reference_id)
         # Calculate the shifts by subtracting the reference from all other acquisitions.
-        selection_azimuth_time = (
-            simulation_azimuth_time.sel(acquisition_date=daz.acquisition_date) - reference_azimuth_time
-        )
+        selection_azimuth_time = simulation_azimuth_time.sel(acquisition_id=daz.acquisition_id) - reference_azimuth_time
         selection_slant_range_time = (
-            simulation_slant_range_time.sel(acquisition_date=daz.acquisition_date) - reference_slant_range_time
+            simulation_slant_range_time.sel(acquisition_id=daz.acquisition_id) - reference_slant_range_time
         )
         # --- Prepare for Interpolation ---
         # Convert the sparse reference grid coordinates to a pixel-based system.
@@ -1167,10 +1165,10 @@ def coreg_qlt(
 
     # Initialize the output DataArray for coregistration quality.
     crg_qlt = xr.DataArray(
-        np.zeros((coreg.acquisition_date.size, *grid)), dims=["acquisition_date", "azimuth_time", "slant_range_time"]
+        np.zeros((coreg.acquisition_id.size, *grid)), dims=["acquisition_id", "azimuth_time", "slant_range_time"]
     )
     # --- Main Loop: Compute Quality for each Acquisition ---
-    for i, d in enumerate(coreg.acquisition_date.values):
+    for i, d in enumerate(coreg.acquisition_id.values):
         # Skip the reference date itself, as its error is zero by definition.
         if d != reference_date:
             orb_type = acquisition_date_orbit_type[d]
@@ -1180,8 +1178,8 @@ def coreg_qlt(
             t0 = acquisition_date_t0[d]
             # Get metadata for the secondary acquisition.
             # Calculate the coordinates of the secondary image points corresponding to the reference grid.
-            az = az0 + daz_drg.daz.sel(acquisition_date=d).stack(point=["azimuth_time", "slant_range_time"]).values
-            rg = rg0 + daz_drg.drg.sel(acquisition_date=d).stack(point=["azimuth_time", "slant_range_time"]).values
+            az = az0 + daz_drg.daz.sel(acquisition_id=d).stack(point=["azimuth_time", "slant_range_time"]).values
+            rg = rg0 + daz_drg.drg.sel(acquisition_id=d).stack(point=["azimuth_time", "slant_range_time"]).values
             # --- Compute Geometric Error (Sigma) ---
             # Calculate the squared baseline (distance between satellite positions).
             sigma = ((get_position(az, t0, arp_coeffs).drop_vars("azimuth_time") - position0) ** 2).sum(dim="axis")
@@ -1195,7 +1193,7 @@ def coreg_qlt(
             # Unstack the 1D result back into a 2D grid and assign it to the output.
             crg_qlt[i, :, :] = (
                 sigma.rename(azimuth_time="point")
-                .assign_coords(az0.drop_vars("acquisition_date", errors="ignore").coords)
+                .assign_coords(az0.drop_vars("acquisition_id", errors="ignore").coords)
                 .unstack()
             )
 
