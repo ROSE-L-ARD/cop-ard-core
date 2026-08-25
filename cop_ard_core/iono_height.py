@@ -113,7 +113,7 @@ def init_iono_db(url: str = "https://celestrak.org/SpaceData/SW-All.csv", dbfile
         raise RuntimeError(f"Could not initialize ionospheric database: {e}") from e
 
 
-def read_iono_db(year: int, month: int, day: int, dbfile: str = "SW-ALL.pkl") -> float:
+def read_iono_db(year: int, month: int, day: int, dbfile: str) -> float:
     """
     Read the local space weather database and retrieve the F10.7 flux value.
     If the database file does not exist, it triggers a download automatically.
@@ -142,7 +142,7 @@ def read_iono_db(year: int, month: int, day: int, dbfile: str = "SW-ALL.pkl") ->
     return get_f107(sw_all, year, month, day)
 
 
-def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float]) -> float:
+def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float], wdir_path_tmp: str) -> float:
     """
     Calculate the peak height of the ionospheric F2 layer (hmF2).
 
@@ -161,7 +161,7 @@ def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float])
     Returns
     -------
     float
-        The estimated peak height of the F2 layer (hmF2) in kilometers.
+        The estimated peak height of the F2 layer (hmF2) in meters.
     """
     if not isinstance(acquisition_date, pd.Timestamp):
         dt = pd.Timestamp(acquisition_date)
@@ -172,44 +172,38 @@ def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float])
 
     # --- Time Setup ---
     # Define Universal Time (UTC) for the IRI model
-    aUT = np.array([dt.hour])
+    fractional_hour = dt.hour + (dt.minute / 60.0) + (dt.second / 3600.0)
+    aUT = np.array([fractional_hour])
 
     # --- Location Setup ---
     # Extract ECEF coordinates from dict and convert to Lon/Lat/Height
-    ecef_coords = np.array([v for v in scp.values()])
+    ecef_coords = np.array([scp[i] for i in ["X", "Y", "Z"]])
     sat_pos_llh = convert_ecef_to_llh(ecef_coords)
-    
-    alon = np.array([sat_pos_llh[0]])   # Longitude
-    alat = np.array([sat_pos_llh[1]])   # Latitude
+
+    alon = np.array([sat_pos_llh[0]])  # Longitude
+    alat = np.array([sat_pos_llh[1]])  # Latitude
 
     # Altitude grid (km) required for the density evaluation routine
     aalt = np.arange(90, 1001, 5)
 
     # --- Solar Flux Data ---
     # Retrieve the daily F10.7 value from the local database
-    f107_val = read_iono_db(year, mth, day)
+    f107_val = read_iono_db(year, mth, day, f"{wdir_path_tmp}/SW-ALL.pkl")
 
     # --- PyIRI Model Execution ---
     logger.info(f"Evaluating PyIRI model for acquisition date {dt.strftime('%Y-%m-%d %H:%M:%S')}")
     try:
         # Evaluate the empirical International Reference Ionosphere (IRI) parameters
         F2, F1, E, Es, sun, mag, EDP = ml.IRI_density_1day(
-            year,
-            mth,
-            day,
-            aUT,
-            alon,
-            alat,
-            aalt,
-            f107_val,
-            PyIRI.coeff_dir
+            year, mth, day, aUT, alon, alat, aalt, f107_val, PyIRI.coeff_dir
         )
     except Exception as e:
         logger.critical(f"PyIRI model execution failed: {e.__class__.__name__}")
         raise RuntimeError(f"Error computing ionospheric density via PyIRI: {e}") from e
 
     # Return the peak height (hm) of the F2 layer
-    peak_height = float(F2['hm'].ravel()[0])
-    logger.info(f"Calculated hmF2 peak height: {peak_height:.2f} km")
-    
+    peak_height = float(F2["hm"].ravel()[0]) * 1e3
+    logger.info(f"Calculated hmF2 peak height: {peak_height:.2f} m")
+
     return peak_height
+

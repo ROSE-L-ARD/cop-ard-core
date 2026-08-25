@@ -2,7 +2,7 @@ import numpy as np
 import scipy.sparse
 import xarray as xr
 from numba import njit
-
+import itertools
 from cop_ard_core.utils import compute_interf_norm, wrap
 
 
@@ -125,26 +125,27 @@ def optimize_curvature(esd, poly_degree: int):
     y = esd["mean_phase"].values[ind]
     w = esd["wrap_cycle"].values[ind]
     az = esd["azimuth_time"].values[ind]
-
     t = (az - az.min()).astype(float) / 1e9
     # fit a polynomial function on the measured valid phases
-    A = np.vstack([t**i for i in range(0, poly_degree + 1)]) * 2 * np.pi / w
-    k = np.ptp(A, axis=0)
-    A = A / k
-
-    params = np.array([np.arange(-1, 1, abs(np.mean(w)) / 4) * k[i] for i in range(poly_degree + 1)])
-    # Assuming optimize_phase, compute_phase, angle_phase, wrap are custom functions defined elsewhere
-    opt_param = optimize_phase(params, y, A)
-
-    opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
+    if poly_degree == 0:
+        opt_param = np.array([0.0])
+        A = np.ones((1, t.size), dtype=np.float64)
+    else:
+        A = np.vstack([t**i for i in range(1, poly_degree + 1)]) * 2 * np.pi / w
+        k = np.ptp(A, axis=1)
+        k[k == 0] = 1.0
+        A = A / k[:, np.newaxis]
+        params = [np.arange(-k[i], k[i], 2 * np.pi) for i in range(poly_degree)]
+        # Assuming optimize_phase, compute_phase, angle_phase, wrap are custom functions defined elsewhere
+        opt_param = optimize_phase(params, y, A)
+        opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
     const = angle_phase(opt_param, y, A)
     y_model = opt_param @ A + const
     # unwrap (1D) the phase
     phase = wrap(y - y_model) + y_model
     # convert phase offset to shift in pixel
     esd_opt = esd.copy(deep=True)
-
-    esd_opt["mean_phase"].values[ind] = phase
+    esd_opt["mean_phase"].data[ind] = phase
     esd_opt["mean_shift"] = esd_opt["mean_phase"] / (2 * np.pi) * esd_opt["wrap_cycle"]
 
     return esd_opt
@@ -161,27 +162,18 @@ def angle_phase(param, y, A):
 
 
 def optimize_phase(params, y, A, maxcorr: float = 3 * np.pi):
-    n_rows = params.shape[0]
-    n_cols = params.shape[1]
-    total_combinations = n_cols**n_rows
-    opt_res = 1e9
-    opt_param = np.zeros(n_rows, dtype=params.dtype)
-    for i in range(total_combinations):
-        index = i
-        param = np.zeros(n_rows, dtype=params.dtype)
-        for row in range(n_rows - 1, -1, -1):
-            col = index % n_cols
-            param[row] = params[row, col]
-            index = index // n_cols
-        # try only parameters providing correction lower than a given threshold
+    opt_param = np.array([p[0] for p in params], dtype=float)
+    opt_res = compute_phase(opt_param, y, A)
+    for param_tuple in itertools.product(*params):
+        param = np.array(param_tuple)
         corr = np.max(np.abs(param @ A))
         if corr > maxcorr:
             continue
+
         res = compute_phase(param, y, A)
         if res < opt_res:
             opt_res = res
             opt_param = param
-            # print(f"check param {i} of {total_combinations} {param=} {corr=} {res=}")
 
     return opt_param
 
