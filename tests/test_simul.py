@@ -1,4 +1,5 @@
 """Unit tests for cop_ard_core.simul."""
+from scipy.constants import speed_of_light
 
 from typing import Union, cast
 
@@ -494,6 +495,96 @@ class TestBackwardGeocode:
         result = backward_geocode(dem_ecef, pos, t0=t0)
         # The output is datetime64[ns], not timedelta64[ns]
         assert result.azimuth_time.dtype == np.dtype("datetime64[ns]")
+    
+    @pytest.mark.unit
+    def test_backward_geocode_precision(self):
+        """
+        Test zero-Doppler calculation using a mathematically exact synthetic setup.
+        This ensures the Newton-Raphson implementation inside `main_loop` converges correctly.
+        """
+        # 1. Orbit setup (Polynomials degree=1 -> shape is 2, 3)
+        # Target satellite moves strictly along X at 7,000 m/s
+        # Initial Position (c0): X=0, Y=0, Z=700,000
+        # Velocity (c1): X=7000, Y=0, Z=0
+        pos_values = np.array(
+            [
+                [0.0, 0.0, 700000.0],  # Intercept (c0)
+                [7000.0, 0.0, 0.0],  # Slope (c1)
+            ]
+        )
+        pos = xr.DataArray(pos_values, dims=["degree", "axis"])
+        ref_time = np.datetime64("2024-01-01T00:00:00", "ns")
+        pos.attrs = {
+            "referenceTime": ref_time,
+            "scaleTime": 1.0,  # 1 second scaling
+        }
+
+        # 2. Target DEM Point Setup
+        # Placed exactly at X=0, Y=100,000, Z=0.
+        # Nearest approach happens precisely at t=0 (the referenceTime).
+        dem_values = np.array(
+            [
+                [[0.0]],  # X
+                [[100000.0]],  # Y
+                [[0.0]],  # Z
+            ]
+        )
+        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose("y", "x", "axis")
+
+        # 3. Supply a staggered initial guess `t0` to prove that Newton-Raphson works
+        t0_offset = ref_time + np.timedelta64(500, "ms")  # 0.5s offset
+        t0 = xr.DataArray([[t0_offset]], dims=["y", "x"])
+
+        # 4. Process Backward Geocoding
+        result = backward_geocode(dem_ecef, pos, t0=t0)
+
+        # 5. Precise Assertions
+        # The calculated azimuth time should converge exactly to t=0 (ref_time)
+        assert result.azimuth_time.values[0, 0] == ref_time
+
+        # Calculate the expected dem_distance array.
+        # Note: backward_geocode returns 'dem_distance' as the ECEF coordinate vector from satellite to target
+        # vector = target_coords - satellite_coords = (0, 100000, 0) - (0, 0, 700000)
+        expected_vector = np.array([[[-0.0, 100000.0, -700000.0]]])
+        np.testing.assert_array_almost_equal(result.dem_distance.values, expected_vector)
+
+        # Calculate expected normalized satellite direction (should be purely along the X axis)
+        expected_direction = np.array([[[1.0, 0.0, 0.0]]])
+        np.testing.assert_array_almost_equal(result.satellite_direction.values, expected_direction)
+
+
+    @pytest.mark.unit
+    def test_simulate_acquisition_precision(self):
+        """
+        Test slant_range_time calculation wrap-up using the same synthetic setup.
+        """
+        # Use the same exact geometry as above
+        pos_values = np.array([[0.0, 0.0, 700000.0], [7000.0, 0.0, 0.0]])
+        pos = xr.DataArray(pos_values, dims=["degree", "axis"])
+        ref_time = np.datetime64("2024-01-01T00:00:00", "ns")
+        pos.attrs = {"referenceTime": ref_time, "scaleTime": 1.0}
+
+        dem_values = np.array([[[0.0]], [[100000.0]], [[0.0]]])
+        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose("y", "x", "axis")
+
+        # Simulate
+        result = simulate_acquisition(
+            dem_ecef, pos, include_variables=("slant_range_time", "azimuth_time", "dem_distance")
+        )
+
+        # Expected absolute distance = sqrt(Y_offset^2 + Z_offset^2)
+        expected_distance = np.sqrt(100000.0**2 + 700000.0**2)
+
+        # Expected two-way travel time
+        expected_slant_range_time = 2.0 / speed_of_light * expected_distance
+
+        # Assertions
+        assert result.azimuth_time.values[0, 0] == ref_time
+        assert result.slant_range_time.values[0, 0] == pytest.approx(expected_slant_range_time)
+
+        # Verify the `include_variables` parameter successfully dropped `satellite_direction`
+        assert "satellite_direction" not in result.data_vars
+
 
     # ------------------------------------------------------------------
     # Type and dtype correctness
