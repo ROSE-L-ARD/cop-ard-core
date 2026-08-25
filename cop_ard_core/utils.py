@@ -82,7 +82,7 @@ def get_coordinates(y, x, alpha, beta):
 # @timeit
 def get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact):
     c1, c2 = get_coordinates(azimuth_time, slant_range_time, offset, scale_fact)
-    return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly)
+    return np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly)
 
 
 def get_coeff_demod(dkcoa_polynomial_coeffs: np.ndarray):

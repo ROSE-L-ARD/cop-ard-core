@@ -185,7 +185,7 @@ def estimate_global_surface(
 
         # compute difference wrt previous iteration
         diff_prec = np.nanmax(np.abs(y_new - y_prec))
-        logger.debug(f"iter {i}: {diff_prec=} {np.nanmax(np.abs(diff))=}")
+        # logger.debug(f"iter {i}: {diff_prec=} {np.nanmax(np.abs(diff))=}")
 
         # check convergence
         if diff_prec < convergency_threshold:
@@ -198,11 +198,18 @@ def estimate_global_surface(
     return output
 
 
-def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, w: np.ndarray| None=None, degree: int = 1, norm: int = 1, weights: np.ndarray | None = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fit_2d_poly(
+    x: np.ndarray,
+    y: np.ndarray,
+    data: np.ndarray,
+    w: np.ndarray | None = None,
+    degree: int = 1,
+    norm: int = 1,
+    weights: np.ndarray | None = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
-    print(np.sum(mask))
     # select points
     xx, yy, data_sel = x[mask], y[mask], data[mask]
     weight_sel = weights[mask] if weights is not None else np.ones_like(data_sel)
@@ -215,8 +222,7 @@ def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, w: np.ndarray| N
     x_ = x_ / x_sc
 
     return (
-        estimate_global_surface(x_, data_sel, weight_sel, 
-                                regions=None, degree=degree, norm=norm),
+        estimate_global_surface(x_, data_sel, weight_sel, regions=None, degree=degree, norm=norm),
         x_sc,
         x_0,
     )

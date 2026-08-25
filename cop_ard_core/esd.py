@@ -11,14 +11,14 @@ def compute_shift(
     burst1: xr.DataArray,
     reference0: xr.DataArray,
     reference1: xr.DataArray,
-    acquisition_date: xr.DataArray,
+    acquisition_id: xr.DataArray,
     multilook: dict,
     coherence_threshold: float,
 ) -> tuple[xr.DataArray, xr.DataArray]:
 
     # output initialization #
-    coords = acquisition_date.coords
-    data = np.full(acquisition_date.size, np.nan)
+    coords = acquisition_id.coords
+    data = np.full(acquisition_id.size, np.nan)
     mean_phase = xr.DataArray(name="mean_phase", data=data, coords=coords)
     coherence = xr.DataArray(name="coherence", data=data, coords=coords)
 
@@ -41,8 +41,8 @@ def compute_shift(
     mean_phase = xr.ufuncs.angle(interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]))
     mean_phase = xr.DataArray(
         data=mean_phase,
-        dims=["acquisition_date"],
-        coords={"acquisition_date": interf_prod.acquisition_date},
+        dims=["acquisition_id"],
+        coords={"acquisition_id": interf_prod.acquisition_id},
         name="mean_phase",
     )
     mean_phase = mean_phase.where(coherence > 0)
@@ -91,7 +91,7 @@ def compute_azimuth_shifts(
             burst1=burst1,
             reference0=reference0,
             reference1=reference1,
-            acquisition_date=burst0.acquisition_date,
+            acquisition_id=burst0.acquisition_id,
             multilook=multilook,
             coherence_threshold=coherence_threshold,
         )
@@ -117,29 +117,34 @@ def compute_azimuth_shifts(
 def optimize_curvature(esd, poly_degree: int):
     # extract valid indices
     ind = np.where(np.isfinite(esd["mean_phase"].values))[0]
+
+    # Check if there are valid points to process
+    if len(ind) == 0:
+        return esd.copy(deep=True)
+
     y = esd["mean_phase"].values[ind]
     w = esd["wrap_cycle"].values[ind]
     az = esd["azimuth_time"].values[ind]
 
     t = (az - az.min()).astype(float) / 1e9
-    # Rescale azimuth time to have values from -1 to 1
-    t = (t / np.ptp(t)) * 2 - 1.0
-
     # fit a polynomial function on the measured valid phases
     A = np.vstack([t**i for i in range(0, poly_degree + 1)]) * 2 * np.pi / w
-    params = np.array([np.arange(-1, 1, np.mean(w) / 4) for i in range(poly_degree + 1)])
+    k = np.ptp(A, axis=0)
+    A = A / k
 
+    params = np.array([np.arange(-1, 1, abs(np.mean(w)) / 4) * k[i] for i in range(poly_degree + 1)])
+    # Assuming optimize_phase, compute_phase, angle_phase, wrap are custom functions defined elsewhere
     opt_param = optimize_phase(params, y, A)
+
     opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
     const = angle_phase(opt_param, y, A)
     y_model = opt_param @ A + const
-
     # unwrap (1D) the phase
     phase = wrap(y - y_model) + y_model
-
     # convert phase offset to shift in pixel
     esd_opt = esd.copy(deep=True)
-    esd_opt["mean_phase"][ind] = phase
+
+    esd_opt["mean_phase"].values[ind] = phase
     esd_opt["mean_shift"] = esd_opt["mean_phase"] / (2 * np.pi) * esd_opt["wrap_cycle"]
 
     return esd_opt
@@ -176,7 +181,7 @@ def optimize_phase(params, y, A, maxcorr: float = 3 * np.pi):
         if res < opt_res:
             opt_res = res
             opt_param = param
-            print(f"check param {i} of {total_combinations} {param=} {corr=} {res=}")
+            # print(f"check param {i} of {total_combinations} {param=} {corr=} {res=}")
 
     return opt_param
 
