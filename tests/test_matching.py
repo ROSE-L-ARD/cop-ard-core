@@ -12,9 +12,7 @@ from cop_ard_core.matching import (
     forward_flatten,
     get_corr_sub_pix,
     initialize_patches,
-    polyfit,
 )
-
 
 # ===========================================================================
 # TestGetCorrSubPix
@@ -1058,7 +1056,7 @@ class TestComputePearsonCoefficient:
         )
         # With constant data, normalization leads to NaN/zero
         assert isinstance(result, xr.DataArray)
-        assert np.allclose(result.sel(variable="cohe").values, 0.)
+        assert np.allclose(result.sel(variable="cohe").values, 0.0)
 
 
 # ===========================================================================

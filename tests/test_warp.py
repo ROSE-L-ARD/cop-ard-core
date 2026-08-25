@@ -1,10 +1,10 @@
 """Unit tests for cop_ard_core.warp."""
 
 from __future__ import annotations
-import scipy
 
 import numpy as np
 import pytest
+import scipy
 import xarray as xr
 
 from cop_ard_core.warp import (
@@ -498,13 +498,13 @@ class TestSincWarp:
         """sinc_warp should return a sinc if applied to a dirac pulse."""
         image_size = 51
         kaiser_beta = 10
-        delta=0.5
+        delta = 0.5
         ov_fact = 10000
         x = np.arange(image_size) - (image_size - 1) / 2.0
         # Calculate the sinc values and apply the Kaiser window element-wise.
-        expected = np.sinc(x+delta) * scipy.signal.windows.kaiser(image_size, kaiser_beta, sym=True)
+        expected = np.sinc(x + delta) * scipy.signal.windows.kaiser(image_size, kaiser_beta, sym=True)
         image = np.zeros((image_size, image_size), dtype=np.float64)
-        image[image_size//2, image_size//2] = 1
+        image[image_size // 2, image_size // 2] = 1
 
         x = np.arange(image_size, dtype=np.float64)
         # x = np.linspace(side//2 - 5, side//2+5, num=50)
@@ -520,8 +520,7 @@ class TestSincWarp:
         }
         result = sinc_warp(image, x.ravel(), y.ravel(), kernel, invalid_value=np.nan)
         result = result.reshape(x.shape)
-        assert np.mean((result[image_size//2, :] - expected)**2) < 1e-4  # tight enough?
-
+        assert np.mean((result[image_size // 2, :] - expected) ** 2) < 1e-4  # tight enough?
 
     @pytest.mark.parametrize("offset", [0, 1, 2, 3, 4, 5])
     def test_sinc_warp_sinc_applied_to_pulse_offset(self, offset):
@@ -529,7 +528,7 @@ class TestSincWarp:
         image_size = 51
         ov_fact = 10000
         image = np.zeros((image_size, image_size), dtype=np.float64)
-        image[image_size//2, image_size//2] = 1
+        image[image_size // 2, image_size // 2] = 1
 
         x = np.arange(image_size, dtype=np.float64)
         x, y = np.meshgrid(x, x)
@@ -546,12 +545,12 @@ class TestSincWarp:
         np.testing.assert_allclose(result, np.roll(image, (-offset, 0)), atol=1e-6)
 
     @pytest.mark.parametrize("offset", [0, 1, 2, 3, 4, 5])
-    def test_sinc_warp_sinc_applied_to_pulse_offset(self, offset):
+    def test_sinc_warp_sinc_applied_to_image_offset(self, offset):
         """sinc_warp should return a sinc if applied to a dirac pulse."""
         image_size = 51
         ov_fact = 10000
         image = np.zeros((image_size, image_size), dtype=np.float64)
-        image[image_size//2, image_size//2] = 1
+        image[image_size // 2, image_size // 2] = 1
 
         x = np.arange(image_size, dtype=np.float64)
         x, y = np.meshgrid(x, x)
@@ -567,25 +566,6 @@ class TestSincWarp:
         result = result.reshape(x.shape)
         np.testing.assert_allclose(result, np.roll(image, (-offset, 0)), atol=1e-6)
 
-    @pytest.mark.parametrize("offset", [0, 1, 2, 3, 4, 5])
-    def test_sinc_warp_sinc_applied_to_image_offset(self, image_7x7, offset):
-        """sinc_warp should return a sinc if applied to a dirac pulse."""
-        image = image_7x7
-
-        ov_fact = 10000
-        x = np.arange(image.shape[0], dtype=np.float64)
-        x, y = np.meshgrid(x, x)
-        x += offset
-        kernel_size = 15
-        kernel = {
-            "kernel_shape": (kernel_size, kernel_size),
-            "ov_fact": ov_fact,
-            "sinc_x": sinc(100, ov_fact=ov_fact),
-            "sinc_y": sinc(100, ov_fact=ov_fact),
-        }
-        result = sinc_warp(image, x.ravel(), y.ravel(), kernel, invalid_value=np.nan)
-        result = result.reshape(x.shape)
-        np.testing.assert_allclose(result, np.roll(image, (-offset, 0)), atol=1e-6)
 
 class TestDotNumba:
     """Tests for _dot_numba internal function."""

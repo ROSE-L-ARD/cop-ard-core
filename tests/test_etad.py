@@ -286,12 +286,15 @@ class TestApplyEtadCorrections:
     # Parametrized: various correction values
     # ------------------------------------------------------------------
 
-    @pytest.mark.parametrize("azcorr_val,rgcorr_val", [
-        (0.0, 0.0),
-        (0.001, 0.01),
-        (-0.001, -0.01),
-        (1.0, 10.0),
-    ])
+    @pytest.mark.parametrize(
+        "azcorr_val,rgcorr_val",
+        [
+            (0.0, 0.0),
+            (0.001, 0.01),
+            (-0.001, -0.01),
+            (1.0, 10.0),
+        ],
+    )
     def test_apply_etad_corrections_various_correction_values(self, azcorr_val, rgcorr_val):
         """Should handle various correction grid values including negative."""
         az = xr.DataArray(np.arange(4, dtype=np.float64), dims=["azimuth_time"])

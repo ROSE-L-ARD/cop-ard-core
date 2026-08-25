@@ -1,5 +1,4 @@
 """Unit tests for cop_ard_core.simul."""
-from scipy.constants import speed_of_light
 
 from typing import Union, cast
 
@@ -8,6 +7,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 from pyproj import CRS
+from scipy.constants import speed_of_light
 
 from cop_ard_core.simul import (
     backward_geocode,
@@ -495,7 +495,7 @@ class TestBackwardGeocode:
         result = backward_geocode(dem_ecef, pos, t0=t0)
         # The output is datetime64[ns], not timedelta64[ns]
         assert result.azimuth_time.dtype == np.dtype("datetime64[ns]")
-    
+
     @pytest.mark.unit
     def test_backward_geocode_precision(self):
         """
@@ -529,7 +529,9 @@ class TestBackwardGeocode:
                 [[0.0]],  # Z
             ]
         )
-        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose("y", "x", "axis")
+        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose(
+            "y", "x", "axis"
+        )
 
         # 3. Supply a staggered initial guess `t0` to prove that Newton-Raphson works
         t0_offset = ref_time + np.timedelta64(500, "ms")  # 0.5s offset
@@ -552,7 +554,6 @@ class TestBackwardGeocode:
         expected_direction = np.array([[[1.0, 0.0, 0.0]]])
         np.testing.assert_array_almost_equal(result.satellite_direction.values, expected_direction)
 
-
     @pytest.mark.unit
     def test_simulate_acquisition_precision(self):
         """
@@ -565,7 +566,9 @@ class TestBackwardGeocode:
         pos.attrs = {"referenceTime": ref_time, "scaleTime": 1.0}
 
         dem_values = np.array([[[0.0]], [[100000.0]], [[0.0]]])
-        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose("y", "x", "axis")
+        dem_ecef = xr.DataArray(dem_values, dims=["axis", "y", "x"], coords={"axis": [0, 1, 2]}).transpose(
+            "y", "x", "axis"
+        )
 
         # Simulate
         result = simulate_acquisition(
@@ -584,7 +587,6 @@ class TestBackwardGeocode:
 
         # Verify the `include_variables` parameter successfully dropped `satellite_direction`
         assert "satellite_direction" not in result.data_vars
-
 
     # ------------------------------------------------------------------
     # Type and dtype correctness

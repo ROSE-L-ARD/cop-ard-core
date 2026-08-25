@@ -11,7 +11,6 @@ from cop_ard_core.griddata import (
     interpolate,
 )
 
-
 # ===========================================================================
 # TestGenerateTriangles
 # ===========================================================================
@@ -214,9 +213,7 @@ class TestInterpDataset:
         np.random.seed(42)
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
-                ),
+                "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
                 "extra": xr.DataArray(
                     np.random.rand(3, 5, 5),
                     dims=["layer", "y", "x"],
@@ -236,9 +233,7 @@ class TestInterpDataset:
         """Fill value should be used for out-of-bounds points."""
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.ones((5, 5)), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
-                ),
+                "z": xr.DataArray(np.ones((5, 5)), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
             }
         )
         xi = self._make_2d_xi(3, 3)
@@ -266,9 +261,7 @@ class TestInterpDataset:
         np.random.seed(42)
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(8, 8), dims=["y", "x"], coords={"y": np.arange(8), "x": np.arange(8)}
-                ),
+                "z": xr.DataArray(np.random.rand(8, 8), dims=["y", "x"], coords={"y": np.arange(8), "x": np.arange(8)}),
             }
         )
         xi = self._make_2d_xi(4, 4)
@@ -282,9 +275,7 @@ class TestInterpDataset:
         np.random.seed(42)
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(8, 8), dims=["y", "x"], coords={"y": np.arange(8), "x": np.arange(8)}
-                ),
+                "z": xr.DataArray(np.random.rand(8, 8), dims=["y", "x"], coords={"y": np.arange(8), "x": np.arange(8)}),
             }
         )
         xi = self._make_2d_xi(4, 4)
@@ -355,9 +346,7 @@ class TestInterpDataset:
         np.random.seed(42)
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
-                ),
+                "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
             }
         )
         xi = self._make_2d_xi(3, 3)
@@ -405,13 +394,11 @@ class TestInterpDataset:
         np.random.seed(42)
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
-                ),
+                "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
             }
         )
         xi = self._make_2d_xi(3, 3)
-        result = interp_dataset(data, xi, common_dims=("y", "x"))
+        interp_dataset(data, xi, common_dims=("y", "x"))
         # Should not raise with default NaN fill_value
 
     @pytest.mark.unit
@@ -437,9 +424,7 @@ class TestInterpDataset:
         """Output should always be xr.Dataset even with single variable."""
         data = xr.Dataset(
             {
-                "z": xr.DataArray(
-                    np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}
-                ),
+                "z": xr.DataArray(np.random.rand(5, 5), dims=["y", "x"], coords={"y": np.arange(5), "x": np.arange(5)}),
             }
         )
         xi = self._make_2d_xi(3, 3)

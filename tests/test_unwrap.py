@@ -17,7 +17,6 @@ from cop_ard_core.unwrap import (
     unwrap_phase,
 )
 
-
 # ===========================================================================
 # TestUnique
 # ===========================================================================
@@ -154,9 +153,7 @@ class TestGetEdges:
         e_sorted = np.sort(e, axis=1)
         es_sorted = np.sort(es, axis=1)
         for edge in e_sorted:
-            assert any(
-                (es_sorted[i] == edge).all() for i in range(es_sorted.shape[0])
-            )
+            assert any((es_sorted[i] == edge).all() for i in range(es_sorted.shape[0]))
 
     @pytest.mark.unit
     def test_get_edges_2x2_grid(self):

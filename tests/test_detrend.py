@@ -13,7 +13,6 @@ from cop_ard_core.detrend import (
     get_model_matrix,
 )
 
-
 # ===========================================================================
 # cost_function_l2
 # ===========================================================================
@@ -551,9 +550,7 @@ class TestEstimateGlobalSurface:
         x = np.array([[1.0], [2.0], [3.0]])
         y = np.array([2.0, 4.0, 6.0])
         w = np.ones_like(y)
-        result = estimate_global_surface(
-            x, y, w, degree=1, convergency_threshold=1e-10, maximum_iterations=100
-        )
+        result = estimate_global_surface(x, y, w, degree=1, convergency_threshold=1e-10, maximum_iterations=100)
         assert isinstance(result, scipy.optimize.OptimizeResult)
 
     def test_estimate_global_surface_tolerant_threshold(self):
@@ -561,9 +558,7 @@ class TestEstimateGlobalSurface:
         x = np.array([[1.0], [2.0], [3.0]])
         y = np.array([2.0, 4.0, 6.0])
         w = np.ones_like(y)
-        result = estimate_global_surface(
-            x, y, w, degree=1, convergency_threshold=1.0, maximum_iterations=100
-        )
+        result = estimate_global_surface(x, y, w, degree=1, convergency_threshold=1.0, maximum_iterations=100)
         assert isinstance(result, scipy.optimize.OptimizeResult)
 
     def test_estimate_global_surface_nan_y(self):
@@ -644,9 +639,7 @@ class TestEstimateGlobalSurface:
         x = np.array([[1.0], [2.0], [3.0]])
         y = np.array([2.0, 4.0, 6.0])
         w = np.ones_like(y)
-        result = estimate_global_surface(
-            x, y, w, degree=1, convergency_threshold=1e-15, maximum_iterations=5
-        )
+        result = estimate_global_surface(x, y, w, degree=1, convergency_threshold=1e-15, maximum_iterations=5)
         assert isinstance(result, scipy.optimize.OptimizeResult)
 
     def test_estimate_global_surface_2d_x(self):
