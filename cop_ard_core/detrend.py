@@ -185,7 +185,6 @@ def estimate_global_surface(
 
         # compute difference wrt previous iteration
         diff_prec = np.nanmax(np.abs(y_new - y_prec))
-        # logger.debug(f"iter {i}: {diff_prec=} {np.nanmax(np.abs(diff))=}")
 
         # check convergence
         if diff_prec < convergency_threshold:
@@ -193,7 +192,7 @@ def estimate_global_surface(
         else:
             sol_prec = output.x
 
-    logger.info(f"Convergency reached in {i} iterations (Solution: {output.x})")
+    logger.debug(f"Convergency reached in {i} iterations (Solution: {output.x})")
 
     return output
 
@@ -202,7 +201,6 @@ def fit_2d_poly(
     x: np.ndarray,
     y: np.ndarray,
     data: np.ndarray,
-    w: np.ndarray | None = None,
     degree: int = 1,
     norm: int = 1,
     weights: np.ndarray | None = None,
@@ -214,15 +212,32 @@ def fit_2d_poly(
     xx, yy, data_sel = x[mask], y[mask], data[mask]
     weight_sel = weights[mask] if weights is not None else np.ones_like(data_sel)
 
+    if data_sel.dtype != float:
+        data_sel = data_sel.astype(float)
+         
+    if yy.dtype != float:
+        yy = yy.astype(float)
+
+    if xx.dtype != float:
+        xx = xx.astype(float)
+
     # Axis normalization
-    x_ = np.vstack([xx, yy]).T
+    x_ = np.vstack([yy, xx]).T
     x_0 = x_.mean(axis=0)
     x_ = x_ - x_0
-    x_sc = np.abs(x_).max(axis=0)
+    x_sc = np.ptp(x_, axis=0)
     x_ = x_ / x_sc
 
     return (
         estimate_global_surface(x_, data_sel, weight_sel, regions=None, degree=degree, norm=norm),
         x_sc,
         x_0,
+    )
+
+def to_polygrid2d(c, deg):
+    j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
+
+    return np.flip(
+        np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
+        axis=1,
     )
