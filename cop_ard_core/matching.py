@@ -2,10 +2,8 @@ from typing import Literal, Sequence
 
 import numpy as np
 import xarray as xr
-from scipy.constants import speed_of_light
 from scipy.signal import convolve2d
 
-from cop_ard_core.detrend import estimate_global_surface
 from cop_ard_core.logger import logger
 
 
@@ -228,15 +226,6 @@ def backward_flatten(
     return i1, i2
 
 
-def to_polygrid2d(c, deg):
-    j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
-
-    return np.flip(
-        np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
-        axis=1,
-    )
-
-
 def shift_update(
     i: xr.DataArray,
     i0: xr.DataArray,
@@ -273,44 +262,13 @@ def shift_update(
     return diff - i0
 
 
-def poly_estimate(
-    v: np.ndarray,
-    x: np.ndarray,
-    name: str,
-    attrs: dict,
-    deg: int,
-    **kwargs,
-):
-    output = estimate_global_surface(x, v, degree=deg, **kwargs)
-
-    poly = xr.DataArray(
-        data=to_polygrid2d(output.x, deg),
-        dims=["i", "j"],
-        name=name,
-        coords={k: np.arange(deg + 1) for k in ["i", "j"]},
-        attrs=attrs,
-    )
-    return poly.to_dataset()  # .assign_attrs({"type": disparity.type})
-
-
-# def create_attrs(offset, scale_fact):
-#     y0, x0 = offset.values
-#     s_y, s_x = scale_fact.values * disparity.pixel_to_time
-#     y0 = daz.azimuth_time[0] + np.round((disparity.pixel_to_time[0] * y0)).astype("timedelta64[ns]")
-#     x0 = drg.slant_range_time[0] + x0 * disparity.pixel_to_time[1]
-#     y0, x0 = [e.values for e in [y0, x0]]
-#     s_y = np.round(s_y).astype("timedelta64[ns]")
-#     return {"deg": deg, "offset": (y0, x0), "scale_fact": (s_y, s_x)}
-
-
-def polyfit(
+def fix_disparity(
     burst_id: str,
     acquisition_id: str,
     disparity: xr.DataArray,
     drg: xr.DataArray,
     daz: xr.DataArray,
     cohe_th: float = 0.3,
-    deg: int = 3,
     kernel_shape: list[int] = [15, 15],
     **kwargs,
 ):
@@ -319,7 +277,7 @@ def polyfit(
 
     # image position correction #
     disparity = disparity.squeeze().compute()
-    uv = disparity.groupby(disparity.sel(variable="cohe") >= cohe_th)[True]
+    uv = disparity.groupby(disparity.sel(variable="coherence") >= cohe_th)[True]
     dy, dx = (uv.sel(variable=["dy", "dx"])).values.T
     dy = dy.astype("timedelta64[ns]")
     x = uv.x
@@ -333,21 +291,18 @@ def polyfit(
     y = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_y, m1_y)), dim="point")
 
     # shift in the x direction updating #
-    dx = shift_update(drg, dx, x, y, kernel)
-    dy = shift_update(daz, dy, x, y, kernel)
+    # TO BE FIXED SHIFT UPDATE INTRODUCE STRANGE VALUES
+    dx = shift_update(drg*0, dx, x, y, kernel)
+    dy = shift_update(daz*0, dy, x, y, kernel)
 
-    return burst_id, acquisition_id, m1_x, m1_y, dx, dy
+    ds = xr.Dataset(data_vars={'m1_x': ('point', m1_x.values), 
+                               'm1_y': ('point', m1_y.values),
+                               'dx': ('point', dx.values),
+                               'dy': ('point', dy.values),
+                               'coherence': ('point', uv.sel(variable='coherence').values),
+                               }, coords=m1_x.coords)
 
-    # offset = m1.mean(dim="point")
-    # scale_fact = (m1.max(dim="point") - m1.min(dim="point")) / 2.0
-    # m1 = ((m1 - offset) / scale_fact).values.T
-    #
-    # # polynomial (both for x and y) estimation #
-    # name = str(disparity.acquisition_date.values)
-    # attrs = create_attrs(offset, scale_fact)
-    # print("-" * 50)
-    # raise
-    # return list(poly_estimate(v.values, m1, name, attrs) for v in (dy, dx))
+    return burst_id, acquisition_id, ds
 
 
 def initialize_patches(
@@ -410,7 +365,7 @@ def compute_pearson_coefficient(
     # Check that the search window is not too large
     if npt < 0:
         logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[0:2]}.")
-        dy, dx, cohe, sy, sx = np.zeros((5, nim), dtype="float32")
+        dy, dx, coherence, sy, sx = np.zeros((5, nim), dtype="float32")
     else:
         # Correlation window dimension
         nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
@@ -429,16 +384,16 @@ def compute_pearson_coefficient(
         corr = np.abs(i2 @ i1.conj())
         corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
 
-        dy, dx, cohe, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
+        dy, dx, coherence, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
     return xr.DataArray(
-        data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, cohe, sy, sx)).T.reshape(nim, -1, 5),
-        dims=["acquisition_date", "point", "variable"],
+        data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, coherence, sy, sx)).T.reshape(nim, -1, 5),
+        dims=["acquisition_id", "point", "variable"],
         coords={
-            "acquisition_date": stack.z.values,
+            "acquisition_id": stack.z.values,
             "point": [patch.patch.values],
             "y": (["point"], [stack[y_dim].mean().values]),
             "x": (["point"], [stack[x_dim].mean().values]),
-            "variable": ["dy", "dx", "cohe", "s_y", "s_x"],
+            "variable": ["dy", "dx", "coherence", "s_y", "s_x"],
         },
         attrs={"pixel_to_time": pixel_to_time.flatten()},
     )
