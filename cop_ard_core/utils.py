@@ -76,13 +76,10 @@ def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
     """
-    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")) for i, e in enumerate([y, x]))
 
-
-# @timeit
-def get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact):
-    c1, c2 = get_coordinates(azimuth_time, slant_range_time, offset, scale_fact)
-    return np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly)
+    xx = (x - alpha[1]) / beta[1]
+    yy = (y - np.datetime64(int(alpha[0]), 'ns')).astype(float) / beta[0]
+    return (yy, xx)
 
 
 def get_coeff_demod(dkcoa_polynomial_coeffs: np.ndarray):
