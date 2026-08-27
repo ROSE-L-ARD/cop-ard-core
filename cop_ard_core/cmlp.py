@@ -130,13 +130,33 @@ def get_current_reference(
     last_reference: xr.DataArray | None,
     stable_reference: xr.DataArray | None,
 ):
-    date = np.min(cstack.acquisition_date.values.astype("datetime64"))
-    date_l = np.datetime64(str(last_reference.acquisition_date.values)) if last_reference is not None else None
-    date_s = (
-        np.max(stable_reference.acquisition_date.values.astype("datetime64")) if stable_reference is not None else None
-    )
-    current_reference = cstack.sel(acquisition_date=date.astype(str))
+    # 1. Parse cstack dates safely to datetime64[ns]
+    dates_dt = cstack.acquisition_date.values.astype("datetime64[ns]")
+    date = np.min(dates_dt)
 
+    # 2. Find the index of the minimum date to extract the corresponding acquisition_id
+    # This avoids string formatting issues when using .sel() later
+    min_idx = np.argmin(dates_dt)
+    min_acq_id = cstack.acquisition_id.values[min_idx]
+
+    # 3. Extract the date for the last_reference if provided
+    date_l = np.datetime64(str(last_reference.acquisition_date.values)) if last_reference is not None else None
+
+    # 4. Extract the date and corresponding acquisition_id for stable_reference if provided
+    date_s = None
+    max_s_acq_id = None
+    if stable_reference is not None:
+        stable_dates_dt = stable_reference.acquisition_date.values.astype("datetime64[ns]")
+        date_s = np.max(stable_dates_dt)
+
+        # Get the ID of the most recent stable reference to avoid KeyError in .sel()
+        max_s_idx = np.argmax(stable_dates_dt)
+        max_s_acq_id = stable_reference.acquisition_id.values[max_s_idx]
+
+    # 5. Initialize current_reference using the primary dimension (acquisition_id)
+    current_reference = cstack.sel(acquisition_id=min_acq_id)
+
+    # 6. Compare dates to determine the best reference to use
     if (date_l is not None) and (date_s is not None):
         if date_l >= date_s:
             if date_l <= date and isinstance(last_reference, xr.DataArray):
@@ -145,7 +165,8 @@ def get_current_reference(
                 raise Exception(f"Last current reference {date_l} is more recent than cstack {date}")
         else:
             if date_s < date and isinstance(stable_reference, xr.DataArray):
-                current_reference = stable_reference.sel(acquisition_date=date_s.astype(str))
+                # Use acquisition_id instead of string date for safe slicing
+                current_reference = stable_reference.sel(acquisition_id=max_s_acq_id)
             else:
                 raise Exception(f"Last stable reference {date_s} is more recent than cstack {date}")
     else:
@@ -154,16 +175,21 @@ def get_current_reference(
                 current_reference = last_reference
             else:
                 raise Exception(f"Last current reference {date_l} is more recent than cstack {date}")
+
         if date_s is not None and isinstance(stable_reference, xr.DataArray):
             if date_s < date:
-                current_reference = stable_reference.sel(acquisition_date=date_s.astype(str))
+                # Use acquisition_id instead of string date for safe slicing
+                current_reference = stable_reference.sel(acquisition_id=max_s_acq_id)
             else:
                 raise Exception(f"Last stable reference {date_s} is more recent than cstack {date}")
 
+    # 7. Extract the date of the elected current_reference
     dates = current_reference.acquisition_date.values
 
+    # 8. If this is the very first reference ever created, tag the starting date
     if last_reference is None:
         current_reference.attrs["starting_date"] = str(date)
+
     return current_reference, dates
 
 
