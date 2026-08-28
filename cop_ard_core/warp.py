@@ -1135,7 +1135,7 @@ def coreg_qlt(
     sigma_h_2 = 1.0
 
     # Get the reference acquisition date.
-    reference_date = coreg.coregistration_reference_date
+    reference_id = coreg.coregistration_reference_id
 
     # Select the coarse grid from the coregistered data.
     coreg = coreg.sel(azimuth_time=daz_drg.azimuth_time.values, slant_range_time=daz_drg.slant_range_time.values)
@@ -1157,7 +1157,7 @@ def coreg_qlt(
     # --- Main Loop: Compute Quality for each Acquisition ---
     for i, d in enumerate(coreg.acquisition_id.values):
         # Skip the reference date itself, as its error is zero by definition.
-        if d != reference_date:
+        if d != reference_id:
             orb_type = acquisition_date_orbit_type[d]
             arp_coeffs = cast(dict[str, np.ndarray], acquisition_date_arp_coeffs[d])
             if any(coeff is None for coeff in arp_coeffs.values()):
