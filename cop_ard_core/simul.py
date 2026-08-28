@@ -232,7 +232,6 @@ def compute_simulation(
     # Extract the orbit data and reference time for the current acquisition date.
     reference_times = orbits.reference_times
     position = orbits.sel(acquisition_id=simulation.acquisition_id.values[0])
-    logger.debug(f"reference_times : {reference_times}")
     position.attrs = {
         "referenceTime": np.datetime64(reference_times[simulation.acquisition_id.values[0]][:-1], "ns"),
         "scaleTime": 1e-9,

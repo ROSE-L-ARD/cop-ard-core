@@ -277,7 +277,9 @@ def fix_disparity(
 
     # image position correction #
     disparity = disparity.squeeze().compute()
+    logger.debug(f"disparity: {disparity}")
     uv = disparity.groupby(disparity.sel(variable="coherence") >= cohe_th)[True]
+    logger.debug(f"uv: {uv}")
     dy, dx = (uv.sel(variable=["dy", "dx"])).values.T
     dy = dy.astype("timedelta64[ns]")
     x = uv.x
@@ -295,12 +297,16 @@ def fix_disparity(
     dx = shift_update(drg, dx, x, y, kernel)
     dy = shift_update(daz, dy, x, y, kernel)
 
-    ds = xr.Dataset(data_vars={'m1_x': ('point', m1_x.values), 
-                               'm1_y': ('point', m1_y.values),
-                               'dx': ('point', dx.values),
-                               'dy': ('point', dy.values),
-                               'coherence': ('point', uv.sel(variable='coherence').values),
-                               }, coords=m1_x.coords)
+    ds = xr.Dataset(
+        data_vars={
+            "m1_x": ("point", m1_x.values),
+            "m1_y": ("point", m1_y.values),
+            "dx": ("point", dx.values),
+            "dy": ("point", dy.values),
+            "coherence": ("point", uv.sel(variable="coherence").values),
+        },
+        coords=m1_x.coords,
+    )
 
     return burst_id, acquisition_id, ds
 
