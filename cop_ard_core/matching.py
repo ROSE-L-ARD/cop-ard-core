@@ -292,8 +292,8 @@ def fix_disparity(
 
     # shift in the x direction updating #
     # TO BE FIXED SHIFT UPDATE INTRODUCE STRANGE VALUES
-    dx = shift_update(drg*0, dx, x, y, kernel)
-    dy = shift_update(daz*0, dy, x, y, kernel)
+    dx = shift_update(drg, dx, x, y, kernel)
+    dy = shift_update(daz, dy, x, y, kernel)
 
     ds = xr.Dataset(data_vars={'m1_x': ('point', m1_x.values), 
                                'm1_y': ('point', m1_y.values),
