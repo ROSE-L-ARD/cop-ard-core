@@ -192,7 +192,7 @@ def estimate_global_surface(
         else:
             sol_prec = output.x
 
-    logger.debug(f"Convergency reached in {i} iterations (Solution: {output.x})")
+    logger.debug(f"Convergency reached in {i+1} iterations (Solution: {output.x})")
 
     return output
 
@@ -226,10 +226,24 @@ def fit_2d_poly(
     x_0 = x_.mean(axis=0)
     x_ = x_ - x_0
     x_sc = np.ptp(x_, axis=0)
+    x_sc = np.where(x_sc != 0, x_sc, 1.)
     x_ = x_ / x_sc
 
+    # normalòize input data for numerical stability
+    d_0 = data_sel.mean()
+    d_sc = np.ptp(data_sel)
+    d_sc = np.where(d_sc != 0, d_sc, 1.)
+    data_ = (data_sel - d_0) / d_sc
+
+    # polynomial surface fitting
+    coeffs = estimate_global_surface(x_, data_, weight_sel, regions=None, degree=degree, norm=norm)
+
+    # rescale output coefficients as for input data scaling
+    coeffs.x *= d_sc
+    coeffs.x[0] += d_0
+
     return (
-        estimate_global_surface(x_, data_sel, weight_sel, regions=None, degree=degree, norm=norm),
+        coeffs,    
         x_sc,
         x_0,
     )
