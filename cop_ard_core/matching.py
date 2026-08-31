@@ -277,9 +277,7 @@ def fix_disparity(
 
     # image position correction #
     disparity = disparity.squeeze().compute()
-    logger.debug(f"disparity: {disparity}")
     uv = disparity.groupby(disparity.sel(variable="coherence") >= cohe_th)[True]
-    logger.debug(f"uv: {uv}")
     dy, dx = (uv.sel(variable=["dy", "dx"])).values.T
     dy = dy.astype("timedelta64[ns]")
     x = uv.x
@@ -293,7 +291,6 @@ def fix_disparity(
     y = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_y, m1_y)), dim="point")
 
     # shift in the x direction updating #
-    # TO BE FIXED SHIFT UPDATE INTRODUCE STRANGE VALUES
     dx = shift_update(drg, dx, x, y, kernel)
     dy = shift_update(daz, dy, x, y, kernel)
 
