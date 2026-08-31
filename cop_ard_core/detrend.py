@@ -192,7 +192,7 @@ def estimate_global_surface(
         else:
             sol_prec = output.x
 
-    logger.debug(f"Convergency reached in {i + 1} iterations (Solution: {output.x})")
+    # logger.debug(f"Convergency reached in {i + 1} iterations (Solution: {output.x})")
 
     return output
 
@@ -205,7 +205,6 @@ def fit_2d_poly(
     norm: int = 1,
     weights: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    print("*" * 50)
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
@@ -237,10 +236,9 @@ def fit_2d_poly(
 
     # polynomial surface fitting
     coeffs = estimate_global_surface(x_, data_, weight_sel, regions=None, degree=degree, norm=norm)
-
     # rescale output coefficients as for input data scaling
     coeffs.x *= d_sc
-    coeffs.x[0] += d_0
+    coeffs.x[-1] += d_0 # add back the constant
 
     return (
         coeffs,
