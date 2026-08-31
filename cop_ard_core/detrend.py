@@ -192,7 +192,7 @@ def estimate_global_surface(
         else:
             sol_prec = output.x
 
-    logger.debug(f"Convergency reached in {i+1} iterations (Solution: {output.x})")
+    logger.debug(f"Convergency reached in {i + 1} iterations (Solution: {output.x})")
 
     return output
 
@@ -205,6 +205,7 @@ def fit_2d_poly(
     norm: int = 1,
     weights: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    print("*" * 50)
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
@@ -214,7 +215,6 @@ def fit_2d_poly(
 
     if data_sel.dtype != float:
         data_sel = data_sel.astype(float)
-         
     if yy.dtype != float:
         yy = yy.astype(float)
 
@@ -226,13 +226,13 @@ def fit_2d_poly(
     x_0 = x_.mean(axis=0)
     x_ = x_ - x_0
     x_sc = np.ptp(x_, axis=0)
-    x_sc = np.where(x_sc != 0, x_sc, 1.)
+    x_sc = np.where(x_sc != 0, x_sc, 1.0)
     x_ = x_ / x_sc
 
-    # normalòize input data for numerical stability
+    # normalize input data for numerical stability
     d_0 = data_sel.mean()
     d_sc = np.ptp(data_sel)
-    d_sc = np.where(d_sc != 0, d_sc, 1.)
+    d_sc = np.where(d_sc != 0, d_sc, 1.0)
     data_ = (data_sel - d_0) / d_sc
 
     # polynomial surface fitting
@@ -243,10 +243,11 @@ def fit_2d_poly(
     coeffs.x[0] += d_0
 
     return (
-        coeffs,    
+        coeffs,
         x_sc,
         x_0,
     )
+
 
 def to_polygrid2d(c, deg):
     j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)

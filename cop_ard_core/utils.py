@@ -78,7 +78,7 @@ def get_coordinates(y, x, alpha, beta):
     """
 
     xx = (x - alpha[1]) / beta[1]
-    yy = (y - np.datetime64(int(alpha[0]), 'ns')).astype(float) / beta[0]
+    yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
     return (yy, xx)
 
 
