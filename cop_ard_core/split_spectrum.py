@@ -128,7 +128,7 @@ def reconstruct_iono_surface(
 
 
     # reconstruct the surface in correspondence of the coordinates x_full
-    surf = np.polynomial.polynomial.polyval2d(x_full[:, 0], x_full[:, 1], poly_corr.values)
+    surf = np.polynomial.polynomial.polyval2d(x_full[:, 1], x_full[:, 0], poly_corr.values)
     surf = surf.reshape(azimuth_time.size, slant_range_time.size)
     surf = xr.DataArray(
         surf,
