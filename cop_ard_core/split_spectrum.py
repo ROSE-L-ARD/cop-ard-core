@@ -76,28 +76,18 @@ def fit_ionosphere(
     norm: int = 1,
     weights: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    from cop_ard_core.logger import logger
 
-    print("#" * 100)
     y_ = scale_azimuth_time(azimuth_time_raw, phase_iono.azimuth_time, H_orb, H_iono).values
 
     # compute minimization axis
     x_ = np.tile(phase_iono.slant_range_time.values, phase_iono.azimuth_time.size).ravel()
     off_y = y_[0, 0]
-    logger.debug(f"off_y: {off_y}")
-    logger.debug(f"az_time: {phase_iono.azimuth_time.min().values, phase_iono.azimuth_time.max().values}")
-    logger.debug(f"az time raw: {azimuth_time_raw.min().values, azimuth_time_raw.max().values}")
-    logger.debug(f"y_ : {y_.min(), y_.max()}")
-    logger.debug(f"x_ : {x_.min(), x_.max()}")
     y_ = (y_ - off_y).astype(float).ravel()
     data = phase_iono.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
     w_stack = (
         weights.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values if weights is not None else None
     )
 
-    logger.debug(f"y_ : {y_.min(), y_.max()}")
-    logger.debug(f"x_ : {x_.min(), x_.max()}")
-    # print(data.dtype, x_.shape, y_.shape)
     # compute polynomial fit coefficients
     coeffs, x_sc, x_0 = fit_2d_poly(x_, y_, data, degree=degree, norm=norm, weights=w_stack)
 
@@ -122,36 +112,20 @@ def reconstruct_iono_surface(
     poly_corr: xr.DataArray,
     H_iono: xr.DataArray | float,
     H_orb: xr.DataArray | float,
-    degree: int = 1,
 ) -> xr.DataArray:
 
-    from cop_ard_core.logger import logger
-
-    print("-------------------------------------")
 
     y_ = scale_azimuth_time(azimuth_time_raw, azimuth_time, H_orb, H_iono).values
 
-    logger.debug(f"az_time: {azimuth_time.min().values, azimuth_time.max().values}")
-    logger.debug(f"az_time_raw: {azimuth_time_raw.min().values, azimuth_time_raw.max().values}")
     # compute minimization axis
     x_ = np.tile(slant_range_time.values, azimuth_time.size).ravel()
     off_y = np.datetime64(poly_corr.attrs["off_y"], "ns")
-    logger.debug(f"y_: {y_.min(), y_.max()}")
-    logger.debug(f"x_: {x_.min(), x_.max()}")
-    logger.debug(f"poly_corr values: {poly_corr.values}")
-    logger.debug(f"poly_corr.attrs: {poly_corr.attrs}")
-    logger.debug(f"off_y: {off_y}")
-
     y_ = (y_ - off_y).astype(float).ravel()
-    logger.debug(f"y_: {y_.min(), y_.max()}")
-    logger.debug(f"x_: {x_.min(), x_.max()}")
 
     x_full = np.vstack([y_, x_]).T
 
-    logger.debug(f"x_full before: {x_full.min(axis=0), x_full.max(axis=0)}")
     x_full = (x_full - poly_corr.attrs["offset"]) / poly_corr.attrs["scale_fact"]
 
-    logger.debug(f"x_full after: {x_full.min(axis=0), x_full.max(axis=0)}")
 
     # reconstruct the surface in correspondence of the coordinates x_full
     surf = np.polynomial.polynomial.polyval2d(x_full[:, 0], x_full[:, 1], poly_corr.values)

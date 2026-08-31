@@ -321,15 +321,6 @@ def unwrap_phase(ph: xr.DataArray, coherence: xr.DataArray, threshold: float = 1
 
     # apply coherence threshold
     mask = cohe_f_lin > threshold
-    print("-" * 50)
-    logger.debug(f"mask: {mask}")
-    logger.debug(f"ph: {ph}")
-    logger.debug(f"ch: {coherence}")
-    logger.debug(f"ph_f_lin: {ph_f_lin}")
-    logger.debug(f"cohe_f_lin: {cohe_f_lin}")
-    logger.debug(f"x_: {x_}")
-    logger.debug(f"y_: {y_}")
-    print("-" * 50)
 
     # select points to be unwrapped
     ph_sel, cohe_sel = ph_f_lin[mask], cohe_f_lin[mask]
