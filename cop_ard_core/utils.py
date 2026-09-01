@@ -4,6 +4,43 @@ import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
 
+def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict) -> xr.DataArray:
+
+    win_dims = {k: f"win_{k}" for k in multilook}
+
+    # 1. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False),
+    # xarray places the result at the end of the window.
+    ml_view = a.rolling(multilook).construct(win_dims)
+
+    # 2. Build the rolling view, decimate, and select the nearest points based on the provided coordinates
+    ml_view_sel = ml_view.sel(azimuth_time=y, slant_range_time=x, method="nearest")
+
+    # 3. Compute the mean along the constructed window dimensions
+    res = ml_view_sel.mean(dim=list(win_dims.values()))
+
+    return res
+
+def rolling_kernel(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray) -> xr.DataArray:
+
+    win_dims = {k: f"win_{k}" for k in multilook}
+
+    # 1. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False),
+    # xarray places the result at the end of the window.
+    ml_view = a.rolling(multilook).construct(win_dims)
+
+    # 2. Build the rolling view, decimate, and select the nearest points based on the provided coordinates
+    ml_view_sel = ml_view.sel(azimuth_time=y, slant_range_time=x, method="nearest")
+
+    # 3. setup kernel as DataArray with the same dimensions as the rolling view
+    kernel_da = xr.DataArray(kernel, dims=list(win_dims.values()))
+
+    # 4. Compute the mean along the constructed window dimensions
+    res = (ml_view_sel * kernel_da).sum(dim=list(win_dims.values()))
+
+    return res
+
 
 def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
 
@@ -78,7 +115,8 @@ def get_coordinates(y, x, alpha, beta):
     """
 
     xx = (x - alpha[1]) / beta[1]
-    yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
+    yy = (y - alpha[0]) / beta[0]
+    # yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
     return (yy, xx)
 
 

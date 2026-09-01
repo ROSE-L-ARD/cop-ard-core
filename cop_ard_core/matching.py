@@ -2,9 +2,9 @@ from typing import Literal, Sequence
 
 import numpy as np
 import xarray as xr
-from scipy.signal import convolve2d
 
 from cop_ard_core.logger import logger
+from cop_ard_core.utils import rolling_kernel
 
 
 def get_corr_sub_pix(
@@ -241,14 +241,8 @@ def shift_update(
     # mode='same' ensures the output shape matches the input 'o'
     # boundary='symm' (symmetrical) minimizes edge artifacts compared to zero-padding
     # .fillna(0) prevents any existing NaNs in the SAR grid from bleeding into the convolution
-    o_np_conv = convolve2d(o.fillna(0).values, kernel, mode="same", boundary="symm")
-
-    # Reconstruct the DataArray to utilize xarray's advanced nearest-neighbor selection
-    o_conv = xr.DataArray(o_np_conv, coords=o.coords, dims=o.dims)
-
-    # Sample at the specified azimuth and slant range coordinates
-    o_sampled = o_conv.sel(azimuth_time=y, slant_range_time=x, method="nearest")
-
+    o_sampled = rolling_kernel(o.fillna(0), x, y, multilook={"azimuth_time": kernel.shape[0], "slant_range_time": kernel.shape[1]}, kernel=kernel)
+    
     # Split the sampled array in half along the point dimension
     half_idx = o_sampled.point.size // 2
     o1 = o_sampled.isel(point=slice(half_idx))
