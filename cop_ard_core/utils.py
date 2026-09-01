@@ -119,6 +119,11 @@ def get_coordinates(y, x, alpha, beta):
     # yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
     return (yy, xx)
 
+def get_daz_corr(coreg_azimuth_time, coreg_slant_range_time, y_poly):
+    az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)
+    c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
+    return np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly.values)
+
 
 def get_coeff_demod(dkcoa_polynomial_coeffs: np.ndarray):
     return (2 * np.pi) * np.polynomial.polynomial.polyint(dkcoa_polynomial_coeffs, axis=1)
@@ -152,7 +157,7 @@ def get_phramp_diff(
     scale_daz = 1 / (timeca_polynomial_coeffs[1] * 1e9)
 
     # compute azimuth correction
-    daz_corr = get_daz_corr(azimuth_time, slant_range_time, y_poly.values, y_poly.offset, y_poly.scale_fact)
+    daz_corr = get_daz_corr(azimuth_time, slant_range_time, y_poly)
 
     # Corrected slant range and azimuth positions
     daz_corr = daz + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
