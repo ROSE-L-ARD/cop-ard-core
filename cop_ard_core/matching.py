@@ -344,6 +344,108 @@ def initialize_patches(
     return ds
 
 
+# def compute_pearson_coefficient(
+#     patch: xr.Dataset,
+#     stack: xr.DataArray,
+#     reference: xr.DataArray,
+#     pixel_to_time: np.ndarray,
+#     peak_window_size: Sequence[int],
+#     y_dim: str,
+#     x_dim: str,
+#     correlation_kernel_size: Sequence[int] | None,
+# ):
+
+#     # Number of images and number of points
+#     shp = np.array(stack.shape[0:2]) - 2 * np.array(peak_window_size)
+#     nim, npt = stack.shape[2], np.prod(shp)
+
+#     # Check that the search window is not too large
+#     if npt < 0:
+#         logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[0:2]}.")
+#         dy, dx, coherence, sy, sx = np.zeros((5, nim), dtype="float32")
+#     else:
+#         # Correlation window dimension
+#         nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
+#         i1, i2 = backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
+
+#         # Remove bias
+#         i1 = i1 - i1.mean(axis=0)
+#         i2 = i2 - i2.mean(axis=1)[..., None]
+
+#         # Scale to norm 1
+#         with np.errstate(divide="ignore", invalid="ignore"):
+#             i1 = i1 / np.linalg.norm(i1, axis=0)
+#             i2 = i2 / np.linalg.norm(i2, axis=1)[..., None]
+
+#         # Compute Pearson correlation coefficient
+#         corr = np.abs(i2 @ i1.conj())
+#         corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
+
+#         dy, dx, coherence, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
+#     return xr.DataArray(
+#         data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, coherence, sy, sx)).T.reshape(nim, -1, 5),
+#         dims=["acquisition_id", "point", "variable"],
+#         coords={
+#             "acquisition_id": stack.z.values,
+#             "point": [patch.patch.values],
+#             "y": (["point"], [stack[y_dim].mean().values]),
+#             "x": (["point"], [stack[x_dim].mean().values]),
+#             "variable": ["dy", "dx", "coherence", "s_y", "s_x"],
+#         },
+#         attrs={"pixel_to_time": pixel_to_time.flatten()},
+#     )
+
+def subpixel_peak_1d(
+    corr: np.ndarray,
+    center: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate 1D peak location with parabolic subpixel interpolation.
+
+    Parameters
+    ----------
+    corr : ndarray (nim, n)
+        Correlation profiles.
+    center : int
+        Index corresponding to zero displacement.
+
+    Returns
+    -------
+    peak_pos : ndarray (nim,)
+        Subpixel peak position relative to center.
+    peak_val : ndarray (nim,)
+        Peak value.
+    """
+
+    n = corr.shape[1]
+
+    idx = np.argmax(corr, axis=1)
+    peak_pos = idx.astype(np.float32)
+    peak_val = corr[np.arange(corr.shape[0]), idx]
+
+    valid = (idx > 0) & (idx < n - 1)
+
+    if np.any(valid):
+
+        rows = np.where(valid)[0]
+
+        y1 = corr[rows, idx[rows] - 1]
+        y2 = corr[rows, idx[rows]]
+        y3 = corr[rows, idx[rows] + 1]
+
+        denom = y1 - 2.0 * y2 + y3
+
+        good = np.abs(denom) > 1e-12
+
+        peak_pos[rows[good]] += (
+            0.5 * (y1[good] - y3[good]) / denom[good]
+        )
+
+    peak_pos -= center
+
+    return peak_pos, peak_val
+
+
 def compute_pearson_coefficient(
     patch: xr.Dataset,
     stack: xr.DataArray,
@@ -355,42 +457,120 @@ def compute_pearson_coefficient(
     correlation_kernel_size: Sequence[int] | None,
 ):
 
-    # Number of images and number of points
-    shp = np.array(stack.shape[0:2]) - 2 * np.array(peak_window_size)
+    shp = np.array(stack.shape[:2]) - 2 * np.array(peak_window_size)
     nim, npt = stack.shape[2], np.prod(shp)
 
-    # Check that the search window is not too large
-    if npt < 0:
-        logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[0:2]}.")
-        dy, dx, coherence, sy, sx = np.zeros((5, nim), dtype="float32")
+    if npt <= 0:
+
+        logger.warning(
+            f"Search window {peak_window_size} is too large for "
+            f"the input image of size {stack.shape[:2]}."
+        )
+
+        dy, dx, coherence, sy, sx = np.zeros(
+            (5, nim),
+            dtype=np.float32,
+        )
+
     else:
-        # Correlation window dimension
-        nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
-        i1, i2 = backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
+
+        nco = (
+            (2 * peak_window_size[0] + 1)
+            * (2 * peak_window_size[1] + 1)
+        )
+
+        i1, i2 = backward_flatten(
+            stack.values,
+            reference.values,
+            list(peak_window_size),
+            npt,
+            nco,
+            nim,
+            shp,
+        )
 
         # Remove bias
-        i1 = i1 - i1.mean(axis=0)
-        i2 = i2 - i2.mean(axis=1)[..., None]
+        i1 -= i1.mean(axis=0)
+        i2 -= i2.mean(axis=1)[..., None]
 
-        # Scale to norm 1
+        # Normalize
         with np.errstate(divide="ignore", invalid="ignore"):
-            i1 = i1 / np.linalg.norm(i1, axis=0)
-            i2 = i2 / np.linalg.norm(i2, axis=1)[..., None]
+            i1 /= np.linalg.norm(i1, axis=0)
+            i2 /= np.linalg.norm(i2, axis=1)[..., None]
 
-        # Compute Pearson correlation coefficient
+        # Pearson correlation
         corr = np.abs(i2 @ i1.conj())
-        corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
 
-        dy, dx, coherence, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
+        ny = 2 * peak_window_size[0] + 1
+        nx = 2 * peak_window_size[1] + 1
+
+        corr = corr.reshape((nim, ny, nx))
+
+        search_y = ny > 1
+        search_x = nx > 1
+
+        if search_x and search_y:
+
+            dy, dx, coherence, sy, sx = get_corr_sub_pix(
+                corr,
+                correlation_kernel_size,
+            ).T
+
+        elif search_x:
+
+            dx, coherence = subpixel_peak_1d(
+                corr[:, 0, :],
+                center=peak_window_size[1],
+            )
+
+            dy = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
+
+        elif search_y:
+
+            dy, coherence = subpixel_peak_1d(
+                corr[:, :, 0],
+                center=peak_window_size[0],
+            )
+
+            dx = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
+
+        else:
+
+            coherence = corr[:, 0, 0]
+
+            dy = np.zeros(nim, dtype=np.float32)
+            dx = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
+
     return xr.DataArray(
-        data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, coherence, sy, sx)).T.reshape(nim, -1, 5),
+        data=np.vstack(
+            (
+                *np.vstack((dy, dx)) * pixel_to_time,
+                coherence,
+                sy,
+                sx,
+            )
+        ).T.reshape(nim, -1, 5),
         dims=["acquisition_id", "point", "variable"],
         coords={
             "acquisition_id": stack.z.values,
             "point": [patch.patch.values],
             "y": (["point"], [stack[y_dim].mean().values]),
             "x": (["point"], [stack[x_dim].mean().values]),
-            "variable": ["dy", "dx", "coherence", "s_y", "s_x"],
+            "variable": [
+                "dy",
+                "dx",
+                "coherence",
+                "s_y",
+                "s_x",
+            ],
         },
-        attrs={"pixel_to_time": pixel_to_time.flatten()},
+        attrs={
+            "pixel_to_time": pixel_to_time.flatten(),
+        },
     )
