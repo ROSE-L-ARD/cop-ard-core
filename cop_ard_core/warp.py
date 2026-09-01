@@ -434,13 +434,15 @@ def compute_secondary_image_coordinates(
     )
     # Apply optional polynomial corrections to azimuth coordinates.
     if y_poly is not None:
-        c1, c2 = get_coordinates(coreg_azimuth_time, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
+        az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)
+        c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
         corr = np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly.values)
         daz = daz + np.round(corr).astype("timedelta64[ns]")
 
     # Apply optional polynomial corrections to range coordinates.
     if x_poly is not None:
-        c1, c2 = get_coordinates(coreg_azimuth_time, coreg_slant_range_time, x_poly.offset, x_poly.scale_fact)
+        az_time_ = (coreg_azimuth_time - np.datetime64(x_poly.attrs["off_y"], "ns")).astype(float)
+        c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, x_poly.offset, x_poly.scale_fact)
         corr = np.polynomial.polynomial.polygrid2d(c1.values, c2.values, x_poly.values)
         drg = drg + corr
 
