@@ -259,30 +259,49 @@ def shift_update(
 def fix_disparity(
     burst_id: str,
     acquisition_id: str,
-    disparity: xr.DataArray,
+    disparity: xr.Dataset,
     drg: xr.DataArray,
     daz: xr.DataArray,
     cohe_th: float = 0.3,
-    kernel_shape: list[int] = [15, 15],
+    kernel_shape: tuple[int, int] = (15, 15),
     **kwargs,
 ):
     # kernel creation for drg and daz multilooking #
     kernel = np.ones(kernel_shape) / np.prod(kernel_shape)
 
     # image position correction #
-    disparity = disparity.squeeze().compute()
-    uv = disparity.groupby(disparity.sel(variable="coherence") >= cohe_th)[True]
-    dy, dx = (uv.sel(variable=["dy", "dx"])).values.T
+    disparity = disparity.compute()
+
+    # extraction of valid points based on coherence threshold #
+    uv = disparity.where(disparity["coherence"] >= cohe_th, drop=True)
+    if uv.point.size == 0:
+        return burst_id, acquisition_id, None
+
+    dy, dx = [uv[k].values.T for k in ("dy", "dx")]
     dy = dy.astype("timedelta64[ns]")
+
     x = uv.x
     y = uv.y.astype("datetime64[ns]")
+
     m0_x = x
     m0_y = y
+
     m1_x = x + dx
     m1_y = y + dy
 
-    x = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_x, m1_x)), dim="point")
-    y = xr.concat((e.drop_vars("point", errors="ignore") for e in (m0_y, m1_y)), dim="point")
+    # coordinates to be extracted
+    x = xr.concat(
+        [m0_x.drop_vars("point", errors="ignore"),
+         m1_x.drop_vars("point", errors="ignore")],
+        dim="point",
+    )
+
+    y = xr.concat(
+        [m0_y.drop_vars("point", errors="ignore"),
+         m1_y.drop_vars("point", errors="ignore")],
+        dim="point",
+    )
+
 
     # shift in the x direction updating #
     dx = shift_update(drg, dx, x, y, kernel)
@@ -294,7 +313,7 @@ def fix_disparity(
             "m1_y": ("point", m1_y.values),
             "dx": ("point", dx.values),
             "dy": ("point", dy.values),
-            "coherence": ("point", uv.sel(variable="coherence").values),
+            "coherence": ("point", uv["coherence"].values),
         },
         coords=m1_x.coords,
     )
