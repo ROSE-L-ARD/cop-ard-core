@@ -106,7 +106,7 @@ def estimate_global_surface(
     w: np.ndarray | float = 1.0,
     regions: np.ndarray | None = None,
     degree: int = 0,
-    norm: int = 2,
+    norm: int = 1,
     method: str | None = None,
     sigma: float = 3.0,
     range: Tuple[float, float] = (-np.inf, np.inf),

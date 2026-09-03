@@ -412,6 +412,7 @@ def interp_dataset(
     indices: tuple | None = None,
     common_dims_shape: tuple | None = None,
     rename: dict = {},
+    target_coords: dict | None = None,
 ) -> xr.Dataset:
     """
     Interpolate all variables in an xarray.Dataset using scipy.interpolate.interpn.
@@ -508,7 +509,7 @@ def interp_dataset(
     # Iterate through the dictionary that maps variable names to their slice indices.
     for k in slices:
         # Get the original dimension names for the current variable and apply any renaming.
-        dims = [k if k not in rename else rename[k] for k in data[k].dims]
+        dims = [rename.get(d, d) for d in data[k].dims]
         # Check if the variable was a simple 2D variable (slice is an int).
         if isinstance(slices[k], int):
             # If so, simply extract its data slice and create a new DataArray.
@@ -516,11 +517,52 @@ def interp_dataset(
         # Handle variables that had extra dimensions and were stacked.
         else:
             # Determine the shape of the extra (non-common) dimensions.
-            shape = [data[d].size for d in dims if d not in common_dims]
+            shape = [data[d].size for d in data[k].dims if d not in common_dims]
             # Extract the data for this variable using its start and end slice indices.
             # Reshape the flattened data back to its original multi-dimensional structure.
             interpolated_dataset[k] = xr.DataArray(
                 interpolated_data[slices[k][0] : slices[k][1], ...].reshape(*shape, *common_dims_shape),
                 dims=dims,
             )
+
+    # --- Assign Coordinates ---
+    # 1. Preserve original coordinates for non-common extra dimensions (e.g., polarization)
+    for dim in data.dims:
+        if dim not in common_dims and dim in data.coords:
+            new_dim_name = rename.get(dim, dim)
+            interpolated_dataset = interpolated_dataset.assign_coords({new_dim_name: data[dim]})
+
+    # 2. Attach user-provided target coordinates for the interpolated dimensions
+    if target_coords is not None:
+        # Apply dimension renaming to target_coords if applicable
+        renamed_target_coords = {rename.get(k, k): v for k, v in target_coords.items()}
+        interpolated_dataset = interpolated_dataset.assign_coords(renamed_target_coords)
+
     return interpolated_dataset
+
+
+def interp_dataset_scaled(
+    data: xr.Dataset, xi: tuple, common_dims: tuple, method: str = "cubic", target_coords: dict | None = None, **kwargs
+) -> xr.Dataset:
+    data_scaled = data.copy()
+    scales = {}
+
+    for var in data_scaled.data_vars:
+        v_min = float(data_scaled[var].min())
+        v_max = float(data_scaled[var].max())
+        v_range = v_max - v_min
+
+        if v_range != 0:
+            scales[var] = (v_min, v_range)
+            data_scaled[var] = (data_scaled[var] - v_min) / v_range
+        else:
+            scales[var] = (v_min, 1.0)
+
+    ds_interp = interp_dataset(
+        data=data_scaled, xi=xi, common_dims=common_dims, method=method, target_coords=target_coords, **kwargs
+    )
+
+    for var, (v_min, v_range) in scales.items():
+        ds_interp[var] = (ds_interp[var] * v_range) + v_min
+
+    return ds_interp
