@@ -28,6 +28,28 @@ def joint_unwrap(
     return ph_l_unw, ph_h_unw, cohe_mask
 
 
+def joint_unwrap_delta_mean(
+    mosaic_l_coherence: xr.DataArray,
+    mosaic_h_coherence: xr.DataArray,
+    mosaic_l_phase: xr.DataArray,
+    mosaic_h_phase: xr.DataArray,
+    cohe_th: float = 0.3,
+):
+
+    # extract the average coherence between the two sub-bands
+    cohe_mask = xr.ufuncs.sqrt(mosaic_h_coherence * mosaic_l_coherence)
+
+    # compute the average phase between the two sub-bands and unwrap
+    phase_mean = xr.ufuncs.angle(np.exp(1j * mosaic_h_phase) + np.exp(1j * mosaic_l_phase))    
+    phase_mean_unw = unwrap_phase(phase_mean, cohe_mask, threshold=cohe_th)
+
+    # compute the delta phase and unwrap
+    phase_delta = mosaic_h_phase - mosaic_l_phase
+    phase_delta_unw = unwrap_phase(phase_delta, cohe_mask, threshold=cohe_th)
+
+    return phase_delta_unw, phase_mean_unw, cohe_mask
+
+
 def split_spectrum_core(
     phase_unw_l: xr.DataArray,
     phase_unw_h: xr.DataArray,
@@ -43,6 +65,35 @@ def split_spectrum_core(
 
     # non-dispersive component
     phase_nd = (phase_unw_h * (f_h_tot / f0) - phase_unw_l * (f_l_tot / f0)) * f0 / (2 * (f_h_tot - f_l_tot))
+
+    return phase_iono, phase_nd
+
+
+def split_spectrum_core_delta_mean(
+    delta_phase: xr.DataArray,
+    mean_phase: xr.DataArray,
+    f0: float,
+    f_l_tot: float,
+    f_h_tot: float,
+) -> tuple[xr.DataArray, xr.DataArray]:
+
+    # dispersive component
+    # alpha = (f_h_tot / f0) *(f_l_tot * f_h_tot) / (f_h_tot**2 - f_l_tot**2)
+    # beta = (f_l_tot / f0) * (f_l_tot * f_h_tot) / (f_h_tot**2 - f_l_tot**2)
+    # phase_iono = -0.5 * (alpha + beta) * delta_phase + (alpha - beta) * mean_phase 
+    alpha = -0.5 * (f_l_tot * f_h_tot) / (f0 * (f_h_tot - f_l_tot))
+    beta = (f_l_tot * f_h_tot) / (f0 * (f_h_tot + f_l_tot))
+    print(f"phase_iono {alpha} {beta}")
+    phase_iono = alpha * delta_phase + beta * mean_phase 
+
+    # non-dispersive component
+    # alpha = f_l_tot / (2 * (f_h_tot - f_l_tot))
+    # beta = f_h_tot  / (2 * (f_h_tot - f_l_tot))
+    # phase_nd = 0.5 * (alpha + beta) * delta_phase + (beta - alpha) * mean_phase
+    alpha = 0.5 * (f_l_tot + f_h_tot) / (2 * (f_h_tot - f_l_tot))
+    beta = 0.5
+    print(f"phase_nd {alpha} {beta}")
+    phase_nd = alpha * delta_phase + beta * mean_phase
 
     return phase_iono, phase_nd
 
