@@ -58,31 +58,31 @@ def joint_unwrap(
 
     .. math::
 
-        \gamma = \sqrt{\gamma_h \gamma_l}
+        \\gamma = \\sqrt{\\gamma_h \\gamma_l}
 
-    where :math:`\gamma_h` and :math:`\gamma_l` are the coherences of the
+    where :math:`\\gamma_h` and :math:`\\gamma_l` are the coherences of the
     high-frequency and low-frequency sub-bands.
 
     The common phase reference is estimated from the angle of the complex sum
 
     .. math::
 
-        \phi_{mean} =
-        \arg\left(
-        e^{j\phi_h} + e^{j\phi_l}
-        \right)
+        \\phi_{mean} =
+        \\arg\\left(
+        e^{j\\phi_h} + e^{j\\phi_l}
+        \\right)
 
-    After unwrapping :math:`\phi_{mean}`, the residual phases
+    After unwrapping :math:`\\phi_{mean}`, the residual phases
 
     .. math::
 
-        \phi_l - \phi_{mean}
+        \\phi_l - \\phi_{mean}
 
     and
 
     .. math::
 
-        \phi_h - \phi_{mean}
+        \\phi_h - \\phi_{mean}
 
     are independently unwrapped. The unwrapped mean phase is then added back
     to recover the final low-band and high-band unwrapped phases.
@@ -166,7 +166,7 @@ def joint_unwrap_delta_mean(
         A tuple containing:
 
         - **phase_delta_unw**: Unwrapped differential phase
-          (:math:`\phi_h - \phi_l`).
+          (:math:`\\phi_h - \\phi_l`).
         - **phase_mean_unw**: Unwrapped mean phase derived from the
           complex average of the two sub-bands.
         - **cohe_mask**: Geometric mean coherence used as the
@@ -178,25 +178,25 @@ def joint_unwrap_delta_mean(
 
     .. math::
 
-        \gamma = \sqrt{\gamma_h \gamma_l}
+        \\gamma = \\sqrt{\\gamma_h \\gamma_l}
 
-    where :math:`\gamma_h` and :math:`\gamma_l` are the coherences of
+    where :math:`\\gamma_h` and :math:`\\gamma_l` are the coherences of
     the high-frequency and low-frequency sub-bands.
 
     The mean phase is estimated from the angle of the complex sum
 
     .. math::
 
-        \phi_{mean} =
-        \arg\left(
-        e^{j\phi_h} + e^{j\phi_l}
-        \right)
+        \\phi_{mean} =
+        \\arg\\left(
+        e^{j\\phi_h} + e^{j\\phi_l}
+        \\right)
 
     while the differential phase is
 
     .. math::
 
-        \phi_{delta} = \phi_h - \phi_l
+        \\phi_{delta} = \\phi_h - \\phi_l
 
     Both quantities are subsequently phase-unwrapped using the same
     coherence mask.
@@ -269,27 +269,27 @@ def split_spectrum_core(
 
     .. math::
 
-        \phi_{iono} =
-        \left(
-        \phi_l \frac{f_h}{f_0}
+        \\phi_{iono} =
+        \\left(
+        \\phi_l \\frac{f_h}{f_0}
         -
-        \phi_h \frac{f_l}{f_0}
-        \right)
-        \frac{f_l f_h}{f_h^2 - f_l^2}
+        \\phi_h \\frac{f_l}{f_0}
+        \\right)
+        \\frac{f_l f_h}{f_h^2 - f_l^2}
 
     while the non-dispersive component is computed as
 
     .. math::
 
-        \phi_{nd} =
-        \left(
-        \phi_h \frac{f_h}{f_0}
+        \\phi_{nd} =
+        \\left(
+        \\phi_h \\frac{f_h}{f_0}
         -
-        \phi_l \frac{f_l}{f_0}
-        \right)
-        \frac{f_0}{2 (f_h - f_l)}
+        \\phi_l \\frac{f_l}{f_0}
+        \\right)
+        \\frac{f_0}{2 (f_h - f_l)}
 
-    where :math:`\phi_l` and :math:`\phi_h` are the unwrapped phases of the
+    where :math:`\\phi_l` and :math:`\\phi_h` are the unwrapped phases of the
     low-frequency and high-frequency sub-bands, respectively.
 
     References
@@ -444,16 +444,16 @@ def scale_azimuth_time(
 
     .. math::
 
-        \Delta t = t_{raw} - t_{ground}
+        \\Delta t = t_{raw} - t_{ground}
 
     The time offset is then scaled according to
 
     .. math::
 
-        \Delta t_{target}
+        \\Delta t_{target}
         =
-        \Delta t
-        \frac{H_{target}}{H_{orb}}
+        \\Delta t
+        \\frac{H_{target}}{H_{orb}}
 
     Finally, the projected absolute acquisition time is obtained as
 
@@ -463,7 +463,7 @@ def scale_azimuth_time(
         =
         t_{ground}
         +
-        \Delta t_{target}
+        \\Delta t_{target}
 
     This approximation assumes a linear relationship between azimuth-time
     displacement and altitude.
