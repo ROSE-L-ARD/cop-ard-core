@@ -43,7 +43,7 @@ SIGMA_ORB_2 = {
     "AUX_MOEORB": 0.05**2,
     "AUX_POEORB": 0.05**2,
 }
-DIMENSIONS_ = ["acquisition_date", "azimuth_time", "slant_range_time"]
+DIMENSIONS_ = ["acquisition_id", "azimuth_time", "slant_range_time"]
 OV_FACT = 100_000
 
 
@@ -302,7 +302,7 @@ def warp_dazdrg(
     simulation_secondary: xr.Dataset | None,
     reference_ml: dict,
     margin: dict,
-    coregistration_reference_date: str,
+    coregistration_reference_id: str,
     azimuth_grid_spacing: float,
     range_grid_spacing: float,
     compute_daz_drg: bool,
@@ -352,10 +352,10 @@ def warp_dazdrg(
     if daz is None or drg is None or daz.attrs.get("recompute", False):
         daz = xr.DataArray(
             da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        )
+        ).chunk({k:-1 for k in DIMENSIONS_})
         drg = xr.DataArray(
             da.empty(shape, dtype=dtype["drg"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        )
+        ).chunk({k:-1 for k in DIMENSIONS_})
     # --- Prepare Data for Interpolation ---
     azimuth_time_ref = daz.azimuth_time[0].values
     slant_range_time_ref = drg.slant_range_time[0].values
@@ -370,7 +370,7 @@ def warp_dazdrg(
         selection = extract_simul_on_radar_chunk(
             simulation=simulation_reference,
             simulation_secondary=simulation_secondary,
-            reference_date=coregistration_reference_date,
+            reference_date=coregistration_reference_id,
             bbox_radar=bbox_radar_buffered,
             bbox_geo=bbox_geo,
         )
@@ -382,7 +382,7 @@ def warp_dazdrg(
             drg,
             selection.azimuth_time,
             selection.slant_range_time,
-            coregistration_reference_date,
+            coregistration_reference_id,
             bbox_radar,
             azimuth_grid_spacing,
             range_grid_spacing,
@@ -413,19 +413,6 @@ def compute_secondary_image_coordinates(
 
     """
 
-    def _get_coordinates(alpha, beta, coord_type: str = "pixels"):
-        """
-        Calculates coordinates for polynomial evaluation based on offsets and scaling.
-        """
-        if coord_type == "pixels":
-            y = coreg_azimuth_time.size + offset["azimuth_time"]
-            x = coreg_slant_range_time.size + offset["slant_range_time"]
-        elif coord_type == "times":
-            y, x = coreg_azimuth_time, coreg_slant_range_time
-        else:
-            raise RuntimeError(f"Invalid coordinate type: {coord_type}")
-        return get_coordinates(y, x, alpha, beta)
-
     # Compute grid spacing (dtaz, dtrg) and reference start times (rg0, az0) from metadata.
     rg0 = slc.isel(slant_range_time=0).slant_range_time.values
     az0 = slc.isel(azimuth_time=0).azimuth_time.values
@@ -447,15 +434,17 @@ def compute_secondary_image_coordinates(
     )
     # Apply optional polynomial corrections to azimuth coordinates.
     if y_poly is not None:
-        c1, c2 = _get_coordinates(y_poly.offset, y_poly.scale_fact, y_poly.type)
-        corr = np.polynomial.polynomial.polygrid2d(c1, c2, y_poly.values)
-        daz = daz + np.round(corr * azimuth_grid_spacing).astype("timedelta64[ns]")
+        az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)
+        c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
+        corr = np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly.values)
+        daz = daz + np.round(corr).astype("timedelta64[ns]")
 
     # Apply optional polynomial corrections to range coordinates.
     if x_poly is not None:
-        c1, c2 = _get_coordinates(x_poly.offset, x_poly.scale_fact, x_poly.type)
-        corr = np.polynomial.polynomial.polygrid2d(c1, c2, x_poly.values)
-        drg = drg + corr * range_grid_spacing
+        az_time_ = (coreg_azimuth_time - np.datetime64(x_poly.attrs["off_y"], "ns")).astype(float)
+        c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, x_poly.offset, x_poly.scale_fact)
+        corr = np.polynomial.polynomial.polygrid2d(c1.values, c2.values, x_poly.values)
+        drg = drg + corr
 
     # Compute the final target coordinates in the secondary image.
     az = (az + daz).transpose("azimuth_time", "slant_range_time").values
@@ -469,9 +458,9 @@ def warp_cslc(
     slc: xr.DataArray,
     daz: xr.DataArray,
     drg: xr.DataArray,
-    acquisition_date: np.datetime64,
+    acquisition_id: np.datetime64,
     acquisition_date_index: int,
-    coregistration_reference_date: np.datetime64,
+    coregistration_reference_id: np.datetime64,
     etad_correction_grid: xr.Dataset,
     kernel: dict,
     azimuth_grid_spacing: float,
@@ -545,17 +534,17 @@ def warp_cslc(
     # --- Warping Execution ---
     # Optimization: If it's the reference image with no corrections, just copy the data without warping.
     if (
-        (acquisition_date == coregistration_reference_date)
+        (acquisition_id == coregistration_reference_id)
         & (y_poly is None)
         & (x_poly is None)
         & (etad_correction_grid is None)
     ):
         # No warping is required; directly slice the original image.
         y, x = np.round(y).astype(int), np.round(x).astype(int)
-        coreg_cstack.loc[:, acquisition_date] = (
+        coreg_cstack.loc[:, acquisition_id] = (
             slc.isel(azimuth_time=slice(y.min(), y.max() + 1), slant_range_time=slice(x.min(), x.max() + 1))
             .sel(polarization=coreg_cstack.polarization)
-            .squeeze("acquisition_date", drop=True)
+            .squeeze("acquisition_id", drop=True)
         )
     else:
         # --- Perform Sinc Warping ---
@@ -570,7 +559,7 @@ def warp_cslc(
 
         # Select the input data from the original SLC based on the bounding box.
         im_in = slc.isel(azimuth_time=slice(ymin, ymax), slant_range_time=slice(xmin, xmax))
-        im_in = im_in.squeeze("acquisition_date", drop=True)
+        im_in = im_in.squeeze("acquisition_id", drop=True)
 
         # Identify the output indices that are safely inside the input image boundaries.
         iy, ix = np.where(
@@ -595,7 +584,7 @@ def warp_cslc(
     # Optional: Apply phase flattening based on the range displacement.
     if do_flattening:
         f0 = (max_tx_frequency + min_tx_frequency) / 2.0
-        flattening_rg = drg.sel(acquisition_date=acquisition_date).transpose("azimuth_time", "slant_range_time")
+        flattening_rg = drg.transpose("azimuth_time", "slant_range_time")
         coreg_phase_model[acquisition_date_index, :, :] = (2 * np.pi * f0) * flattening_rg
         coreg_cstack[:, acquisition_date_index, :, :] *= np.exp(1j * coreg_phase_model[acquisition_date_index, :, :])
 
@@ -1031,200 +1020,12 @@ def extract_rg0_az0(
     return rg0, az0, drg, daz
 
 
-def warp_gslc(
-    gstack: xr.DataArray,
-    gphase_model: xr.DataArray,
-    simulation: xr.Dataset,
-    kernel: dict,
-    cstack: xr.DataArray,
-    phase_model: xr.DataArray,
-    phase_demod: xr.DataArray,
-    anf: xr.DataArray,
-    do_reramp: bool,
-    gamma_flattening: bool,
-    dtaz: float,
-    dtrg: float,
-    scp_idx: tuple[int, int],
-    eps: float = 1e-3,
-    method: str = "linear",
-    **kwargs,
-) -> xr.Dataset:
-    """
-    Geocodes a chunk of coregistered SLC (CSLC) radar data to a geographic grid.
-
-    This function maps radar coordinates (slant range, azimuth) to a uniform
-    ground grid using sinc interpolation. It handles phase deramping, optional
-    gamma flattening, and phase reramping for InSAR processing.
-
-    Parameters
-    ----------
-    gstack : xarray.Dataset
-        Geocoded stack
-    gphase_model : xarray.Dataset
-        Phase model for the stack
-    simulation : xarray.Dataset
-        Radar geometry simulation data mapping the ground grid.
-    kernel : dict
-        Sinc interpolation kernel parameters (e.g., {"kernel_shape": (L, L)}).
-    margin : int or float
-        Margin applied to the bounding box to account for kernel size.
-    data_path_static : str
-        Path to static radar grid datasets (e.g., layover/shadow masks).
-    data_path_tmp : str
-        Temporary storage path for writing the output Zarr chunks.
-    dtaz : float
-        The azimuth time spacing (in seconds) used for coordinate transformation.
-    dtrg : float
-        The slant range time spacing (in seconds) used for coordinate transformation.
-    scp_idx : tuple[int, int]
-        The column and row indices of the scene center pixel (SCP) in the original SLC image
-    eps : float, optional
-        Epsilon value to prevent division by zero in gamma flattening. Default is 1e-6.
-    gamma_flattening : bool, optional
-        Whether to apply radiometric terrain correction. Default is False.
-    do_reramp : bool, optional
-        Whether to re-apply the phase modulation post-interpolation. Default is True.
-    chunk : tuple or str
-        Identifier or region for the current data chunk being processed.
-    **kwargs : dict
-        Additional keyword arguments. Can include `method` (str) to specify
-        the interpolation method (default "linear") and storage options.
-
-    Returns
-    -------
-    xr.Dataset
-        A dataset containing the geocoded SLC data and the corresponding phase model.
-    """
-    # --- Initialization and Data Loading ---
-    acquisition_dates = gstack.acquisition_date.values
-    # Use the first acquisition's simulation as the reference grid.
-    simulation = simulation.isel(acquisition_date=0).squeeze()
-    # Define the output region for the current chunk.
-    margin = np.array(kernel["kernel_shape"]) // 2 + 1
-
-    # --- Coordinate Transformation ---
-    spacing_in = np.abs(simulation.rio.resolution(recalc=True))
-    spacing_out = gstack.rio.resolution(recalc=True)
-
-    xmin = gstack.x.min().values - margin[0] * spacing_in[0]
-    xmax = gstack.x.max().values + margin[0] * spacing_in[0]
-    ymin = gstack.y.min().values - margin[1] * spacing_in[1]
-    ymax = gstack.y.max().values + margin[1] * spacing_in[1]
-
-    xslice = slice(xmin, xmax) if spacing_out[0] > 0 else slice(xmax, xmin)
-    yslice = slice(ymin, ymax) if spacing_out[1] > 0 else slice(ymax, ymin)
-
-    simulation = simulation.sel(x=xslice, y=yslice)
-    # Convert the ground-projected simulation coordinates into the radar's pixel coordinate system.
-    rg, az = extract_rg_az(cstack, simulation, dtaz, dtrg)
-
-    # Average coordinates to find the center of each pixel.
-    simulation["azimuth_time"].data = az
-    simulation["slant_range_time"].data = rg
-    x_grid, y_grid = np.meshgrid(gstack.x, gstack.y)
-
-    # Call the generic dataset interpolation function.
-    simul_out = interp_dataset(
-        data=simulation, xi=(y_grid, x_grid), common_dims=("y", "x"), method=method, fill_value=0.0
-    )
-
-    rg_interp = simul_out.x.values.ravel()
-    az_interp = simul_out.y.values.ravel()
-
-    (ind,) = np.where(
-        (rg_interp >= margin[1])
-        & (az_interp >= margin[0])
-        & (rg_interp < (cstack.slant_range_time.size - margin[1]))
-        & (az_interp < (cstack.azimuth_time.size - margin[0]))
-    )
-
-    # --- Main Geocoding Loop ---
-    gstack_buffer = np.zeros_like(gstack)
-    phase_model_buffer = np.zeros_like(gphase_model)
-
-    if ind.size > 0:
-        # Define the subset of radar coordinates needed for interpolation.
-        x = simul_out.slant_range_time.values.ravel()[ind]
-        y = simul_out.azimuth_time.values.ravel()[ind]
-
-        # Calculate the bounding box to read from the coregistered data.
-        xmin, xmax = np.round(x.min() - margin[1]).astype(int), np.round(x.max() + margin[1]).astype(int)
-        ymin, ymax = np.round(y.min() - margin[0]).astype(int), np.round(y.max() + margin[0]).astype(int)
-
-        # Translate coordinates to be relative to the bounding box origin.
-        x, y = x - xmin, y - ymin
-
-        # --- Prepare Data for Interpolation ---
-        # Get reference points and scaling factors for phase calculations.
-        rg0, az0, drg0, daz0 = extract_rg0_az0(cstack, phase_demod, dtaz, dtrg)
-
-        # Select the required portion of the input data.
-        cstack = cstack.isel(slant_range_time=slice(xmin, xmax), azimuth_time=slice(ymin, ymax))
-        phase_model = phase_model.isel(slant_range_time=slice(xmin, xmax), azimuth_time=slice(ymin, ymax))
-        anf = anf.isel(slant_range_time=slice(xmin, xmax), azimuth_time=slice(ymin, ymax))
-        # Load static radar grid data (e.g., layover/shadow masks, area normalizer).
-        # Prepare for gamma flattening if enabled.
-        if gamma_flattening:
-            mask_A = anf > eps
-            sqrt_A = cast(xr.DataArray if isinstance(anf, xr.DataArray) else Any, np.sqrt(anf))
-
-        # --- Loop over each acquisition date ---
-        for date_idx, acq_date in enumerate(acquisition_dates):
-            # Select the phase demodulation LUT for the current date.
-            ph_demod = phase_demod.sel(acquisition_date=acq_date)
-
-            # Warp the phase model onto the geocoded grid.
-            warped_phase = sinc_warp(phase_model.sel(acquisition_date=acq_date).values, x, y, kernel)
-            phase_model_buffer[date_idx].ravel()[ind] = warped_phase
-
-            # --- Pre-calculate Reramp Array ---
-            # Calculated once per date on valid points only, keeping variables isolated.
-            if do_reramp:
-                az_reramp = (simul_out.azimuth_time.values.ravel()[ind] - az0) * (daz0 / dtaz)
-                rg_reramp = (simul_out.slant_range_time.values.ravel()[ind] - rg0) * (drg0 / dtrg)
-
-                coeff_phase_demod = 2 * np.pi * np.polynomial.polynomial.polyint(getCoeffFromLut(ph_demod), axis=1)
-                phramp = np.polynomial.polynomial.polyval2d(rg_reramp, az_reramp, coeff_phase_demod)
-                reramp_multiplier = np.exp(1j * phramp)
-
-            # --- Loop over each polarization ---
-            for pol_idx, pol in enumerate(cstack.polarization.values):
-                # Apply deramping to the SLC image to correct its phase prior to interpolation.
-                slc = do_deramp(cstack.sel(polarization=pol, acquisition_date=acq_date), ph_demod, scp_idx)
-
-                # Apply gamma flattening if enabled.
-                if gamma_flattening:
-                    acq_mask = mask_A.sel(acquisition_date=acq_date).values
-                    acq_anf = sqrt_A.sel(acquisition_date=acq_date).values
-                    np.divide(slc.values, acq_anf, out=slc.data, where=acq_mask)
-                    # Zero out the invalid pixels
-                    slc.values[..., ~acq_mask] = 0.0
-
-                # Perform the final sinc interpolation from radar to ground grid.
-                warped_gslc = sinc_warp(slc.values, x, y, kernel)
-
-                # Apply phase reramping to the 1D valid array if enabled.
-                if do_reramp:
-                    warped_gslc *= reramp_multiplier
-
-                # Map the processed 1D array back into the 2D spatial buffer.
-                gstack_buffer[pol_idx, date_idx].ravel()[ind] = warped_gslc
-
-    ds = xr.Dataset(
-        data_vars={
-            "gstack": (gstack.dims, gstack_buffer),
-            "phase_model": (gphase_model.dims, phase_model_buffer),
-        }
-    )
-    return ds
-
-
 def grid_data_block(
     daz: xr.DataArray,
     drg: xr.DataArray,
     simulation_azimuth_time: xr.DataArray,
     simulation_slant_range_time: xr.DataArray,
-    reference_date: str,
+    reference_id: str,
     bbox: np.ndarray,
     azimuth_grid_spacing: float,
     range_grid_spacing: float,
@@ -1260,17 +1061,15 @@ def grid_data_block(
         and `drg` values.
     """
     # If there is more than one acquisition, we compute the shifts.
-    if simulation_azimuth_time.acquisition_date.size > 1:
+    if simulation_azimuth_time.acquisition_id.size > 1:
         # Keep only the essential variables for shift calculation.
         # Select the simulation data corresponding to the reference date.
-        reference_azimuth_time = simulation_azimuth_time.sel(acquisition_date=reference_date)
-        reference_slant_range_time = simulation_slant_range_time.sel(acquisition_date=reference_date)
+        reference_azimuth_time = simulation_azimuth_time.sel(acquisition_id=reference_id)
+        reference_slant_range_time = simulation_slant_range_time.sel(acquisition_id=reference_id)
         # Calculate the shifts by subtracting the reference from all other acquisitions.
-        selection_azimuth_time = (
-            simulation_azimuth_time.sel(acquisition_date=daz.acquisition_date) - reference_azimuth_time
-        )
+        selection_azimuth_time = simulation_azimuth_time.sel(acquisition_id=daz.acquisition_id) - reference_azimuth_time
         selection_slant_range_time = (
-            simulation_slant_range_time.sel(acquisition_date=daz.acquisition_date) - reference_slant_range_time
+            simulation_slant_range_time.sel(acquisition_id=daz.acquisition_id) - reference_slant_range_time
         )
         # --- Prepare for Interpolation ---
         # Convert the sparse reference grid coordinates to a pixel-based system.
@@ -1338,7 +1137,7 @@ def coreg_qlt(
     sigma_h_2 = 1.0
 
     # Get the reference acquisition date.
-    reference_date = coreg.coregistration_reference_date
+    reference_id = coreg.coregistration_reference_id
 
     # Select the coarse grid from the coregistered data.
     coreg = coreg.sel(azimuth_time=daz_drg.azimuth_time.values, slant_range_time=daz_drg.slant_range_time.values)
@@ -1355,12 +1154,12 @@ def coreg_qlt(
 
     # Initialize the output DataArray for coregistration quality.
     crg_qlt = xr.DataArray(
-        np.zeros((coreg.acquisition_date.size, *grid)), dims=["acquisition_date", "azimuth_time", "slant_range_time"]
+        np.zeros((coreg.acquisition_id.size, *grid)), dims=["acquisition_id", "azimuth_time", "slant_range_time"]
     )
     # --- Main Loop: Compute Quality for each Acquisition ---
-    for i, d in enumerate(coreg.acquisition_date):
+    for i, d in enumerate(coreg.acquisition_id.values):
         # Skip the reference date itself, as its error is zero by definition.
-        if d != reference_date:
+        if d != reference_id:
             orb_type = acquisition_date_orbit_type[d]
             arp_coeffs = cast(dict[str, np.ndarray], acquisition_date_arp_coeffs[d])
             if any(coeff is None for coeff in arp_coeffs.values()):
@@ -1368,8 +1167,8 @@ def coreg_qlt(
             t0 = acquisition_date_t0[d]
             # Get metadata for the secondary acquisition.
             # Calculate the coordinates of the secondary image points corresponding to the reference grid.
-            az = az0 + daz_drg.daz.sel(acquisition_date=d).stack(point=["azimuth_time", "slant_range_time"])
-            rg = rg0 + daz_drg.drg.sel(acquisition_date=d).stack(point=["azimuth_time", "slant_range_time"])
+            az = az0 + daz_drg.daz.sel(acquisition_id=d).stack(point=["azimuth_time", "slant_range_time"]).values
+            rg = rg0 + daz_drg.drg.sel(acquisition_id=d).stack(point=["azimuth_time", "slant_range_time"]).values
             # --- Compute Geometric Error (Sigma) ---
             # Calculate the squared baseline (distance between satellite positions).
             sigma = ((get_position(az, t0, arp_coeffs).drop_vars("azimuth_time") - position0) ** 2).sum(dim="axis")
@@ -1383,7 +1182,7 @@ def coreg_qlt(
             # Unstack the 1D result back into a 2D grid and assign it to the output.
             crg_qlt[i, :, :] = (
                 sigma.rename(azimuth_time="point")
-                .assign_coords(az0.drop_vars("acquisition_date", errors="ignore").coords)
+                .assign_coords(az0.drop_vars("acquisition_id", errors="ignore").coords)
                 .unstack()
             )
 

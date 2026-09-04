@@ -99,9 +99,9 @@ def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
 
 def refit_orbit_coefficients(
     burst_id: str,
-    acquisition_date: str,
+    acquisition_id: str,
     orbit: xr.Dataset | None,
-    t0: np.datetime64,
+    t0: str,
     reference_time: np.ndarray,
     poly_degree: int,
 ) -> xr.Dataset | None:
@@ -137,7 +137,7 @@ def refit_orbit_coefficients(
         return None
 
     # Calculate the time vector relative to the reference time for polynomial fitting.
-    times = (orbit.azimuth_time - t0).astype("float64") / 1e9
+    times = (orbit.azimuth_time - np.datetime64(t0, "ns")).astype("float64") / 1e9
     # Use Sarpy's utility to fit new polynomials to the position and velocity data.
     X, Y, Z = sarpy.io.complex.utils.fit_position_xvalidation(
         times.values, orbit.position.values, orbit.velocity.values, max_degree=poly_degree
@@ -152,13 +152,13 @@ def refit_orbit_coefficients(
     orbit_ = xr.Dataset(
         data_vars={
             "coeffs": (
-                ["acquisition_date", "degree", "axis"],
+                ["acquisition_id", "degree", "axis"],
                 # Structure the new coefficients into the correct shape.
                 np.array([v for v in [X, Y, Z]]).T[None, ...],
             )
         },
         coords={
-            "acquisition_date": np.array([acquisition_date], dtype=object),
+            "acquisition_id": np.array([acquisition_id], dtype=object),
             "degree": range(poly_degree + 1),
             "axis": range(3),
         },

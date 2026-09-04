@@ -29,9 +29,9 @@ from cop_ard_core.logger import logger
 rioxarray.__version__
 
 DIMENSIONS_ = {
-    "azimuth_time": ["acquisition_date", "y", "x"],
-    "slant_range_time": ["acquisition_date", "y", "x"],
-    "dem_distance": ["acquisition_date", "y", "x", "axis"],
+    "azimuth_time": ["acquisition_id", "y", "x"],
+    "slant_range_time": ["acquisition_id", "y", "x"],
+    "dem_distance": ["acquisition_id", "y", "x", "axis"],
     "h": ["y", "x"],
 }
 
@@ -127,7 +127,7 @@ def get_velocity(azimuth_time: xr.DataArray, t0: np.datetime64, arp_coeffs: dict
 
 
 def init_simulation(
-    acquisition_dates: np.ndarray,
+    acquisition_ids: np.ndarray,
     crs: CRS,
     x: np.ndarray,
     y: np.ndarray,
@@ -156,7 +156,7 @@ def init_simulation(
     xr.Dataset
         An xarray.Dataset representing the initialized (but mostly empty) simulation data
     """
-    n_dates = acquisition_dates.size
+    n_dates = acquisition_ids.size
 
     # Define the shape for each variable in the simulation dataset.
     shape = {
@@ -169,7 +169,7 @@ def init_simulation(
     # --- Create the Dataset Structure ---
     simulation = xr.Dataset(
         coords={
-            "acquisition_date": acquisition_dates,
+            "acquisition_id": acquisition_ids,
             "y": y,
             "x": x,
             "axis": [0, 1, 2],
@@ -231,9 +231,9 @@ def compute_simulation(
     """
     # Extract the orbit data and reference time for the current acquisition date.
     reference_times = orbits.reference_times
-    position = orbits.sel(acquisition_date=simulation.acquisition_date.values[0])
+    position = orbits.sel(acquisition_id=simulation.acquisition_id.values[0])
     position.attrs = {
-        "referenceTime": np.datetime64(reference_times[simulation.acquisition_date.values[0]][:-1], "ns"),
+        "referenceTime": np.datetime64(reference_times[simulation.acquisition_id.values[0]][:-1], "ns"),
         "scaleTime": 1e-9,
     }
 
@@ -271,7 +271,7 @@ def compute_simulation(
 
         # --- Write Results ---
         # Format the results to match the output structure.
-        s = s.expand_dims(dim="acquisition_date", axis=0).drop_vars(set(s.coords).intersection({"spatial_ref", "crs"}))
+        s = s.expand_dims(dim="acquisition_id", axis=0).drop_vars(set(s.coords).intersection({"spatial_ref", "crs"}))
         s = s.reset_coords(drop=True)
         s = s.drop_vars(s.coords)
         # Write the computed block to the correct region in the Zarr store.
@@ -425,7 +425,7 @@ def extract_simul_on_radar_chunk(
     selection = simulation.sel(x=slice(xmin, xmax), y=slice(ymin, ymax))
     # --- Refine Selection with Dilation ---
     # Get the simulation data for the reference geometry.
-    reference_sel = selection.sel(acquisition_date=reference_date).squeeze().drop_vars("acquisition_date")
+    reference_sel = selection.sel(acquisition_id=reference_date).squeeze().drop_vars("acquisition_id")
     az = reference_sel.azimuth_time.values
     rg = reference_sel.slant_range_time.values
     # Create a precise mask of pixels within the radar time borders and dilate it.
@@ -448,15 +448,13 @@ def extract_simul_on_radar_chunk(
             selection_secondary = selection_secondary.isel(
                 x=slice(xmin_idx, xmax_idx), y=slice(ymin_idx, ymax_idx)
             ).chunk(chunks)
-            selection = xr.concat([selection, selection_secondary], dim="acquisition_date", data_vars="all").chunk(
-                chunks
-            )
+            selection = xr.concat([selection, selection_secondary], dim="acquisition_id", data_vars="all").chunk(chunks)
     else:
         raise Exception("Selection is empty.")
     return selection
 
 
-def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_config: dict[str, int]):
+def extract_simulation_ml(simulation: xr.Dataset, reference_id: str, coarsen_config: dict[str, int]):
     """
     Create a downsampled ("multilooked") version of the simulation data.
 
@@ -487,7 +485,7 @@ def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_c
         # For the 'min' dataset, coarsen the data and take the minimum value in each block.
         "min": cast(
             xr.Dataset,
-            simulation.sel(acquisition_date=reference_date)
+            simulation.sel(acquisition_id=reference_id)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="min"),
@@ -495,7 +493,7 @@ def extract_simulation_ml(simulation: xr.Dataset, reference_date: str, coarsen_c
         # For the 'max' dataset, do the same but take the maximum value.
         "max": cast(
             xr.Dataset,
-            simulation.sel(acquisition_date=reference_date)
+            simulation.sel(acquisition_id=reference_id)
             .drop_vars(["dem_distance", "h", "axis"])
             .astype(float)
             .coarsen(coarsen_config, boundary="pad", coord_func="max"),

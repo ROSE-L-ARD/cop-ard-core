@@ -2,7 +2,7 @@ import numpy as np
 import scipy.sparse
 import xarray as xr
 from numba import njit
-
+import itertools
 from cop_ard_core.utils import compute_interf_norm, wrap
 
 
@@ -11,14 +11,14 @@ def compute_shift(
     burst1: xr.DataArray,
     reference0: xr.DataArray,
     reference1: xr.DataArray,
-    acquisition_date: xr.DataArray,
+    acquisition_id: xr.DataArray,
     multilook: dict,
     coherence_threshold: float,
 ) -> tuple[xr.DataArray, xr.DataArray]:
 
     # output initialization #
-    coords = acquisition_date.coords
-    data = np.full(acquisition_date.size, np.nan)
+    coords = acquisition_id.coords
+    data = np.full(acquisition_id.size, np.nan)
     mean_phase = xr.DataArray(name="mean_phase", data=data, coords=coords)
     coherence = xr.DataArray(name="coherence", data=data, coords=coords)
 
@@ -41,8 +41,8 @@ def compute_shift(
     mean_phase = xr.ufuncs.angle(interf_prod.sum(dim=["slant_range_time", "azimuth_pixel"]))
     mean_phase = xr.DataArray(
         data=mean_phase,
-        dims=["acquisition_date"],
-        coords={"acquisition_date": interf_prod.acquisition_date},
+        dims=["acquisition_id"],
+        coords={"acquisition_id": interf_prod.acquisition_id},
         name="mean_phase",
     )
     mean_phase = mean_phase.where(coherence > 0)
@@ -91,7 +91,7 @@ def compute_azimuth_shifts(
             burst1=burst1,
             reference0=reference0,
             reference1=reference1,
-            acquisition_date=burst0.acquisition_date,
+            acquisition_id=burst0.acquisition_id,
             multilook=multilook,
             coherence_threshold=coherence_threshold,
         )
@@ -117,29 +117,35 @@ def compute_azimuth_shifts(
 def optimize_curvature(esd, poly_degree: int):
     # extract valid indices
     ind = np.where(np.isfinite(esd["mean_phase"].values))[0]
+
+    # Check if there are valid points to process
+    if len(ind) == 0:
+        return esd.copy(deep=True)
+
     y = esd["mean_phase"].values[ind]
     w = esd["wrap_cycle"].values[ind]
     az = esd["azimuth_time"].values[ind]
-
     t = (az - az.min()).astype(float) / 1e9
-    # Rescale azimuth time to have values from -1 to 1
-    t = (t / np.ptp(t)) * 2 - 1.0
-
     # fit a polynomial function on the measured valid phases
-    A = np.vstack([t**i for i in range(0, poly_degree + 1)]) * 2 * np.pi / w
-    params = np.array([np.arange(-1, 1, np.mean(w) / 4) for i in range(poly_degree + 1)])
-
-    opt_param = optimize_phase(params, y, A)
-    opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
+    if poly_degree == 0:
+        opt_param = np.array([0.0])
+        A = np.ones((1, t.size), dtype=np.float64)
+    else:
+        A = np.vstack([t**i for i in range(1, poly_degree + 1)]) * 2 * np.pi / w
+        k = np.ptp(A, axis=1)
+        k[k == 0] = 1.0
+        A = A / k[:, np.newaxis]
+        params = [np.arange(-k[i], k[i], 2 * np.pi) for i in range(poly_degree)]
+        # Assuming optimize_phase, compute_phase, angle_phase, wrap are custom functions defined elsewhere
+        opt_param = optimize_phase(params, y, A)
+        opt_param = scipy.optimize.minimize(compute_phase, opt_param, args=(y, A), method="BFGS").x
     const = angle_phase(opt_param, y, A)
     y_model = opt_param @ A + const
-
     # unwrap (1D) the phase
     phase = wrap(y - y_model) + y_model
-
     # convert phase offset to shift in pixel
     esd_opt = esd.copy(deep=True)
-    esd_opt["mean_phase"][ind] = phase
+    esd_opt["mean_phase"].data[ind] = phase
     esd_opt["mean_shift"] = esd_opt["mean_phase"] / (2 * np.pi) * esd_opt["wrap_cycle"]
 
     return esd_opt
@@ -156,27 +162,18 @@ def angle_phase(param, y, A):
 
 
 def optimize_phase(params, y, A, maxcorr: float = 3 * np.pi):
-    n_rows = params.shape[0]
-    n_cols = params.shape[1]
-    total_combinations = n_cols**n_rows
-    opt_res = 1e9
-    opt_param = np.zeros(n_rows, dtype=params.dtype)
-    for i in range(total_combinations):
-        index = i
-        param = np.zeros(n_rows, dtype=params.dtype)
-        for row in range(n_rows - 1, -1, -1):
-            col = index % n_cols
-            param[row] = params[row, col]
-            index = index // n_cols
-        # try only parameters providing correction lower than a given threshold
+    opt_param = np.array([p[0] for p in params], dtype=float)
+    opt_res = compute_phase(opt_param, y, A)
+    for param_tuple in itertools.product(*params):
+        param = np.array(param_tuple)
         corr = np.max(np.abs(param @ A))
         if corr > maxcorr:
             continue
+
         res = compute_phase(param, y, A)
         if res < opt_res:
             opt_res = res
             opt_param = param
-            print(f"check param {i} of {total_combinations} {param=} {corr=} {res=}")
 
     return opt_param
 

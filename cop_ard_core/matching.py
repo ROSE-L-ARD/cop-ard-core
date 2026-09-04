@@ -2,11 +2,9 @@ from typing import Literal, Sequence
 
 import numpy as np
 import xarray as xr
-from scipy.constants import speed_of_light
-from xrspatial.convolution import convolution_2d
 
-from cop_ard_core.detrend import estimate_global_surface
 from cop_ard_core.logger import logger
+from cop_ard_core.utils import rolling_kernel
 
 
 def get_corr_sub_pix(
@@ -228,115 +226,99 @@ def backward_flatten(
     return i1, i2
 
 
-def polyfit(
-    disparity: xr.DataArray,
+def shift_update(
+    i: xr.DataArray,
+    i0: xr.DataArray,
+    x: xr.DataArray,
+    y: xr.DataArray,
+    kernel: np.ndarray,
+) -> xr.DataArray:
+
+    # Remove mean, convert to float64, and remove degenerate dimensions
+    o = (i - i.mean()).astype("float64").squeeze()
+
+    # Perform 2D convolution using scipy
+    # mode='same' ensures the output shape matches the input 'o'
+    # boundary='symm' (symmetrical) minimizes edge artifacts compared to zero-padding
+    # .fillna(0) prevents any existing NaNs in the SAR grid from bleeding into the convolution
+    o_sampled = rolling_kernel(o.fillna(0), x, y, multilook={"azimuth_time": kernel.shape[0], "slant_range_time": kernel.shape[1]}, kernel=kernel)
+    
+    # Split the sampled array in half along the point dimension
+    half_idx = o_sampled.point.size // 2
+    o1 = o_sampled.isel(point=slice(half_idx))
+    o2 = o_sampled.isel(point=slice(half_idx, None))
+
+    diff_data = o1.data - o2.data
+
+    # Cast back to the original datatype (e.g., timedelta64[ns]) and wrap in a DataArray
+    diff = xr.DataArray(diff_data, coords=o1.coords, dims=o1.dims).astype(i0.dtype).compute()
+    # Return the final shifted array
+    return diff - i0
+
+
+def fix_disparity(
+    burst_id: str,
+    acquisition_id: str,
+    disparity: xr.Dataset,
     drg: xr.DataArray,
     daz: xr.DataArray,
-    annot: dict,
     cohe_th: float = 0.3,
-    deg: int = 3,
-    kernel_shape: list[int] = [15, 15],
+    kernel_shape: tuple[int, int] = (15, 15),
     **kwargs,
 ):
     # kernel creation for drg and daz multilooking #
     kernel = np.ones(kernel_shape) / np.prod(kernel_shape)
 
-    def to_polygrid2d(c):
-        j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
+    # image position correction #
+    disparity = disparity.compute()
 
-        return np.flip(
-            np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
-            axis=1,
-        )
+    # extraction of valid points based on coherence threshold #
+    uv = disparity.where(disparity["coherence"] >= cohe_th, drop=True)
+    if uv.point.size == 0:
+        return burst_id, acquisition_id, None
 
-    def shift_update(
-        i: xr.DataArray,
-        i0: xr.DataArray,
-        scale_fact: float,
-        x: xr.DataArray,
-        y: xr.DataArray,
-    ) -> xr.DataArray:
-        o = (i - i.mean()).astype("float64").squeeze()
-        o = convolution_2d(o, kernel).isel(azimuth_time=y, slant_range_time=x)
+    dy, dx = [uv[k].values.T for k in ("dy", "dx")]
+    dy = dy.astype("timedelta64[ns]")
 
-        o1 = o.isel(point=slice(o.point.size // 2))
-        o2 = o.isel(point=slice(o.point.size // 2, None))
-        return (o1 - o2) / scale_fact - i0
+    x = uv.x
+    y = uv.y.astype("datetime64[ns]")
 
-    def poly_estimate(
-        v: np.ndarray,
-        x: np.ndarray,
-        name: str,
-        attrs: dict,
-    ):
-        output = estimate_global_surface(x, v, degree=deg, **kwargs)
+    m0_x = x
+    m0_y = y
 
-        poly = xr.DataArray(
-            data=to_polygrid2d(output.x),
-            dims=["i", "j"],
-            name=name,
-            coords={k: np.arange(deg + 1) for k in ["i", "j"]},
-            attrs=attrs,
-        )
-        return poly.to_dataset().assign_attrs({"type": disparity.type})
+    m1_x = x + dx
+    m1_y = y + dy
 
-    def create_attrs(offset, scale_fact):
-        y0, x0 = offset.values
-        s_y, s_x = scale_fact.values * disparity.pixel_to_time
-        if disparity.type == "times":
-            y0 = daz.azimuth_time[0] + np.round((disparity.pixel_to_time[0] * y0)).astype("timedelta64[ns]")
-            x0 = drg.slant_range_time[0] + x0 * disparity.pixel_to_time[1]
-            y0, x0 = [e.values for e in [y0, x0]]
-            s_y = np.round(s_y).astype("timedelta64[ns]")
-        return {"deg": deg, "offset": (y0, x0), "scale_fact": (s_y, s_x)}
+    # coordinates to be extracted
+    x = xr.concat(
+        [m0_x.drop_vars("point", errors="ignore"),
+         m1_x.drop_vars("point", errors="ignore")],
+        dim="point",
+    )
 
-    try:
-        # image position correction #
-        disparity = disparity.squeeze()
-        uv = disparity.groupby(disparity.sel(variable="cohe") >= cohe_th)[True]
-        dy, dx = (uv.sel(variable=["dy", "dx"]) / disparity.pixel_to_time).values.astype("float64").T
+    y = xr.concat(
+        [m0_y.drop_vars("point", errors="ignore"),
+         m1_y.drop_vars("point", errors="ignore")],
+        dim="point",
+    )
 
-        if disparity.type == "times":
-            x = uv.x - drg.slant_range_time[0]
-            y = uv.y.astype("datetime64[ns]") - daz.azimuth_time[0]
-            m0 = xr.concat(
-                (v.astype("float64") / disparity.pixel_to_time[k] for k, v in enumerate([y, x])),
-                dim="variable",
-            )
-        else:
-            m0 = xr.concat((uv.y, uv.x), dim="variable")
-
-        # from here on all coordinates are in pixels #
-        m0 = m0.assign_coords({"variable": ["y", "x"]})
-        m1 = m0 + np.vstack((dy, dx))
-    except Exception as e:
-        logger.critical(f"Error: {type(e).__name__} - {e}")
-        raise RuntimeError("No valid points found")
-
-    # concatenation of points (m0, m1) #
-    y, x = np.round(xr.concat((e.drop_vars("point", errors="ignore") for e in (m0, m1)), dim="point")).astype("int32")
 
     # shift in the x direction updating #
-    dx = shift_update(drg, dx, (2 * annot["Grid"]["Row"]["SS"] / speed_of_light), x, y)
+    dx = shift_update(drg, dx, x, y, kernel)
+    dy = shift_update(daz, dy, x, y, kernel)
 
-    # shift in the y direction updating #
-    dy = shift_update(
-        daz,
-        dy,
-        (annot["RMA"]["INCA"]["TimeCAPoly"]["Coefs"][1] * annot["Grid"]["Col"]["SS"] * 1e9),
-        x,
-        y,
+    ds = xr.Dataset(
+        data_vars={
+            "m1_x": ("point", m1_x.values),
+            "m1_y": ("point", m1_y.values),
+            "dx": ("point", dx.values),
+            "dy": ("point", dy.values),
+            "coherence": ("point", uv["coherence"].values),
+        },
+        coords=m1_x.coords,
     )
-    # coordinates rescaling to avoid numeric instability issues #
-    offset = m1.mean(dim="point")
-    scale_fact = (m1.max(dim="point") - m1.min(dim="point")) / 2.0
-    m1 = ((m1 - offset) / scale_fact).values.T
 
-    # polynomial (both for x and y) estimation #
-    name = str(disparity.acquisition_date.values)
-    attrs = create_attrs(offset, scale_fact)
-    print("-" * 50)
-    return list(poly_estimate(v.values, m1, name, attrs) for v in (dy, dx))
+    return burst_id, acquisition_id, ds
 
 
 def initialize_patches(
@@ -381,60 +363,233 @@ def initialize_patches(
     return ds
 
 
+# def compute_pearson_coefficient(
+#     patch: xr.Dataset,
+#     stack: xr.DataArray,
+#     reference: xr.DataArray,
+#     pixel_to_time: np.ndarray,
+#     peak_window_size: Sequence[int],
+#     y_dim: str,
+#     x_dim: str,
+#     correlation_kernel_size: Sequence[int] | None,
+# ):
+
+#     # Number of images and number of points
+#     shp = np.array(stack.shape[0:2]) - 2 * np.array(peak_window_size)
+#     nim, npt = stack.shape[2], np.prod(shp)
+
+#     # Check that the search window is not too large
+#     if npt < 0:
+#         logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[0:2]}.")
+#         dy, dx, coherence, sy, sx = np.zeros((5, nim), dtype="float32")
+#     else:
+#         # Correlation window dimension
+#         nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
+#         i1, i2 = backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
+
+#         # Remove bias
+#         i1 = i1 - i1.mean(axis=0)
+#         i2 = i2 - i2.mean(axis=1)[..., None]
+
+#         # Scale to norm 1
+#         with np.errstate(divide="ignore", invalid="ignore"):
+#             i1 = i1 / np.linalg.norm(i1, axis=0)
+#             i2 = i2 / np.linalg.norm(i2, axis=1)[..., None]
+
+#         # Compute Pearson correlation coefficient
+#         corr = np.abs(i2 @ i1.conj())
+#         corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
+
+#         dy, dx, coherence, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
+#     return xr.DataArray(
+#         data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, coherence, sy, sx)).T.reshape(nim, -1, 5),
+#         dims=["acquisition_id", "point", "variable"],
+#         coords={
+#             "acquisition_id": stack.z.values,
+#             "point": [patch.patch.values],
+#             "y": (["point"], [stack[y_dim].mean().values]),
+#             "x": (["point"], [stack[x_dim].mean().values]),
+#             "variable": ["dy", "dx", "coherence", "s_y", "s_x"],
+#         },
+#         attrs={"pixel_to_time": pixel_to_time.flatten()},
+#     )
+
+def subpixel_peak_1d(
+    corr: np.ndarray,
+    center: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate 1D peak location with parabolic subpixel interpolation.
+
+    Parameters
+    ----------
+    corr : ndarray (nim, n)
+        Correlation profiles.
+    center : int
+        Index corresponding to zero displacement.
+
+    Returns
+    -------
+    peak_pos : ndarray (nim,)
+        Subpixel peak position relative to center.
+    peak_val : ndarray (nim,)
+        Peak value.
+    """
+
+    n = corr.shape[1]
+
+    idx = np.argmax(corr, axis=1)
+    peak_pos = idx.astype(np.float32)
+    peak_val = corr[np.arange(corr.shape[0]), idx]
+
+    valid = (idx > 0) & (idx < n - 1)
+
+    if np.any(valid):
+
+        rows = np.where(valid)[0]
+
+        y1 = corr[rows, idx[rows] - 1]
+        y2 = corr[rows, idx[rows]]
+        y3 = corr[rows, idx[rows] + 1]
+
+        denom = y1 - 2.0 * y2 + y3
+
+        good = np.abs(denom) > 1e-12
+
+        peak_pos[rows[good]] += (
+            0.5 * (y1[good] - y3[good]) / denom[good]
+        )
+
+    peak_pos -= center
+
+    return peak_pos, peak_val
+
+
 def compute_pearson_coefficient(
     patch: xr.Dataset,
     stack: xr.DataArray,
     reference: xr.DataArray,
     pixel_to_time: np.ndarray,
     peak_window_size: Sequence[int],
-    forward: bool,
     y_dim: str,
     x_dim: str,
     correlation_kernel_size: Sequence[int] | None,
-    data_type: Literal["times", "pixels"] = "times",
 ):
 
-    # Number of images and number of points
-    shp = np.array(stack.shape[0:2]) - 2 * np.array(peak_window_size)
+    shp = np.array(stack.shape[:2]) - 2 * np.array(peak_window_size)
     nim, npt = stack.shape[2], np.prod(shp)
 
-    # Check that the search window is not too large
-    if npt < 0:
-        logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[0:2]}.")
-        dy, dx, cohe, sy, sx = np.zeros((5, nim), dtype="float32")
+    if npt <= 0:
+
+        logger.warning(
+            f"Search window {peak_window_size} is too large for "
+            f"the input image of size {stack.shape[:2]}."
+        )
+
+        dy, dx, coherence, sy, sx = np.zeros(
+            (5, nim),
+            dtype=np.float32,
+        )
+
     else:
-        # Correlation window dimension
-        nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
-        i1, i2 = (
-            forward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
-            if forward
-            else backward_flatten(stack.values, reference.values, list(peak_window_size), npt, nco, nim, shp)
+
+        nco = (
+            (2 * peak_window_size[0] + 1)
+            * (2 * peak_window_size[1] + 1)
+        )
+
+        i1, i2 = backward_flatten(
+            stack.values,
+            reference.values,
+            list(peak_window_size),
+            npt,
+            nco,
+            nim,
+            shp,
         )
 
         # Remove bias
-        i1 = i1 - i1.mean(axis=0)
-        i2 = i2 - i2.mean(axis=1)[..., None]
+        i1 -= i1.mean(axis=0)
+        i2 -= i2.mean(axis=1)[..., None]
 
-        # Scale to norm 1
+        # Normalize
         with np.errstate(divide="ignore", invalid="ignore"):
-            i1 = i1 / np.linalg.norm(i1, axis=0)
-            i2 = i2 / np.linalg.norm(i2, axis=1)[..., None]
+            i1 /= np.linalg.norm(i1, axis=0)
+            i2 /= np.linalg.norm(i2, axis=1)[..., None]
 
-        # Compute Pearson correlation coefficient
+        # Pearson correlation
         corr = np.abs(i2 @ i1.conj())
-        corr = corr.reshape([nim, 2 * peak_window_size[0] + 1, 2 * peak_window_size[1] + 1])
 
-        dy, dx, cohe, sy, sx = get_corr_sub_pix(corr, correlation_kernel_size).T
+        ny = 2 * peak_window_size[0] + 1
+        nx = 2 * peak_window_size[1] + 1
+
+        corr = corr.reshape((nim, ny, nx))
+
+        search_y = ny > 1
+        search_x = nx > 1
+
+        if search_x and search_y:
+
+            dy, dx, coherence, sy, sx = get_corr_sub_pix(
+                corr,
+                correlation_kernel_size,
+            ).T
+
+        elif search_x:
+
+            dx, coherence = subpixel_peak_1d(
+                corr[:, 0, :],
+                center=peak_window_size[1],
+            )
+
+            dy = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
+
+        elif search_y:
+
+            dy, coherence = subpixel_peak_1d(
+                corr[:, :, 0],
+                center=peak_window_size[0],
+            )
+
+            dx = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
+
+        else:
+
+            coherence = corr[:, 0, 0]
+
+            dy = np.zeros(nim, dtype=np.float32)
+            dx = np.zeros(nim, dtype=np.float32)
+            sy = np.zeros(nim, dtype=np.float32)
+            sx = np.zeros(nim, dtype=np.float32)
 
     return xr.DataArray(
-        data=np.vstack((*np.vstack((dy, dx)) * pixel_to_time, cohe, sy, sx)).T.reshape(nim, -1, 5),
-        dims=["acquisition_date", "point", "variable"],
+        data=np.vstack(
+            (
+                *np.vstack((dy, dx)) * pixel_to_time,
+                coherence,
+                sy,
+                sx,
+            )
+        ).T.reshape(nim, -1, 5),
+        dims=["acquisition_id", "point", "variable"],
         coords={
-            "acquisition_date": stack.z.values,
-            "point": patch.patch.values,
+            "acquisition_id": stack.z.values,
+            "point": [patch.patch.values],
             "y": (["point"], [stack[y_dim].mean().values]),
             "x": (["point"], [stack[x_dim].mean().values]),
-            "variable": ["dy", "dx", "cohe", "s_y", "s_x"],
+            "variable": [
+                "dy",
+                "dx",
+                "coherence",
+                "s_y",
+                "s_x",
+            ],
         },
-        attrs={"type": data_type, "pixel_to_time": pixel_to_time.flatten()},
+        attrs={
+            "pixel_to_time": pixel_to_time.flatten(),
+        },
     )

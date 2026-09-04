@@ -1,18 +1,73 @@
+import copy
+
 import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
 
+def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict) -> xr.DataArray:
 
-def get_interf(a: xr.DataArray, b: xr.DataArray, ml_factor: dict[str, int]):
-    return (a * b.conj()).coarsen(ml_factor, boundary="trim").mean()  # type: ignore mean is injected dynamically
+    win_dims = {k: f"win_{k}" for k in multilook}
+
+    # 1. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False),
+    # xarray places the result at the end of the window.
+    ml_view = a.rolling(multilook).construct(win_dims)
+
+    # 2. Build the rolling view, decimate, and select the nearest points based on the provided coordinates
+    ml_view_sel = ml_view.sel(azimuth_time=y, slant_range_time=x, method="nearest")
+
+    # 3. Compute the mean along the constructed window dimensions
+    res = ml_view_sel.mean(dim=list(win_dims.values()))
+
+    return res
+
+def rolling_kernel(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray) -> xr.DataArray:
+
+    win_dims = {k: f"win_{k}" for k in multilook}
+
+    # 1. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False),
+    # xarray places the result at the end of the window.
+    ml_view = a.rolling(multilook).construct(win_dims)
+
+    # 2. Build the rolling view, decimate, and select the nearest points based on the provided coordinates
+    ml_view_sel = ml_view.sel(azimuth_time=y, slant_range_time=x, method="nearest")
+
+    # 3. setup kernel as DataArray with the same dimensions as the rolling view
+    kernel_da = xr.DataArray(kernel, dims=list(win_dims.values()))
+
+    # 4. Compute the mean along the constructed window dimensions
+    res = (ml_view_sel * kernel_da).sum(dim=list(win_dims.values()))
+
+    return res
+
+
+def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
+
+    multilook = {k: v * 2 for k, v in posting.items()}
+    win_dims = {k: f"win_{k}" for k in multilook}
+    slices = {k: slice(v - 1, None, posting[k]) for k, v in multilook.items()}
+
+    # 1. Compute the complex interferogram
+    interf = a * b.conj()
+    # 2. Apply a rolling mean (moving window)
+    # This computes the mean for EVERY pixel. By default (center=False),
+    # xarray places the result at the end of the window.
+
+    # 3. Build the rolling view, decimate, and calculate the mean efficiently
+    interf_view = interf.rolling(multilook).construct(win_dims)
+    interf_view_sel = interf_view.isel(slices)
+    interf_rolling = interf_view_sel.mean(dim=list(win_dims.values()))
+
+    return interf_rolling
 
 
 def get_normalized_interf(
     a: xr.DataArray,
     b: xr.DataArray,
-    ml_factor: dict[str, int],
+    posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, ml_factor) / np.sqrt(get_interf(a, a, ml_factor) * get_interf(b, b, ml_factor))).fillna(0j)
+    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting) * get_interf(b, b, posting))).fillna(0j)
 
 
 def compute_interf(
@@ -58,13 +113,16 @@ def get_coordinates(y, x, alpha, beta):
     """
     Calculates coordinates for polynomial evaluation based on offsets and scaling.
     """
-    return (((e - alpha[i]).astype("float64") / beta[i].astype("float64")) for i, e in enumerate([y, x]))
 
+    xx = (x - alpha[1]) / beta[1]
+    yy = (y - alpha[0]) / beta[0]
+    # yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
+    return (yy, xx)
 
-# @timeit
-def get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact):
-    c1, c2 = get_coordinates(azimuth_time, slant_range_time, offset, scale_fact)
-    return np.polynomial.polynomial.polygrid2d(c1, c2, y_poly)
+def get_daz_corr(coreg_azimuth_time, coreg_slant_range_time, y_poly):
+    az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)
+    c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
+    return np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly.values)
 
 
 def get_coeff_demod(dkcoa_polynomial_coeffs: np.ndarray):
@@ -99,7 +157,7 @@ def get_phramp_diff(
     scale_daz = 1 / (timeca_polynomial_coeffs[1] * 1e9)
 
     # compute azimuth correction
-    daz_corr = get_daz_corr(azimuth_time, slant_range_time, y_poly.values, y_poly.offset, y_poly.scale_fact)
+    daz_corr = get_daz_corr(azimuth_time, slant_range_time, y_poly)
 
     # Corrected slant range and azimuth positions
     daz_corr = daz + np.round(daz_corr * dtaz).astype("timedelta64[ns]")
@@ -173,6 +231,65 @@ def get_best_pol(polarization_values: list) -> str:
         raise Exception(f"No polarization has been found {available_pols}")
 
     return pol
+
+
+def sync_sicd_metadata(sicd_dict):
+    """
+    Synchronizes SICD metadata across polarizations to ensure that
+    polarization-independent fields are identical to the best polarization.
+
+    Parameters
+    ----------
+    sicd_dict : dict
+        A dictionary containing SICD metadata dictionaries, keyed by
+        polarization strings (e.g., 'VV', 'VH').
+
+    Returns
+    -------
+    dict
+        The synchronized SICD metadata dictionary with uniform shared blocks.
+    """
+    # Early exit if there is only one (or zero) polarization
+    if len(sicd_dict) <= 1:
+        return sicd_dict
+
+    best_pol = get_best_pol(list(sicd_dict))
+    best_meta = sicd_dict[best_pol]
+
+    shared_blocks = [
+        "GeoData",
+        "Grid",
+        "Timeline",
+        "Position",
+        "SCPCOA",
+        "RMA",
+        "ImageCreation",
+        "ImageData",
+        "RadarCollection",
+    ]
+
+    blocks_to_copy = [block for block in shared_blocks if block in best_meta]
+    # Parameters to preserve during the copy
+    keys_to_save = ["PREDICTED_RNIIRS", "INFORMATION_DENSITY"]
+
+    for pol, meta in sicd_dict.items():
+        if pol == best_pol:
+            continue
+
+        # 1. COPY SHARED BLOCKS
+        for block in blocks_to_copy:
+            meta[block] = copy.deepcopy(best_meta[block])
+
+        # 2. MANAGE COLLECTION INFO (Mixed)
+        params = meta.get("CollectionInfo", {}).get("Parameters", {})
+        pol_specific_params = {k: params[k] for k in keys_to_save if k in params}
+
+        # Copy the entire CollectionInfo block from the best metadata
+        if "CollectionInfo" in best_meta:
+            meta["CollectionInfo"] = copy.deepcopy(best_meta["CollectionInfo"])
+            meta["CollectionInfo"].setdefault("Parameters", {}).update(pol_specific_params)
+
+    return sicd_dict
 
 
 def get_azimuth_time_raw(

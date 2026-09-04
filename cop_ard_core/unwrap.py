@@ -12,7 +12,7 @@ from cop_ard_core.utils import wrap
 
 MAXJUMP = 1_000
 MAXCOST = 1_000
-
+EPSYLON = 1e-6
 
 @overload
 def unique(e: np.ndarray, return_index: Literal[True]) -> tuple[np.ndarray, np.ndarray]: ...
@@ -263,7 +263,7 @@ def integ_mcf(
     xx: np.ndarray,
     yy: np.ndarray,
     ph: np.ndarray,
-    cohe: np.ndarray,
+    coherence: np.ndarray,
     solver: Dict[str, Any],
 ) -> Tuple[int, float, np.ndarray]:
     """
@@ -290,7 +290,14 @@ def integ_mcf(
     g = wrap(ph[e[:, 1]] - ph[e[:, 0]]) / (2 * np.pi)
 
     # weight computation in correspondence of edges
-    w = cohe[e[:, 1]] * cohe[e[:, 0]]
+    w = coherence[e[:, 1]] * coherence[e[:, 0]]
+
+    # weight normalization according to the distance between points
+    dist = np.sqrt((xx[e[:, 1]] - xx[e[:, 0]])**2 + (yy[e[:, 1]] - yy[e[:, 0]])**2)
+    w = w / (dist + EPSYLON)
+
+    # normalize weight
+    w = (w - w.min() + EPSYLON) / (w.max() - w.min()) if w.max() != w.min() else w
 
     # solve MCF
     exit_status, total_cost, sol = solve(e, es, g, w, neigh, solver)
@@ -300,14 +307,14 @@ def integ_mcf(
     return exit_status, total_cost, sol
 
 
-def unwrap_phase(ph: xr.DataArray, cohe: xr.DataArray, threshold: float = 1e-3):
+def unwrap_phase(ph: xr.DataArray, coherence: xr.DataArray, threshold: float = 1e-3):
     """
     Unwrap regular gridded data using minimum cost flow algorithm.
     Only points with coherence above the threshold are unwrapped
 
     Parameters:
     - ph: phase DataArray with coordinates
-    - cohe: coherence DataArray
+    - coherence: coherence DataArray
     - threshold: coherence threshold to select points to be unwrapped
 
     Returns:
@@ -317,7 +324,7 @@ def unwrap_phase(ph: xr.DataArray, cohe: xr.DataArray, threshold: float = 1e-3):
     # stack x,y coordinates
     x_, y_ = np.meshgrid(np.arange(ph.slant_range_time.size), np.arange(ph.azimuth_time.size))
     ph_f_lin = ph.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
-    cohe_f_lin = cohe.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
+    cohe_f_lin = coherence.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
 
     # apply coherence threshold
     mask = cohe_f_lin > threshold
