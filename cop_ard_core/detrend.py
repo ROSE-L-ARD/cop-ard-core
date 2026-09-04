@@ -1,13 +1,14 @@
 from itertools import combinations_with_replacement
-from typing import Literal, Tuple
+from typing import Tuple
 
 import numpy as np
 import scipy.optimize
 from astropy import stats as ast
-from s1_ard_core.computing.logger import logger
+
+from cop_ard_core.logger import logger
 
 
-def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0) -> np.ndarray:
     """
     L2 cost function
 
@@ -24,10 +25,10 @@ def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.nda
     assert X.shape[0] == y.shape[0]
 
     # Return the cost function
-    return np.sum((y - fit(X, params)) ** 2)
+    return np.sum((y - fit(X, params)) ** 2 * w)
 
 
-def cost_function_l1(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+def cost_function_l1(params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0) -> np.ndarray:
     """
     L1 cost function
 
@@ -44,7 +45,7 @@ def cost_function_l1(params: np.ndarray, X: np.ndarray, y: np.ndarray) -> np.nda
     assert X.shape[0] == y.shape[0]
 
     # Return the cost function
-    return np.sum(np.abs(y - fit(X, params)))
+    return np.sum(np.abs(y - fit(X, params)) * w)
 
 
 def fit(X: np.ndarray, params: np.ndarray) -> np.ndarray:
@@ -102,12 +103,13 @@ def get_model_matrix(x: np.ndarray, regions: np.ndarray | None = None, degree: i
 def estimate_global_surface(
     x: np.ndarray,
     y: np.ndarray,
+    w: np.ndarray | float = 1.0,
     regions: np.ndarray | None = None,
     degree: int = 0,
-    norm: Literal[1, 2] = 2,
+    norm: int = 2,
     method: str | None = None,
     sigma: float = 3.0,
-    range: Tuple[float, float] = [-np.inf, np.inf],
+    range: Tuple[float, float] = (-np.inf, np.inf),
     convergency_threshold: float = 1e-6,
     maximum_iterations: int = 100,
     **kwargs,
@@ -137,6 +139,9 @@ def estimate_global_surface(
     assert x.shape[1] > 0
     assert degree >= 0
 
+    # init weights
+    w = np.full_like(y, w) if isinstance(w, float | int) else w
+
     # Set minimization norm and method
     if norm == 1:
         cost_function = cost_function_l1
@@ -160,46 +165,92 @@ def estimate_global_surface(
         diff = y - y_prec
 
         mask = (
-            (ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask == False)
+            (
+                ~ast.sigma_clip(diff, sigma=sigma, maxiters=1, stdfunc=ast.mad_std).mask  # ty: ignore[unresolved-attribute]  mask is present as masked=True by default
+            )
             & (diff > range[0])
             & (diff < range[1])
+            & np.isfinite(diff * w)
         )
-
         # Call minimization on selected points
-        output = scipy.optimize.minimize(cost_function, sol_prec, args=(X[mask, :], y[mask]), method=method_opt)
+        output = scipy.optimize.minimize(
+            cost_function,
+            sol_prec,
+            args=(X[mask, :], y[mask], w[mask] if isinstance(w, np.ndarray) else np.ones_like(y[mask])),
+            method=method_opt,
+        )
 
         # new surface fit
         y_new = fit(X, output.x)
 
         # compute difference wrt previous iteration
-        diff_prec = np.max(np.abs(y_new - y_prec))
-        logger.debug(f"iter {i}: {diff_prec=} {np.max(np.abs(diff))=}")
-        
+        diff_prec = np.nanmax(np.abs(y_new - y_prec))
+
         # check convergence
         if diff_prec < convergency_threshold:
             break
         else:
             sol_prec = output.x
 
-    logger.info(f"Convergency reached in {i} iterations (Solution: {output.x})")
+    # logger.debug(f"Convergency reached in {i + 1} iterations (Solution: {output.x})")
 
     return output
 
 
-def fit_2d_poly(x: np.ndarray, y: np.ndarray, data: np.ndarray, degree: int=1, norm: int=1):
+def fit_2d_poly(
+    x: np.ndarray,
+    y: np.ndarray,
+    data: np.ndarray,
+    degree: int = 1,
+    norm: int = 1,
+    weights: np.ndarray | None = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
-
     # select points
-    data_sel = data[mask]
-    xx, yy = x.ravel()[mask], y.ravel()[mask]
+    xx, yy, data_sel = x[mask], y[mask], data[mask]
+    weight_sel = weights[mask] if weights is not None else np.ones_like(data_sel)
+
+    if data_sel.dtype != float:
+        data_sel = data_sel.astype(float)
+    if yy.dtype != float:
+        yy = yy.astype(float)
+
+    if xx.dtype != float:
+        xx = xx.astype(float)
 
     # Axis normalization
-    x_ = np.vstack([xx, yy]).T
+    x_ = np.vstack([yy, xx]).T
     x_0 = x_.mean(axis=0)
     x_ = x_ - x_0
-    x_sc = np.abs(x_).max(axis=0)
+    x_sc = np.ptp(x_, axis=0)
+    x_sc = np.where(x_sc != 0, x_sc, 1.0)
     x_ = x_ / x_sc
 
-    return estimate_global_surface(x_, data_sel, regions=None, degree=degree, norm=norm), x_sc, x_0
+    # normalize input data for numerical stability
+    d_0 = data_sel.mean()
+    d_sc = np.ptp(data_sel)
+    d_sc = np.where(d_sc != 0, d_sc, 1.0)
+    data_ = (data_sel - d_0) / d_sc
+
+    # polynomial surface fitting
+    coeffs = estimate_global_surface(x_, data_, weight_sel, regions=None, degree=degree, norm=norm)
+    # rescale output coefficients as for input data scaling
+    coeffs.x *= d_sc
+    coeffs.x[-1] += d_0 # add back the constant
+
+    return (
+        coeffs,
+        x_sc,
+        x_0,
+    )
+
+
+def to_polygrid2d(c, deg):
+    j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
+
+    return np.flip(
+        np.sum([np.diag(c[j[k] : j[k + 1]], k) for k in np.arange(0, deg + 1)], axis=0),
+        axis=1,
+    )
