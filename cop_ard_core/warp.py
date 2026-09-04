@@ -352,10 +352,10 @@ def warp_dazdrg(
     if daz is None or drg is None or daz.attrs.get("recompute", False):
         daz = xr.DataArray(
             da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        )
+        ).chunk({k:-1 for k in DIMENSIONS_})
         drg = xr.DataArray(
             da.empty(shape, dtype=dtype["drg"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        )
+        ).chunk({k:-1 for k in DIMENSIONS_})
     # --- Prepare Data for Interpolation ---
     azimuth_time_ref = daz.azimuth_time[0].values
     slant_range_time_ref = drg.slant_range_time[0].values
