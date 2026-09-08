@@ -164,7 +164,7 @@ def get_default_epsg(dem: xr.DataArray | xr.Dataset) -> str:
         # Convert the MGRS tile to UTM to get the zone number and hemisphere.
         u, h, _, _ = m.MGRSToUTM(mgrs_tile)
         # Construct the UTM EPSG code (326xx for North, 327xx for South).
-        epsg = f"EPSG:32{6 if h == 'N' else 7}{u}"
+        epsg = f"EPSG:32{6 if h == 'N' else 7}{u:02d}"
     return epsg
 
 
