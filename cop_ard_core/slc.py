@@ -22,7 +22,7 @@ import shapely.wkt
 import xarray as xr
 
 from cop_ard_core.logger import logger
-
+from numba import njit
 
 def merge_dict(res: list[dict]) -> dict:
     """
@@ -131,6 +131,44 @@ def noise_removal(slc: xr.DataArray, noise_polynomial_coeffs: np.ndarray | None)
     return slc
 
 
+@njit(cache=True)
+def deramp_numba(slc, slant_range, azimuth, coeff):
+
+    npol, ndates, n_azimuth, n_slant_range = slc.shape
+    deg_slant_range, deg_azimuth = coeff.shape
+    out = np.empty_like(slc)
+
+    for i in range(n_slant_range):
+
+        ri = slant_range[i]
+
+        for j in range(n_azimuth):
+
+            aj = azimuth[j]
+
+            phase = 0.0
+
+            for k in range(deg_slant_range - 1, -1, -1):
+
+                row = coeff[k, deg_azimuth - 1]
+
+                for l in range(deg_azimuth - 2, -1, -1):
+                    row = row * aj + coeff[k, l]
+
+                phase = phase * ri + row
+
+            c = np.cos(phase)
+            s = np.sin(phase)
+
+            rot = c - 1j * s
+
+            for id in range(ndates):
+                for pol in range(npol):
+                    out[pol, id, j, i] = slc[pol, id, j, i] * rot
+
+    return out
+
+
 def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) -> xr.DataArray:
     """
     Apply a phase deramping correction to the SAR image.
@@ -151,16 +189,17 @@ def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) 
         return slc
 
     # Extract the Doppler Centroid polynomial coefficients and integrate them to get the phase polynomial.
-    coeff = (2 * np.pi) * np.polynomial.polynomial.polyint(polynomial_dkcoa_coeffs, axis=1)
+    coeff = ((2 * np.pi) * np.polynomial.polynomial.polyint(polynomial_dkcoa_coeffs, axis=1)).astype(np.float32)
 
     # Evaluate the phase polynomial on the image grid to get the phase ramp.
-    phderamp = xr.DataArray(
-        np.polynomial.polynomial.polygrid2d(slc.slant_range_m.values, slc.azimuth_m.values, coeff).T,
-        dims=["azimuth_time", "slant_range_time"],
+    slc.data = deramp_numba(
+        slc.values,
+        slc.slant_range_m.values.astype(np.float32),
+        slc.azimuth_m.values.astype(np.float32),
+        coeff,
     )
-
-    # Apply the deramping by multiplying with the complex conjugate of the phase ramp.
-    return slc * np.exp(-1j * phderamp)
+    
+    return slc
 
 
 def intersect(polygon1: str | list[list[float]], polygon2: str | list[list[float]]):
