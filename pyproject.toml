@@ -96,8 +96,3 @@ url = "https://pypi.org/simple"
 
 [tool.pytest_env]
 NUMBA_DISABLE_JIT=1
-
-# Add the gitlab token in your `.netrc` file to allow `uv lock`
-# s1-ard-core
-[[tool.uv.index]]
-url = "https://gitlab.eopf.copernicus.eu/api/v4/projects/114/packages/pypi/simple"
