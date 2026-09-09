@@ -113,7 +113,7 @@ def init_iono_db(url: str = "https://celestrak.org/SpaceData/SW-All.csv", dbfile
         raise RuntimeError(f"Could not initialize ionospheric database: {e}") from e
 
 
-def read_iono_db(year: int, month: int, day: int, dbfile: str) -> float:
+def read_iono_db(year: int, month: int, day: int, dbfile_tmp: str, dbfile: str | None = None) -> float:
     """
     Read the local space weather database and retrieve the F10.7 flux value.
     If the database file does not exist, it triggers a download automatically.
@@ -134,15 +134,17 @@ def read_iono_db(year: int, month: int, day: int, dbfile: str) -> float:
     float
         The observed F10.7 index value for the specified date.
     """
-    if not os.path.exists(dbfile):
+    if (dbfile is not None) or not os.path.exists(dbfile):
         logger.warning(f"Database file '{dbfile}' not found. Attempting to download it now.")
-        init_iono_db(dbfile=dbfile)
-
+        init_iono_db(dbfile=dbfile_tmp)
+        dbfile = dbfile_tmp
     sw_all = pd.read_pickle(dbfile)
     return get_f107(sw_all, year, month, day)
 
 
-def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float], wdir_path_tmp: str) -> float:
+def get_iono_height(
+    acquisition_date: str | pd.Timestamp, scp: Dict[str, float], wdir_path_tmp: str, dbfile: str | None = None
+) -> float:
     """
     Calculate the peak height of the ionospheric F2 layer (hmF2).
 
@@ -188,7 +190,7 @@ def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float],
 
     # --- Solar Flux Data ---
     # Retrieve the daily F10.7 value from the local database
-    f107_val = read_iono_db(year, mth, day, f"{wdir_path_tmp}/SW-ALL.pkl")
+    f107_val = read_iono_db(year, mth, day, f"{wdir_path_tmp}/SW-ALL.pkl", dbfile=dbfile)
 
     # --- PyIRI Model Execution ---
     logger.info(f"Evaluating PyIRI model for acquisition date {dt.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -206,4 +208,3 @@ def get_iono_height(acquisition_date: str | pd.Timestamp, scp: Dict[str, float],
     logger.info(f"Calculated hmF2 peak height: {peak_height:.2f} m")
 
     return peak_height
-
