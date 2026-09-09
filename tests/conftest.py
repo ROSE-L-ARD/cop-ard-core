@@ -99,7 +99,7 @@ def compute_shadow_h():
     y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
     h = xr.DataArray(np.full((len(y), len(x)), 100.0), dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h = h.expand_dims(acquisition_id=["2020-01-01"])
     h.rio.write_crs("EPSG:4326", inplace=True)
     return h
 
@@ -111,7 +111,7 @@ def compute_shadow_dem_distance():
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
     data = np.full((len(y), len(x), 3), 5000.0, dtype=np.float64)
     dem_dist = xr.DataArray(data, dims=["y", "x", "coord"], coords={"y": y, "x": x})
-    dem_dist = dem_dist.expand_dims(acquisition_date=["2020-01-01"])
+    dem_dist = dem_dist.expand_dims(acquisition_id=["2020-01-01"])
     dem_dist.rio.write_crs("EPSG:4326", inplace=True)
     return dem_dist
 
@@ -131,7 +131,7 @@ def compute_shadow_azimuth_time():
     data = np.zeros((len(y), len(x)), dtype=np.float64)
     for j in range(len(y)):
         data[j, :] = float(j) * 0.01  # 0.01s = 1 pixel step
-    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_id=["2020-01-01"])
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def compute_shadow_slant_range_time():
     data = np.zeros((len(y), len(x)), dtype=np.float64)
     for i in range(len(x)):
         data[:, i] = float(i) * 0.5
-    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_id=["2020-01-01"])
 
 
 @pytest.fixture
@@ -175,16 +175,16 @@ def compute_shadow_simulation_ml():
             "azimuth_time": xr.DataArray(az_min, dims=["y", "x"]),
             "slant_range_time": xr.DataArray(sr_min, dims=["y", "x"]),
         },
-        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]")},
     )
     max_ds = xr.Dataset(
         {
             "azimuth_time": xr.DataArray(az_max, dims=["y", "x"]),
             "slant_range_time": xr.DataArray(sr_max, dims=["y", "x"]),
         },
-        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]")},
     )
-    return {"acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]"), "min": min_ds, "max": max_ds}
+    return {"acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]"), "min": min_ds, "max": max_ds}
 
 
 @pytest.fixture

@@ -24,7 +24,6 @@ from cop_ard_core.warp import (
     sinc,
     sinc_warp,
     warp_dazdrg,
-    warp_gslc,
 )
 
 
