@@ -153,7 +153,6 @@ def deramp_numba(slc, slant_range, azimuth, coeff):
                 for pol in range(npol):
                     slc[pol, id, j, i] = slc[pol, id, j, i] * rot
 
-
 def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) -> xr.DataArray:
     """
     Apply a phase deramping correction to the SAR image.

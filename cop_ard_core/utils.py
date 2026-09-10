@@ -67,7 +67,7 @@ def get_normalized_interf(
     b: xr.DataArray,
     posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting) * get_interf(b, b, posting))).fillna(0j)
+    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting).real * get_interf(b, b, posting).real)).fillna(0j)
 
 
 def compute_interf(
