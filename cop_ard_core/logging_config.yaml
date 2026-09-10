@@ -1,0 +1,20 @@
+# General settings
+log_level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+json_format: false # true for production (JSON), false for dev (console)
+show_timestamps: true # ISO timestamps
+show_caller_info: true # Add filename and line number (e.g. processing_units.py:42)
+
+# Console & File output options
+console_colors: true # Enable/disable ANSI color codes
+log_file: null # Path or null to disable file logging
+
+# Granular third-party log level control (silence noisy libraries)
+third_party_levels:
+  eopf: "INFO"
+  dask: "ERROR"
+  distributed: "CRITICAL"
+  distributed.comm: "CRITICAL"
+  distributed.comm.tcp: "CRITICAL"
+  distributed.scheduler: "CRITICAL"
+  tornado: "CRITICAL"
+  asyncio: "CRITICAL"

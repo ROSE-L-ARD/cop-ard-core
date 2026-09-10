@@ -4,57 +4,185 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import logging
+import sys
 import time as tt
 from functools import wraps
+from pathlib import Path
 
 import structlog
+import yaml
 
+
+def configure_logger(config_path: str = None) -> None:
+    """
+    Configures structlog and standard Python logging pipelines using a YAML configuration file.
+
+    This function sets up a unified logging infrastructure that intercepts both native
+    structlog events and standard library logs (e.g., from third-party packages like EOPF or Dask).
+    It supports dynamic log levels, TTY-aware ANSI color rendering, third-party logger
+    level overrides, and caller callsite tracing.
+
+    Parameters
+    ----------
+    config_path : str, optional
+        Path to the YAML configuration file. If None or invalid, it falls back to the
+        default 'logging_config.yaml' located in the cop_ard_core package directory.
+    """
+    # Resolve to package-relative default config file if no path is explicitly provided
+    if config_path is None:
+        config_path = Path(__file__).parent / "logging_config.yaml"
+
+    path = Path(config_path)
+
+    # Baseline fallback configuration parameters
+    config = {
+        "log_level": "INFO",
+        "json_format": False,
+        "show_timestamps": True,
+        "show_caller_info": True,
+        "console_colors": True,
+        "third_party_levels": {},
+    }
+
+    # Load and merge configuration parameters if the YAML file exists
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            loaded_config = yaml.safe_load(f)
+            if isinstance(loaded_config, dict):
+                config.update(loaded_config)
+
+    # Convert string log level (e.g., "INFO") into logging module constant (e.g., logging.INFO)
+    log_level = getattr(logging, config["log_level"].upper(), logging.INFO)
+
+    # Disable ANSI escape colors if output is redirected to a file or non-TTY stream (e.g., > res.log)
+    is_tty = sys.stdout.isatty()
+    use_colors = config.get("console_colors", True) and is_tty
+
+    # 1. Processors for foreign log records (e.g., standard library calls from EOPF/Dask)
+    foreign_pre_chain = [
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+    ]
+    if config.get("show_timestamps"):
+        foreign_pre_chain.append(structlog.processors.TimeStamper(fmt="iso"))
+
+    # 2. Processors for native structlog calls across cop_ard_* packages
+    structlog_processors = [
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+    ]
+
+    if config.get("show_timestamps"):
+        structlog_processors.append(structlog.processors.TimeStamper(fmt="iso"))
+
+    # Inject caller metadata (filename and line number) while ignoring this logging wrapper file
+    if config.get("show_caller_info"):
+        structlog_processors.append(
+            structlog.processors.CallsiteParameterAdder(
+                {
+                    structlog.processors.CallsiteParameter.FILENAME,
+                    structlog.processors.CallsiteParameter.LINENO,
+                },
+                additional_ignores=["cop_ard_core.logger"],  # Bypass logger.py to capture true source callsite
+            )
+        )
+
+    # Hand off processed structlog events to standard library ProcessorFormatter
+    structlog_processors.append(structlog.stdlib.ProcessorFormatter.wrap_for_formatter)
+
+    # Configure global structlog behavior
+    structlog.configure(
+        processors=structlog_processors,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    # Choose output renderer (JSON for production pipelines, Console for interactive dev)
+    renderer = (
+        structlog.processors.JSONRenderer()
+        if config.get("json_format")
+        else structlog.dev.ConsoleRenderer(colors=use_colors)
+    )
+
+    # Create a unified ProcessorFormatter combining native structlog and foreign log chains
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processor=renderer,
+        foreign_pre_chain=foreign_pre_chain,
+    )
+
+    # Reset existing root logger handlers and attach our configured StreamHandler
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    root_logger.setLevel(log_level)
+
+    # Set specific log levels for noisy third-party packages (e.g., EOPF, Dask, Tornado)
+    third_party = config.get("third_party_levels", {})
+    if "eopf" not in third_party:
+        third_party["eopf"] = config["log_level"]
+
+    for lib_name, level_str in third_party.items():
+        lib_level = getattr(logging, str(level_str).upper(), log_level)
+        logging.getLogger(lib_name).setLevel(lib_level)
+
+
+# Default initial setup upon importing the module
+configure_logger()
 logger = structlog.get_logger(__name__)
 
 
-# Function to monitor execution time
 def timeit(func):
     """
-    A decorator that logs the execution time of a function.
+    Decorator measuring and logging the execution duration of decorated functions.
 
-    This decorator can be applied to any function to measure and log how long
-    it takes to execute, from the moment it is called until it returns. It uses
-    `time.perf_counter` for an accurate measurement of wall-clock time.
+    Utilizes high-precision monotonic timing (`time.perf_counter`) and logs metrics
+    as structured key-value parameters using structlog.
 
     Parameters
     ----------
     func : callable
-        The function to be decorated.
+        The function or method to be monitored.
 
     Returns
     -------
     callable
-        The wrapped function, which when called, will execute the original
-        function and log its execution time before returning the result.
+        The wrapped function that measures execution time upon invocation.
     """
 
-    # Use @wraps to preserve the original function's metadata (like name and docstring).
     @wraps(func)
     def timeit_wrapper(*args, **kwargs):
-        # Record the starting time before function execution.
         start_time = tt.perf_counter()
-        # Call the original decorated function with all its arguments.
         result = func(*args, **kwargs)
-        # Record the ending time after the function has completed.
-        end_time = tt.perf_counter()
-        # Calculate the total elapsed time.
-        total_time = end_time - start_time
-        # Log the function name and its total execution time.
-        logger.info(f"Function {func.__name__} took {total_time:.4f} seconds")
-        # Return the original result of the decorated function.
+        total_time = tt.perf_counter() - start_time
+
+        # Format duration string dynamically for better human readability
+        duration_str = f"{total_time * 1000:.2f}ms" if total_time < 1.0 else f"{total_time:.2f}s"
+
+        # Log execution event (callsite metadata is accurately resolved via additional_ignores)
+        logger.info(
+            f"Executed '{func.__qualname__}'",
+            elapsed=duration_str,
+            duration_sec=round(total_time, 3),
+        )
         return result
 
-    # Return the wrapper function, which replaces the original function.
     return timeit_wrapper
