@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from cop_ard_core.detrend import to_polygrid2d
 from cop_ard_core.split_spectrum import (
     fit_ionosphere,
     joint_unwrap,
@@ -1528,9 +1529,15 @@ class TestReconstructIonoSurface:
                 coeffs_data = np.array([0.0, 0.0, 0.0, 1.0, 0.0, -0.5], dtype=np.float64)
             else:
                 coeffs_data = np.zeros(degree + 1, dtype=np.float64)
-        coeffs = xr.DataArray(coeffs_data, dims=["degree"], coords={"degree": np.arange(coeffs_data.size)})
+        coeffs_grid = to_polygrid2d(coeffs_data, degree)
+        coeffs = xr.DataArray(
+            coeffs_grid,
+            dims=["i", "j"],
+            coords={"i": np.arange(coeffs_grid.shape[0]), "j": np.arange(coeffs_grid.shape[1])},
+        )
         coeffs.attrs["offset"] = offset
         coeffs.attrs["scale_fact"] = scale_fact
+        coeffs.attrs["off_y"] = str(base_dt)
         return interf.azimuth_time, interf.slant_range_time, azimuth_time_raw, coeffs
 
     # ------------------------------------------------------------------
@@ -1547,7 +1554,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert isinstance(result, xr.DataArray)
 
@@ -1561,7 +1567,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == azimuth_time_raw.shape
 
@@ -1575,7 +1580,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.dims == ("azimuth_time", "slant_range_time")
 
@@ -1597,13 +1601,15 @@ class TestReconstructIonoSurface:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az_dt, "slant_range_time": sr},
         )
+        _grid = to_polygrid2d(np.array([0.0, 1.0, -0.5], dtype=np.float64), 1)
         coeffs = xr.DataArray(
-            np.array([0.0, 1.0, -0.5], dtype=np.float64),
-            dims=["degree"],
-            coords={"degree": np.arange(3)},
+            _grid,
+            dims=["i", "j"],
+            coords={"i": np.arange(_grid.shape[0]), "j": np.arange(_grid.shape[1])},
         )
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
+        coeffs.attrs["off_y"] = str(az_dt[0])
         result = reconstruct_iono_surface(
             interf.azimuth_time,
             interf.slant_range_time,
@@ -1611,7 +1617,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.dims == ("azimuth_time", "slant_range_time")
         assert result.shape == (3, 4)
@@ -1630,7 +1635,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == shape
 
@@ -1654,7 +1658,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=0,
         )
         np.testing.assert_allclose(result.values, 42.0, atol=1e-10)
 
@@ -1675,7 +1678,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # result = c0*y_norm + c1*x_norm + c2
         # y_norm = [0, 1e9, 2e9], x_norm = [0,1,2,3,4]
@@ -1703,7 +1705,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=800000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert isinstance(result, xr.DataArray)
         assert result.shape == (az_size, sr_size)
@@ -1725,7 +1726,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=0.0,
             H_orb=800000.0,
-            degree=1,
         )
         # result = c0*y_norm + c1*x_norm + c2 = 0 + 1*[0,1,2,3,4] + 1 = [1,2,3,4,5]
         # (c0=0 so y contribution is 0 for all rows)
@@ -1753,7 +1753,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=1600000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # result = c0*y_norm + c1*x_norm + c2 = 0 + 0 + 1 = 1
         # (c0=0 so y contribution is 0)
@@ -1777,7 +1776,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # Check that result has correct shape and finite values
         assert result.shape == (3, 5)
@@ -1826,7 +1824,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         expected_x = (sr_coords - (-2.0)) / 4.0  # [0.0, 0.25, 0.5, 0.75, 1.0]
         expected = np.tile(expected_x, (az_size, 1))  # all rows identical
@@ -1847,7 +1844,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         np.testing.assert_allclose(result.values, 0.0, atol=1e-10)
 
@@ -1861,7 +1857,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.dtype == np.float64
 
@@ -1884,7 +1879,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=2,
         )
         assert result.shape == (az_size, sr_size)
         sr_coords = np.arange(sr_size, dtype=np.float64)  # [0, 1, 2, 3, 4]
@@ -1911,7 +1905,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         sr_coords = np.arange(sr_size, dtype=np.float64)  # [0, 1, 2, 3, 4]
         # result = c0*y_norm + c1*x_norm + c2 = 0 + 2*((x-1)/2) + 3 = x+2
@@ -1939,7 +1932,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (2, 2)
 
@@ -1957,7 +1949,6 @@ class TestReconstructIonoSurface:
                 coeffs,
                 H_iono=300000.0,
                 H_orb=800000.0,
-                degree=1,
             )
             assert result.shape == shape
 
@@ -1976,7 +1967,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (az_size, sr_size)
         assert np.all(np.isfinite(result.values))
@@ -1996,7 +1986,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (az_size, sr_size)
         assert np.all(np.isfinite(result.values))
@@ -2020,7 +2009,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert np.all(np.isnan(result.values))
 
@@ -2039,7 +2027,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # First row has NaN (0*inf), rest are inf. Check that inf values exist.
         assert np.any(np.isinf(result.values))
@@ -2060,7 +2047,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # First row has NaN (0*-inf), rest are -inf. Check that neg-inf values exist.
         assert np.any(np.isneginf(result.values))
@@ -2082,7 +2068,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # NaN offset causes (x - nan) = nan, nan / scale = nan
         assert np.all(np.isnan(result.values))
@@ -2103,7 +2088,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # Division by zero in scale_fact produces inf, which propagates through the fit
         assert result.shape == (az_size, sr_size)
@@ -2123,7 +2107,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (az_size, sr_size)
 
@@ -2152,7 +2135,6 @@ class TestReconstructIonoSurface:
                 coeffs,
                 H_iono=300000.0,
                 H_orb=800000.0,
-                degree=1,
             )
 
     def test_reconstruct_iono_surface_missing_offset_attr_raises(self):
@@ -2171,7 +2153,6 @@ class TestReconstructIonoSurface:
                 coeffs,
                 H_iono=300000.0,
                 H_orb=800000.0,
-                degree=1,
             )
 
     def test_reconstruct_iono_surface_missing_scale_fact_attr_raises(self):
@@ -2190,7 +2171,6 @@ class TestReconstructIonoSurface:
                 coeffs,
                 H_iono=300000.0,
                 H_orb=800000.0,
-                degree=1,
             )
 
     def test_reconstruct_iono_surface_mismatched_dim_names_raises(self):
@@ -2208,13 +2188,15 @@ class TestReconstructIonoSurface:
             dims=["time", "range"],
             coords={"time": np.arange(3, dtype=np.float64), "range": np.arange(5, dtype=np.float64)},
         )
+        _grid = to_polygrid2d(np.array([0.0, 1.0, -0.5], dtype=np.float64), 1)
         coeffs = xr.DataArray(
-            np.array([0.0, 1.0, -0.5], dtype=np.float64),
-            dims=["degree"],
-            coords={"degree": np.arange(3)},
+            _grid,
+            dims=["i", "j"],
+            coords={"i": np.arange(_grid.shape[0]), "j": np.arange(_grid.shape[1])},
         )
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
+        coeffs.attrs["off_y"] = str(az_dt[0])
         with pytest.raises(ValueError):
             reconstruct_iono_surface(
                 interf.azimuth_time,
@@ -2223,7 +2205,6 @@ class TestReconstructIonoSurface:
                 coeffs,
                 H_iono=300000.0,
                 H_orb=800000.0,
-                degree=1,
             )
 
     def test_reconstruct_iono_surface_larger_array(self):
@@ -2239,7 +2220,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (10, 10)
         assert np.all(np.isfinite(result.values))
@@ -2271,13 +2251,15 @@ class TestReconstructIonoSurface:
                 "slant_range_time": np.arange(sr_size, dtype=np.float64),
             },
         )
+        _grid = to_polygrid2d(np.array([0.0, 1.0, -0.5], dtype=np.float64), 1)
         coeffs = xr.DataArray(
-            np.array([0.0, 1.0, -0.5], dtype=np.float64),
-            dims=["degree"],
-            coords={"degree": np.arange(3)},
+            _grid,
+            dims=["i", "j"],
+            coords={"i": np.arange(_grid.shape[0]), "j": np.arange(_grid.shape[1])},
         )
         coeffs.attrs["offset"] = np.array([0.0, 0.0])
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0])
+        coeffs.attrs["off_y"] = str(az_dt[0])
         result = reconstruct_iono_surface(
             interf.azimuth_time,
             interf.slant_range_time,
@@ -2285,7 +2267,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert isinstance(result, xr.DataArray)
         assert result.shape == (az_size, sr_size)
@@ -2316,13 +2297,15 @@ class TestReconstructIonoSurface:
                 "slant_range_time": np.arange(sr_size, dtype=np.float32),
             },
         )
+        _grid = to_polygrid2d(np.array([0.0, 1.0, -0.5], dtype=np.float64), 1)
         coeffs = xr.DataArray(
-            np.array([0.0, 1.0, -0.5], dtype=np.float64),
-            dims=["degree"],
-            coords={"degree": np.arange(3)},
+            _grid,
+            dims=["i", "j"],
+            coords={"i": np.arange(_grid.shape[0]), "j": np.arange(_grid.shape[1])},
         )
         coeffs.attrs["offset"] = np.array([0.0, 0.0], dtype=np.float64)
         coeffs.attrs["scale_fact"] = np.array([1.0, 1.0], dtype=np.float64)
+        coeffs.attrs["off_y"] = str(base_dt)
         result = reconstruct_iono_surface(
             interf.azimuth_time,
             interf.slant_range_time,
@@ -2330,7 +2313,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         assert result.shape == (az_size, sr_size)
 
@@ -2355,7 +2337,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         az_coords = np.arange(az_size, dtype=np.float64) * 1e9  # [0, 1, 2, 3]
         expected = np.tile(2.0 * az_coords[:, None], (1, sr_size))
@@ -2381,7 +2362,6 @@ class TestReconstructIonoSurface:
             coeffs,
             H_iono=300000.0,
             H_orb=800000.0,
-            degree=1,
         )
         # Verify all rows are identical
         np.testing.assert_array_equal(result.values[0, :], result.values[-1, :])

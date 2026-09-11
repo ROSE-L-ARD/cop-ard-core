@@ -170,33 +170,31 @@ class TestImageDeramp:
         result = image_deramp(complex_3x3, None)
         xr.testing.assert_equal(result, complex_3x3)
 
+    def _make_4d_slc(self, complex_3x3):
+        """Build a 4D SLC (polarization, acquisition_date, azimuth, slant_range) with meter coords."""
+        slc4 = complex_3x3.expand_dims("polarization", axis=0).expand_dims("acquisition_date", axis=0)
+        return slc4.assign_coords(
+            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
+        )
+
     def test_image_deramp_returns_dataarray(self, complex_3x3):
         """Should return xr.DataArray."""
         coeffs = np.ones((2, 2))
-        slc_with_coords = complex_3x3.copy()
-        slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
-        )
+        slc_with_coords = self._make_4d_slc(complex_3x3)
         result = image_deramp(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
 
     def test_image_deramp_complex_preserved(self, complex_3x3):
         """Complex nature should be preserved."""
         coeffs = np.ones((2, 2))
-        slc_with_coords = complex_3x3.copy()
-        slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
-        )
+        slc_with_coords = self._make_4d_slc(complex_3x3)
         result = image_deramp(slc_with_coords, coeffs)
         assert np.iscomplexobj(result.values)
 
     def test_image_deramp_with_coords(self, complex_3x3):
         """Deramping requires slant_range_m and azimuth_m coordinates."""
         coeffs = np.ones((2, 2))
-        slc_with_coords = complex_3x3.copy()
-        slc_with_coords = slc_with_coords.assign_coords(
-            {"slant_range_m": (["slant_range_time"], np.arange(3)), "azimuth_m": (["azimuth_time"], np.arange(3))}
-        )
+        slc_with_coords = self._make_4d_slc(complex_3x3)
         result = image_deramp(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
 

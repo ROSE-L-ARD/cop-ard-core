@@ -129,17 +129,17 @@ class TestGetInterf:
 
     def test_get_interf_returns_dataarray(self, complex_3x3):
         """get_interf should return xr.DataArray."""
-        result = get_interf(complex_3x3, complex_3x3, {})
+        result = get_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert isinstance(result, xr.DataArray)
 
     def test_get_interf_complex_dtype(self, complex_3x3):
         """Result should have complex dtype."""
-        result = get_interf(complex_3x3, complex_3x3, {})
+        result = get_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert np.iscomplexobj(result.values)
 
     def test_get_interf_self_conj_is_real(self, complex_3x3):
         """interf(a, a) = conj(a)*a should be real-valued."""
-        result = get_interf(complex_3x3, complex_3x3, {})
+        result = get_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         np.testing.assert_allclose(result.values.imag, 0.0, atol=1e-14)
 
     def test_get_interf_multilook(self, complex_5x5, multilook_factor):
@@ -150,19 +150,19 @@ class TestGetInterf:
         assert result.shape[1] < complex_5x5.shape[1]
 
     def test_get_interf_empty_multilook(self, complex_3x3):
-        """Empty multilook dict should preserve shape."""
-        result = get_interf(complex_3x3, complex_3x3, {})
-        assert result.shape == complex_3x3.shape
+        """Posting of 1 in both directions should reduce each dimension."""
+        result = get_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
+        assert result.shape == (2, 2)
 
     def test_get_interf_different_arrays(self, complex_3x3):
         """Interferogram of two different arrays should be complex."""
         other = complex_3x3 * (1 + 0.5j)
-        result = get_interf(complex_3x3, other, {})
+        result = get_interf(complex_3x3, other, {"azimuth_time": 1, "slant_range_time": 1})
         assert np.iscomplexobj(result.values)
 
     def test_get_interf_preserves_coords(self, complex_3x3):
         """Result should preserve azimuth_time and slant_range_time coords."""
-        result = get_interf(complex_3x3, complex_3x3, {})
+        result = get_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert "azimuth_time" in result.coords
         assert "slant_range_time" in result.coords
 
@@ -175,18 +175,18 @@ class TestGetInterf:
         ml = {"azimuth_time": 2, "slant_range_time": 1}
         result = get_interf(arr, arr, ml)
         assert result.shape[0] < arr.shape[0]
-        assert result.shape[1] == arr.shape[1]
+        assert result.shape[1] < arr.shape[1]
 
     def test_get_interf_all_ones(self):
         """Interferogram of all-ones arrays should be one."""
         data = np.ones((3, 3), dtype=np.complex128)
         arr = xr.DataArray(data, dims=["azimuth_time", "slant_range_time"])
-        result = get_interf(arr, arr, {})
+        result = get_interf(arr, arr, {"azimuth_time": 1, "slant_range_time": 1})
         np.testing.assert_allclose(result.values, 1.0, atol=1e-14)
 
     def test_get_interf_multilook_odd_shape(self, complex_5x5, multilook_factor):
         """Multilook with odd-sized input should not raise."""
-        result = get_interf(complex_5x5, complex_5x5, multilook_factor)
+        result = get_interf(complex_5x5, complex_5x5, {"azimuth_time": 2, "slant_range_time": 2})
         assert result.shape[0] >= 1
         assert result.shape[1] >= 1
 
@@ -201,19 +201,19 @@ class TestGetNormalizedInterf:
 
     def test_normalized_interf_self_magnitude(self, complex_3x3):
         """Normalized interferogram of self should have magnitude ~1."""
-        result = get_normalized_interf(complex_3x3, complex_3x3, {})
+        result = get_normalized_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         magnitude = np.abs(result.values)
         np.testing.assert_allclose(magnitude, 1.0, atol=0.1)
 
     def test_normalized_interf_self_no_nan(self, complex_3x3):
         """Normalized interferogram should not contain NaN."""
-        result = get_normalized_interf(complex_3x3, complex_3x3, {})
+        result = get_normalized_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert not np.any(np.isnan(result.values))
         assert not np.any(np.isinf(result.values))
 
     def test_normalized_interf_returns_dataarray(self, complex_3x3):
         """Should return xr.DataArray."""
-        result = get_normalized_interf(complex_3x3, complex_3x3, {})
+        result = get_normalized_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert isinstance(result, xr.DataArray)
 
     def test_normalized_interf_multilook(self, complex_5x5, multilook_factor):
@@ -229,25 +229,25 @@ class TestGetNormalizedInterf:
             np.zeros((3, 3), dtype=np.complex128),
             dims=["azimuth_time", "slant_range_time"],
         )
-        result = get_normalized_interf(zero, zero, {})
+        result = get_normalized_interf(zero, zero, {"azimuth_time": 1, "slant_range_time": 1})
         # All values should be 0j (filled by fillna)
         np.testing.assert_array_equal(result.values, 0j)
 
     def test_normalized_interf_preserves_coords(self, complex_3x3):
         """Result should preserve coordinate dimensions."""
-        result = get_normalized_interf(complex_3x3, complex_3x3, {})
+        result = get_normalized_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert "azimuth_time" in result.coords
         assert "slant_range_time" in result.coords
 
     def test_normalized_interf_complex_result(self, complex_3x3):
         """Result should be complex-valued."""
-        result = get_normalized_interf(complex_3x3, complex_3x3, {})
+        result = get_normalized_interf(complex_3x3, complex_3x3, {"azimuth_time": 1, "slant_range_time": 1})
         assert np.iscomplexobj(result.values)
 
     def test_normalized_interf_unnormalized(self, complex_3x3):
         """Normalized interf of different arrays should have magnitude < 1."""
         other = complex_3x3 * 2.0
-        result = get_normalized_interf(complex_3x3, other, {})
+        result = get_normalized_interf(complex_3x3, other, {"azimuth_time": 1, "slant_range_time": 1})
         # Since they differ by a real scalar, magnitude should still be 1
         magnitude = np.abs(result.values)
         np.testing.assert_allclose(magnitude, 1.0, atol=0.1)
@@ -517,14 +517,14 @@ class TestGetCoordinates:
         np.testing.assert_array_equal(result[0], np.array([-1.0, 0.0, 1.0]))
 
     def test_get_coordinates_generator_consumption(self):
-        """Generator should be consumed exactly once."""
+        """Result is a fresh 2-tuple on every call."""
         y = xr.DataArray(np.arange(3), dims=["y"])
         x = xr.DataArray(np.arange(3), dims=["x"])
         gen = get_coordinates(y, x, [np.float64(0.0), np.float64(0.0)], [np.float64(1.0), np.float64(1.0)])
         first = list(gen)
-        second = list(gen)  # Should be empty after first consumption
+        second = list(gen)  # A tuple yields the same two elements again
         assert len(first) == 2
-        assert len(second) == 0
+        assert len(second) == 2
 
 
 # ===========================================================================
@@ -535,95 +535,107 @@ class TestGetCoordinates:
 class TestGetDazCorr:
     """Tests for the get_daz_corr function."""
 
+    @staticmethod
+    def _make_y_poly(coeffs, offset, scale_fact, off_y="2020-01-01T00:00:00"):
+        """Build a y_poly DataArray with the attrs required by get_daz_corr."""
+        y_poly = xr.DataArray(np.asarray(coeffs, dtype=np.float64), dims=["i", "j"])
+        y_poly = y_poly.assign_attrs(
+            {
+                "off_y": off_y,
+                "offset": [np.float64(offset[0]), np.float64(offset[1])],
+                "scale_fact": [np.float64(scale_fact[0]), np.float64(scale_fact[1])],
+            }
+        )
+        return y_poly
+
+    @staticmethod
+    def _make_azimuth_times(n_seconds, base="2020-01-01T00:00:00"):
+        base_epoch = np.datetime64(base, "ns")
+        return xr.DataArray(
+            np.array([base_epoch + np.timedelta64(i, "s") for i in range(n_seconds)], dtype="datetime64[ns]"),
+            dims=["azimuth_time"],
+        )
+
     def test_get_daz_corr_returns_array(self):
         """Should return a numpy array."""
-        azimuth_time = np.arange(5)
-        slant_range_time = np.arange(5)
-        y_poly = xr.DataArray(np.ones((2, 2)), dims=["i", "j"])
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(5)
+        slant_range_time = xr.DataArray(np.arange(5, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.ones((2, 2)), (0.0, 0.0), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
         assert isinstance(result, np.ndarray)
 
     def test_get_daz_corr_shape(self):
         """Output shape should match the product of input dimensions."""
         az_size = 4
         sr_size = 3
-        azimuth_time = np.arange(az_size)
-        slant_range_time = np.arange(sr_size)
-        y_poly = xr.DataArray(np.ones((2, 2)), dims=["i", "j"])
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(az_size)
+        slant_range_time = xr.DataArray(np.arange(sr_size, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.ones((2, 2)), (0.0, 0.0), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
         assert result.shape == (az_size, sr_size)
 
     def test_get_daz_corr_constant_polynomial(self):
         """All-one polynomial should produce values depending on coordinates."""
-        azimuth_time = np.arange(4)
-        slant_range_time = np.arange(3)
-        y_poly = np.ones((2, 2))
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(4)
+        slant_range_time = xr.DataArray(np.arange(3, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.ones((2, 2)), (0.0, 0.0), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
+        # c1 = (az - off_y) in nanoseconds, c2 = sr
         # polygrid2d(c1, c2, [[1,1],[1,1]]) = 1 + c1 + c2 + c1*c2
+        c1 = np.arange(4, dtype=np.float64) * 1e9
+        c2 = np.arange(3, dtype=np.float64)
         expected = (
             np.outer(np.ones(4), np.ones(3))
-            + np.outer(np.arange(4), np.ones(3))
-            + np.outer(np.ones(4), np.arange(3))
-            + np.outer(np.arange(4), np.arange(3))
+            + np.outer(c1, np.ones(3))
+            + np.outer(np.ones(4), c2)
+            + np.outer(c1, c2)
         )
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_linear_polynomial(self):
         """Polynomial with c[0,1]=1 should produce c2 values along columns."""
-        azimuth_time = np.arange(4)
-        slant_range_time = np.arange(3)
-        y_poly = np.array([[0.0, 1.0], [0.0, 0.0]])
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(4)
+        slant_range_time = xr.DataArray(np.arange(3, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.array([[0.0, 1.0], [0.0, 0.0]]), (0.0, 0.0), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
         # c[0,1]=1 => result = c2 (second arg) = [0, 1, 2] along columns
         expected = np.outer(np.ones(4), np.arange(3, dtype=np.float64))
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_with_offset(self):
         """Offset should shift coordinate values and change output."""
-        azimuth_time = np.arange(3)
-        slant_range_time = np.arange(3)
-        y_poly = np.ones((2, 2))
-        offset = [np.float64(1.0), np.float64(0.5)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
-        # c1 = (az - 1) / 1 = [-1, 0, 1], c2 = (sr - 0.5) / 1 = [-0.5, 0.5, 1.5]
+        azimuth_time = self._make_azimuth_times(3)
+        slant_range_time = xr.DataArray(np.arange(3, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.ones((2, 2)), (1.0, 0.5), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
+        # c1 = (az - off_y) in ns - 1, c2 = (sr - 0.5) / 1 = [-0.5, 0.5, 1.5]
         # polygrid2d(c1, c2, [[1,1],[1,1]]) = 1 + c1 + c2 + c1*c2
+        c1 = np.arange(3, dtype=np.float64) * 1e9 - 1.0
+        c2 = np.arange(3, dtype=np.float64) - 0.5
         expected = (
             1.0
-            + np.outer([-1, 0, 1], np.ones(3))
-            + np.outer(np.ones(3), [-0.5, 0.5, 1.5])
-            + np.outer([-1, 0, 1], [-0.5, 0.5, 1.5])
+            + np.outer(c1, np.ones(3))
+            + np.outer(np.ones(3), c2)
+            + np.outer(c1, c2)
         )
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_with_scale(self):
         """Scale factor should divide coordinate values."""
-        azimuth_time = np.arange(4)
-        slant_range_time = np.arange(4)
-        y_poly = np.array([[0.0, 1.0], [0.0, 0.0]])
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(2.0), np.float64(2.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(4)
+        slant_range_time = xr.DataArray(np.arange(4, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.array([[0.0, 1.0], [0.0, 0.0]]), (0.0, 0.0), (2.0, 2.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
         # c1 = az/2, c2 = sr/2, c[0,1]=1 => result = c2 along columns
         expected = np.outer(np.ones(4), np.arange(4, dtype=np.float64) / 2.0)
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_2d_polynomial(self):
         """2D polynomial should produce values varying in both directions."""
-        azimuth_time = np.arange(3)
-        slant_range_time = np.arange(3)
-        y_poly = np.ones((2, 2))
-        offset = [np.float64(0.0), np.float64(0.0)]
-        scale_fact = [np.float64(1.0), np.float64(1.0)]
-        result = get_daz_corr(azimuth_time, slant_range_time, y_poly, offset, scale_fact)
+        azimuth_time = self._make_azimuth_times(3)
+        slant_range_time = xr.DataArray(np.arange(3, dtype=np.float64), dims=["slant_range_time"])
+        y_poly = self._make_y_poly(np.ones((2, 2)), (0.0, 0.0), (1.0, 1.0))
+        result = get_daz_corr(azimuth_time, slant_range_time, y_poly)
         assert result.shape == (3, 3)
         assert np.all(result > 0)
 

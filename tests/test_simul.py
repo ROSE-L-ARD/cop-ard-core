@@ -1352,7 +1352,7 @@ def _make_sim_data(acquisition_dates, y_size=3, x_size=3):
     # Simulation dataset with NaN slant_range_time (unprocessed)
     simulation = xr.Dataset(
         coords={
-            "acquisition_date": acquisition_dates,
+            "acquisition_id": acquisition_dates,
             "y": np.arange(y_size, dtype=np.float64),
             "x": np.arange(x_size, dtype=np.float64),
             "axis": [0, 1, 2],
@@ -1364,12 +1364,12 @@ def _make_sim_data(acquisition_dates, y_size=3, x_size=3):
     simulation["slant_range_time"] = xr.full_like(simulation.h, fill_value=np.nan, dtype="float64")
     simulation["azimuth_time"] = xr.DataArray(
         np.zeros((len(acquisition_dates), y_size, x_size)),
-        dims=["acquisition_date", "y", "x"],
-        coords={"acquisition_date": acquisition_dates},
+        dims=["acquisition_id", "y", "x"],
+        coords={"acquisition_id": acquisition_dates},
     ).astype("datetime64[ns]")
     simulation["dem_distance"] = xr.DataArray(
         np.zeros((len(acquisition_dates), y_size, x_size, 3)),
-        dims=["acquisition_date", "y", "x", "axis"],
+        dims=["acquisition_id", "y", "x", "axis"],
     )
     simulation.rio.write_crs("EPSG:4326", inplace=True)
 
@@ -1397,9 +1397,9 @@ def _make_sim_data(acquisition_dates, y_size=3, x_size=3):
     position_data = np.tile(position_data, (n_dates, 1, 1))
     orbits = xr.DataArray(
         position_data,
-        dims=["acquisition_date", "degree", "axis"],
+        dims=["acquisition_id", "degree", "axis"],
         coords={
-            "acquisition_date": acquisition_dates,
+            "acquisition_id": acquisition_dates,
             "degree": [0, 1, 2],
             "axis": [0, 1, 2],
         },
@@ -1440,8 +1440,8 @@ def _make_orbits(acquisition_dates, const_coeffs=(7500.0, 0.0, 0.0), quad_coeffs
     position_data = np.tile(position_data, (n_dates, 1, 1))
     orbits = xr.DataArray(
         position_data,
-        dims=["acquisition_date", "degree", "axis"],
-        coords={"acquisition_date": acquisition_dates, "degree": [0, 1, 2], "axis": [0, 1, 2]},
+        dims=["acquisition_id", "degree", "axis"],
+        coords={"acquisition_id": acquisition_dates, "degree": [0, 1, 2], "axis": [0, 1, 2]},
     )
     # FIXME pd.Timestamp doesn't feel right
     orbits.attrs["reference_times"] = {d: pd.Timestamp(d).isoformat() + ".000000000" for d in acquisition_dates}
@@ -1475,7 +1475,7 @@ def _make_unprocessed_simulation(acquisition_dates, y_size=3, x_size=3):
     """Create a simulation dataset with NaN slant_range_time (unprocessed)."""
     simulation = xr.Dataset(
         coords={
-            "acquisition_date": acquisition_dates,
+            "acquisition_id": acquisition_dates,
             "y": np.arange(y_size, dtype=np.float64),
             "x": np.arange(x_size, dtype=np.float64),
             "axis": [0, 1, 2],
@@ -1485,12 +1485,12 @@ def _make_unprocessed_simulation(acquisition_dates, y_size=3, x_size=3):
     simulation["slant_range_time"] = xr.full_like(simulation.h, fill_value=np.nan, dtype="float64")
     simulation["azimuth_time"] = xr.DataArray(
         np.zeros((len(acquisition_dates), y_size, x_size)),
-        dims=["acquisition_date", "y", "x"],
-        coords={"acquisition_date": acquisition_dates},
+        dims=["acquisition_id", "y", "x"],
+        coords={"acquisition_id": acquisition_dates},
     ).astype("datetime64[ns]")
     simulation["dem_distance"] = xr.DataArray(
         np.zeros((len(acquisition_dates), y_size, x_size, 3)),
-        dims=["acquisition_date", "y", "x", "axis"],
+        dims=["acquisition_id", "y", "x", "axis"],
     )
     simulation.rio.write_crs("EPSG:4326", inplace=True)
     return simulation
@@ -1588,7 +1588,7 @@ class TestComputeSimulation:
         sim_data = _make_sim_data(dates)
         result = _run_compute(sim_data)
         # Output should have acquisition_date dimension with size 1 (only first date processed)
-        assert len(result.acquisition_date) == 1
+        assert len(result.acquisition_id) == 1
         assert result.azimuth_time.values[0, 0, 0] == np.datetime64("2020-01-01")
 
     def test_compute_simulation_multiple_dates_all_same_azimuth(self):
@@ -1714,7 +1714,7 @@ class TestComputeSimulation:
         # Override slant_range_time with valid values (no NaN)
         simulation["slant_range_time"] = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "y", "x"],
+            dims=["acquisition_id", "y", "x"],
         )
         dem = _make_ecef_dem(y_size=3, x_size=3)
         orbits = _make_orbits(acquisition_dates)
