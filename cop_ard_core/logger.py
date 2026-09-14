@@ -20,6 +20,7 @@ from pathlib import Path
 
 import structlog
 import yaml
+from structlog.dev import RichTracebackFormatter
 
 
 def configure_logger(config_path: str = None) -> None:
@@ -116,9 +117,14 @@ def configure_logger(config_path: str = None) -> None:
     renderer = (
         structlog.processors.JSONRenderer()
         if config.get("json_format")
-        else structlog.dev.ConsoleRenderer(colors=use_colors)
+        else structlog.dev.ConsoleRenderer(
+            colors=use_colors,
+            exception_formatter=RichTracebackFormatter(
+                show_locals=False,
+                max_frames=10,
+            ),
+        )
     )
-
     # Create a unified ProcessorFormatter combining native structlog and foreign log chains
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
