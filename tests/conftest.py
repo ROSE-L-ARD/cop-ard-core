@@ -1226,10 +1226,26 @@ def csi_inputs(csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_e
     }
 
 
+def _with_1d_coreg(inputs):
+    """Return a copy of ``inputs`` with 1-D coreg coordinate vectors.
+
+    The polynomial branch of ``compute_secondary_image_coordinates`` evaluates
+    ``polygrid2d(c1, c2, poly)`` where ``c1``/``c2`` are derived from the coreg
+    coordinates. Real callers (``warp_cslc``) pass the 1-D ``.azimuth_time`` /
+    ``.slant_range_time`` coordinate vectors; passing the full 2-D grid instead
+    makes ``polygrid2d`` return a 4-D array. Selecting a single line of the 2-D
+    grid yields the equivalent 1-D vectors.
+    """
+    inputs = dict(inputs)
+    inputs["coreg_azimuth_time"] = inputs["coreg_azimuth_time"].isel(slant_range_time=0)
+    inputs["coreg_slant_range_time"] = inputs["coreg_slant_range_time"].isel(azimuth_time=0)
+    return inputs
+
+
 @pytest.fixture
 def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
     """Inputs with y_poly correction enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["y_poly"] = csi_y_poly
     return inputs
 
@@ -1237,7 +1253,7 @@ def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
 @pytest.fixture
 def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
     """Inputs with x_poly correction enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["x_poly"] = csi_x_poly
     return inputs
 
@@ -1245,7 +1261,7 @@ def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
 @pytest.fixture
 def csi_inputs_with_both_polys(csi_inputs, csi_y_poly, csi_x_poly):
     """Inputs with both y_poly and x_poly corrections enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["y_poly"] = csi_y_poly
     inputs["x_poly"] = csi_x_poly
     return inputs

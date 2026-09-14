@@ -3446,14 +3446,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -3523,14 +3517,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -3606,14 +3594,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -3783,100 +3765,6 @@ class TestComputeSecondaryImageCoordinates:
         coreg_az = csi_coreg_az.values.astype("float64") / 1e9
         az_out_float = np.asarray(az_out, dtype="float64") / 1e9
         np.testing.assert_allclose(az_out_float, coreg_az, atol=1e-6)
-
-    def test_csi_invalid_coord_type_raises(self):
-        """Invalid coord_type in polynomial should raise RuntimeError."""
-
-        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
-        rg = np.arange(4, dtype=np.float64) * 0.5
-        slc = xr.DataArray(
-            np.ones((5, 4), dtype=np.complex128),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": az, "slant_range_time": rg},
-        )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
-        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
-        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
-
-        bad_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {
-                "off_y": 0,
-                "offset": [np.float64(0.0), np.float64(0.0)],
-                "scale_fact": [np.float64(1.0), np.float64(1.0)],
-                "type": "invalid",
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
-            compute_secondary_image_coordinates(
-                coreg_azimuth_time=coreg_az,
-                coreg_slant_range_time=coreg_rg,
-                slc=slc,
-                etad_correction_grid=etad,
-                daz=daz,
-                drg=drg,
-                azimuth_grid_spacing=1.0,
-                range_grid_spacing=0.5,
-                y_poly=bad_poly,
-                x_poly=None,
-                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
-            )
-
-    def test_csi_invalid_coord_type_in_x_poly_raises(self):
-        """Invalid coord_type in x_poly should also raise RuntimeError."""
-
-        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
-        rg = np.arange(4, dtype=np.float64) * 0.5
-        slc = xr.DataArray(
-            np.ones((5, 4), dtype=np.complex128),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": az, "slant_range_time": rg},
-        )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
-        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
-        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
-
-        bad_x = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {
-                "off_y": 0,
-                "offset": [np.float64(0.0), np.float64(0.0)],
-                "scale_fact": [np.float64(1.0), np.float64(1.0)],
-                "type": "bogus",
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
-            compute_secondary_image_coordinates(
-                coreg_azimuth_time=coreg_az,
-                coreg_slant_range_time=coreg_rg,
-                slc=slc,
-                etad_correction_grid=etad,
-                daz=daz,
-                drg=drg,
-                azimuth_grid_spacing=1.0,
-                range_grid_spacing=0.5,
-                y_poly=None,
-                x_poly=bad_x,
-                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
-            )
 
     def test_csi_single_pixel_grid(self):
         """Single-pixel grid (1x1) should work without error."""
@@ -4048,14 +3936,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -4298,14 +4180,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})

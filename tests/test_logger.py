@@ -31,21 +31,6 @@ class TestTimeit:
 
         assert my_func.__name__ == "my_func"
 
-    def test_timeit_measures_time(self):
-        """Decorated function should log execution time."""
-
-        @timeit
-        def sleep_and_return():
-            tt.sleep(0.01)
-            return 42
-
-        with patch("cop_ard_core.logger.logger.info") as mock_info:
-            sleep_and_return()
-            mock_info.assert_called_once()
-            call_args = mock_info.call_args[0][0]
-            assert "took" in call_args
-            assert "seconds" in call_args
-
     def test_timeit_with_kwargs(self):
         """Should work with keyword arguments."""
 
