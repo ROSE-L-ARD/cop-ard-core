@@ -51,7 +51,7 @@ jobs:
         run: uv run --extra tests --frozen docstr-coverage $SOURCES
 
       - name: Comment coverage
-        run: uv run --extra tests --frozen radon raw -s $SOURCES | tail -n12 | grep 'C % S' | awk -v thres=$COMMENT_THRESHOLD -F': ' ' { sub("%", "", $2); err = $2+0 < thres+0 } END {exit err} '
+        run: uv run --extra tests --frozen radon raw -s $SOURCES | tail -n12 | grep 'C % S' | awk -v thres=$COMMENT_THRESHOLD -F': ' -f comment_coverage.awk
 
       - name: Code complexity
       	run: uv run --extra complexity --frozen python -m xenon --max-average b --max-modules c --max-absolute d $SOURCES
