@@ -592,7 +592,7 @@ class TestDotNumba:
         b = np.array([3.0, 4.0], dtype=np.float32)
         c = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         result = _dot_numba(a, b, c)
-        assert result == result.dtype.type(result)
+        assert result == a.dtype.type(result)
 
     def test_dot_numba_zero_vector(self):
         """Zero vector should give zero result."""

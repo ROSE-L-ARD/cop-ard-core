@@ -95,4 +95,4 @@ markers = ["integration", "unit", "need_files"]
 url = "https://pypi.org/simple"
 
 [tool.pytest_env]
-NUMBA_DISABLE_JIT=1
+NUMBA_DISABLE_JIT=0
