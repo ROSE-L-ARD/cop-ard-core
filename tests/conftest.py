@@ -1278,7 +1278,12 @@ def cstack_3_dates():
     return xr.DataArray(
         np.ones((3, 4, 4)),
         dims=["acquisition_date", "az", "rg"],
-        coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"], "acquisition_id": xr.DataArray(np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"])},
+        coords={
+            "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+            "acquisition_id": xr.DataArray(
+                np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+            ),
+        },
     )
 
 

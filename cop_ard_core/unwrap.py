@@ -14,6 +14,7 @@ MAXJUMP = 1_000
 MAXCOST = 1_000
 EPSYLON = 1e-6
 
+
 @overload
 def unique(e: np.ndarray, return_index: Literal[True]) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -133,7 +134,7 @@ def integ_mcf_ortools(
 
         raise Exception
 
-    solution_flows = smcf.flows(all_arcs)  # type: ignore this is how it's meant to be used
+    solution_flows = smcf.flows(all_arcs)  # type: ignore
 
     return (0, solution_flows)
 
@@ -293,7 +294,7 @@ def integ_mcf(
     w = coherence[e[:, 1]] * coherence[e[:, 0]]
 
     # weight normalization according to the distance between points
-    dist = np.sqrt((xx[e[:, 1]] - xx[e[:, 0]])**2 + (yy[e[:, 1]] - yy[e[:, 0]])**2)
+    dist = np.sqrt((xx[e[:, 1]] - xx[e[:, 0]]) ** 2 + (yy[e[:, 1]] - yy[e[:, 0]]) ** 2)
     w = w / (dist + EPSYLON)
 
     # normalize weight

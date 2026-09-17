@@ -14,7 +14,7 @@ def get_radar_spacing(azimuth_time: xr.DataArray, slant_range_time: xr.DataArray
     unique_sr, counts_sr = np.unique(sr_diffs, return_counts=True)
 
     az_step, rg_step = unique_az[np.argmax(counts_az)], unique_sr[np.argmax(counts_sr)]
-    spacing = {"azimuth_time":az_step,"slant_range_time":rg_step}
+    spacing = {"azimuth_time": az_step, "slant_range_time": rg_step}
     return spacing
 
 

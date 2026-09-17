@@ -688,31 +688,31 @@ def compute_shadow(
     yslice = slice(selection.y[0].values, selection.y[-1].values)
 
     # Read the Local Incidence Angle (LIA) from the geogrid
-    lia = local_incidence_angle.sel(x=xslice, y=yslice)
-    resolution = lia.rio.resolution()
-    x = lia.x.values - resolution[0] / 2.0
-    y = lia.y.values - resolution[1] / 2.0
+    local_incidence_angle = local_incidence_angle.sel(x=xslice, y=yslice)
+    resolution = local_incidence_angle.rio.resolution()
+    x = local_incidence_angle.x.values - resolution[0] / 2.0
+    y = local_incidence_angle.y.values - resolution[1] / 2.0
     # define slices to align simulation with lia since lia could be smaller
     xslice = slice(x[0], x[-1])
     yslice = slice(y[0], y[-1])
 
     selection = selection.sel(x=xslice, y=yslice)
-    lia = lia.values
+    lia = local_incidence_angle.values
     # --- Calculate Ground Incidence Angle ---
     # Convert DEM points to ECEF
     points = convert_to_dem_ecef(dem=selection.h)
     points = np.transpose(points, (1, 2, 0)).reshape(-1, 3)
     # Get sensor-to-target distance vectors
     radar_distance = selection.dem_distance.values.reshape(-1, 3)
-    incidence_angle_ground = np.zeros(points.shape[0], dtype=float)
+    incidence_angle_ground_vector = np.zeros(points.shape[0], dtype=float)
     compute_incidence_angle_ground(
         radar_distance=radar_distance.ravel(),
         points=points.ravel(),
-        incidence_angle_ground=incidence_angle_ground,
-        num_points=incidence_angle_ground.shape[0],
+        incidence_angle_ground=incidence_angle_ground_vector,
+        num_points=incidence_angle_ground_vector.shape[0],
     )
 
-    incidence_angle_ground = incidence_angle_ground.reshape(selection.y.size, selection.x.size)
+    incidence_angle_ground = incidence_angle_ground_vector.reshape(selection.y.size, selection.x.size)
 
     # --- Interpolate to Radar Grid ---
     # Get reference start times for the chunk

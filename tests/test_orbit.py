@@ -115,7 +115,7 @@ class TestBuildOrbitDataset:
         root2.append(list_osvs2)
 
         with pytest.raises(RuntimeError, match="same orbit type"):
-            build_orbit_dataset([tree1, tree2])  # type: ignore not worth the time to investigate etree typing
+            build_orbit_dataset([tree1, tree2])  # type: ignore
 
     def test_build_orbit_dataset_missing_osv_raises(self):
         """Orbit file without List_of_OSVs should raise ValueError."""
@@ -127,7 +127,7 @@ class TestBuildOrbitDataset:
         root.append(file_type)
 
         with pytest.raises(ValueError, match="error reading orbit file"):
-            build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
+            build_orbit_dataset([tree])  # type: ignore
 
     def test_build_orbit_dataset_with_many_observations(self):
         """Should handle many orbit observations."""
@@ -154,7 +154,7 @@ class TestBuildOrbitDataset:
         root.append(list_osvs)
         tree = ElementTree(root)
 
-        result = build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
+        result = build_orbit_dataset([tree])  # type: ignore
         assert result.position.shape == (100, 3)
 
 

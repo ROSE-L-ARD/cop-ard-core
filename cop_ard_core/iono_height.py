@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 import PyIRI
 import PyIRI.main_library as ml
-from pyproj import CRS, Transformer
 import retry
+from pyproj import CRS, Transformer
+
 from cop_ard_core.logger import logger
 
 
@@ -80,6 +81,7 @@ def get_f107(df: pd.DataFrame, year: int, month: int, day: int) -> float:
         logger.error(error_msg)
         raise ValueError(error_msg) from e
 
+
 @retry.retry(tries=5, delay=1, jitter=5, logger=logger)
 def init_iono_db(url: str = "https://celestrak.org/SpaceData/SW-All.csv", dbfile: str = "SW-ALL.pkl") -> None:
     """
@@ -134,7 +136,7 @@ def read_iono_db(year: int, month: int, day: int, dbfile_tmp: str, dbfile: str |
     float
         The observed F10.7 index value for the specified date.
     """
-    if (dbfile is not None) or not os.path.exists(dbfile):
+    if dbfile is None or not os.path.exists(dbfile):
         logger.warning(f"Database file '{dbfile}' not found. Attempting to download it now.")
         init_iono_db(dbfile=dbfile_tmp)
         dbfile = dbfile_tmp

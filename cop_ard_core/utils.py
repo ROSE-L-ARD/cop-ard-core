@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
 
+
 def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict) -> xr.DataArray:
 
     win_dims = {k: f"win_{k}" for k in multilook}
@@ -21,7 +22,10 @@ def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dic
 
     return res
 
-def rolling_kernel(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray) -> xr.DataArray:
+
+def rolling_kernel(
+    a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray
+) -> xr.DataArray:
 
     win_dims = {k: f"win_{k}" for k in multilook}
 
@@ -67,7 +71,9 @@ def get_normalized_interf(
     b: xr.DataArray,
     posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting).real * get_interf(b, b, posting).real)).fillna(0j)
+    return (
+        get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting).real * get_interf(b, b, posting).real)
+    ).fillna(0j)
 
 
 def compute_interf(
@@ -77,12 +83,12 @@ def compute_interf(
 ) -> xr.DataArray:
     # complex multiplication and average #
     # consider only secondary image coordianates, as the reference image is assumed to be the same for all secondary images
-    return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()  # type: ignore  mean is injected dynamically
+    return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()  # type: ignore
 
 
 def get_power(slc: xr.DataArray, multilook: dict):
     # compute the image power and average
-    return (slc * slc.conj()).real.coarsen(multilook, boundary="trim").mean()  # type: ignore mean is injected dynamically
+    return (slc * slc.conj()).real.coarsen(multilook, boundary="trim").mean()  # type: ignore
 
 
 def compute_interf_norm(
@@ -118,6 +124,7 @@ def get_coordinates(y, x, alpha, beta):
     yy = (y - alpha[0]) / beta[0]
     # yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
     return (yy, xx)
+
 
 def get_daz_corr(coreg_azimuth_time, coreg_slant_range_time, y_poly):
     az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)

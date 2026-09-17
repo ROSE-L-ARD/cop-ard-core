@@ -56,7 +56,7 @@ def apply_etad_corrections(
         A tuple containing the interpolated azimuth (`daz`) and range (`drg`) corrections.
     """
     # initialize output
-    daz = np.timedelta64(0, "ns")  # type: Union[np.timedelta64, np.ndarray]
+    daz = np.timedelta64(0, "ns")
     drg = np.zeros(1)  # type: np.ndarray
 
     if len(etad_correction_grid.data_vars) != 0:

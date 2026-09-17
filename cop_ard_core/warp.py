@@ -24,7 +24,7 @@ from numba import njit
 from scipy.constants import speed_of_light
 
 from cop_ard_core.etad import apply_etad_corrections
-from cop_ard_core.griddata import init_interpolate, interp_dataset, interpolate
+from cop_ard_core.griddata import init_interpolate, interpolate
 from cop_ard_core.logger import logger
 from cop_ard_core.simul import (
     extract_simul_on_radar_chunk,
@@ -352,10 +352,10 @@ def warp_dazdrg(
     if daz is None or drg is None or daz.attrs.get("recompute", False):
         daz = xr.DataArray(
             da.empty(shape, dtype=dtype["daz"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        ).chunk({k:-1 for k in DIMENSIONS_})
+        ).chunk({k: -1 for k in DIMENSIONS_})
         drg = xr.DataArray(
             da.empty(shape, dtype=dtype["drg"]), dims=DIMENSIONS_, coords={d: cstack[d] for d in DIMENSIONS_}
-        ).chunk({k:-1 for k in DIMENSIONS_})
+        ).chunk({k: -1 for k in DIMENSIONS_})
     # --- Prepare Data for Interpolation ---
     azimuth_time_ref = daz.azimuth_time[0].values
     slant_range_time_ref = drg.slant_range_time[0].values
@@ -447,9 +447,9 @@ def compute_secondary_image_coordinates(
         drg = drg + corr
 
     # Compute the final target coordinates in the secondary image.
-    az = (az + daz).transpose("azimuth_time", "slant_range_time").values
-    rg = (rg + drg).transpose("azimuth_time", "slant_range_time").values
-    return az, rg, az0, rg0
+    az_out = (az + daz).transpose("azimuth_time", "slant_range_time").values
+    rg_out = (rg + drg).transpose("azimuth_time", "slant_range_time").values
+    return az_out, rg_out, az0, rg0
 
 
 def warp_cslc(
@@ -1187,6 +1187,6 @@ def coreg_qlt(
             )
 
     # Convert the final DataArray to a Dataset.
-    crg_qlt = crg_qlt.to_dataset(name="crg_accuracy")
+    crg_qlt_ds = crg_qlt.to_dataset(name="crg_accuracy")
 
-    return crg_qlt
+    return crg_qlt_ds

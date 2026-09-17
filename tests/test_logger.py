@@ -1,6 +1,5 @@
 """Unit tests for cop_ard_core.logger."""
 
-import time as tt
 from unittest.mock import patch
 
 import pytest

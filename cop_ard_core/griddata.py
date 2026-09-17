@@ -480,12 +480,12 @@ def interp_dataset(
         counter += var.point.size
 
     # Concatenate all data into a single numpy array for interpolation.
-    stack_data = np.concat(stack_data, axis=len(common_dims)).astype(float)
+    stacked_data = np.concat(stack_data, axis=len(common_dims)).astype(float)
 
     # --- Perform Interpolation ---
     interpolated_data = scipy.interpolate.interpn(
         points,
-        stack_data,
+        stacked_data,
         xi,
         method=method,
         bounds_error=bounds_error,

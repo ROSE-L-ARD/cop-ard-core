@@ -585,10 +585,7 @@ class TestGetDazCorr:
         c1 = np.arange(4, dtype=np.float64) * 1e9
         c2 = np.arange(3, dtype=np.float64)
         expected = (
-            np.outer(np.ones(4), np.ones(3))
-            + np.outer(c1, np.ones(3))
-            + np.outer(np.ones(4), c2)
-            + np.outer(c1, c2)
+            np.outer(np.ones(4), np.ones(3)) + np.outer(c1, np.ones(3)) + np.outer(np.ones(4), c2) + np.outer(c1, c2)
         )
         np.testing.assert_allclose(result, expected)
 
@@ -612,12 +609,7 @@ class TestGetDazCorr:
         # polygrid2d(c1, c2, [[1,1],[1,1]]) = 1 + c1 + c2 + c1*c2
         c1 = np.arange(3, dtype=np.float64) * 1e9 - 1.0
         c2 = np.arange(3, dtype=np.float64) - 0.5
-        expected = (
-            1.0
-            + np.outer(c1, np.ones(3))
-            + np.outer(np.ones(3), c2)
-            + np.outer(c1, c2)
-        )
+        expected = 1.0 + np.outer(c1, np.ones(3)) + np.outer(np.ones(3), c2) + np.outer(c1, c2)
         np.testing.assert_allclose(result, expected)
 
     def test_get_daz_corr_with_scale(self):

@@ -86,15 +86,15 @@ def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
         "tai": (["azimuth_time"], tai),
         "axis": ["x", "y", "z"],
     }
-    position = xr.DataArray(position, dims=["azimuth_time", "axis"], coords=coords)
-    velocity = xr.DataArray(velocity, dims=["azimuth_time", "axis"], coords=coords)
+    position_da = xr.DataArray(position, dims=["azimuth_time", "axis"], coords=coords)
+    velocity_da = xr.DataArray(velocity, dims=["azimuth_time", "axis"], coords=coords)
     # Extract the orbit file type (e.g., RESORB, POEORB) from the XML header.
     # Ensure all provided orbit files are of the same type.
     if len(otypes) > 1:
         raise RuntimeError("For the same acquisition date must be used the same orbit type (POE or RES)")
 
     # Create and return the final dataset with the orbit type as an attribute.
-    return xr.Dataset({"position": position, "velocity": velocity}).assign_attrs({"type": list(otypes)[0]})
+    return xr.Dataset({"position": position_da, "velocity": velocity_da}).assign_attrs({"type": list(otypes)[0]})
 
 
 def refit_orbit_coefficients(

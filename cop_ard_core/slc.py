@@ -20,9 +20,9 @@ import numpy as np
 import shapely
 import shapely.wkt
 import xarray as xr
+from numba import njit
 
 from cop_ard_core.logger import logger
-from numba import njit
 
 
 def merge_dict(res: list[dict]) -> dict:
@@ -141,10 +141,10 @@ def deramp_numba(slc, slant_range, azimuth, coeff):
         for j in range(n_azimuth):
             aj = azimuth[j]
             phase = 0.0
-            for k in range(deg_slant_range - 1, -1, -1):
-                row = coeff[k, deg_azimuth - 1]
-                for l in range(deg_azimuth - 2, -1, -1):
-                    row = row * aj + coeff[k, l]
+            for ra_deg in range(deg_slant_range - 1, -1, -1):
+                row = coeff[ra_deg, deg_azimuth - 1]
+                for az_deg in range(deg_azimuth - 2, -1, -1):
+                    row = row * aj + coeff[ra_deg, az_deg]
                 phase = phase * ri + row
             c = np.cos(phase)
             s = np.sin(phase)
@@ -152,6 +152,7 @@ def deramp_numba(slc, slant_range, azimuth, coeff):
             for id in range(ndates):
                 for pol in range(npol):
                     slc[pol, id, j, i] = slc[pol, id, j, i] * rot
+
 
 def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) -> xr.DataArray:
     """

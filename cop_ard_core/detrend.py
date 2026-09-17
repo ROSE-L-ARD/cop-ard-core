@@ -5,8 +5,6 @@ import numpy as np
 import scipy.optimize
 from astropy import stats as ast
 
-from cop_ard_core.logger import logger
-
 
 def cost_function_l2(params: np.ndarray, X: np.ndarray, y: np.ndarray, w: np.ndarray | float = 1.0) -> np.ndarray:
     """
@@ -91,9 +89,9 @@ def get_model_matrix(x: np.ndarray, regions: np.ndarray | None = None, degree: i
         X = np.ones((x.shape[0], n_regions), dtype="float64")
 
     # Different degrees
-    for k in np.arange(1, degree + 1):
+    for k in range(1, degree + 1):
         # Define all combinations
-        for ll in combinations_with_replacement(np.arange(x.shape[1]), k):
+        for ll in combinations_with_replacement(range(x.shape[1]), k):
             # Construct the model matrix
             X = np.hstack((np.prod(x[:, list(ll)], axis=1).reshape(-1, 1), X))
 
@@ -113,7 +111,7 @@ def estimate_global_surface(
     convergency_threshold: float = 1e-6,
     maximum_iterations: int = 100,
     **kwargs,
-):
+) -> scipy.optimize.OptimizeResult:
     """
     Remove large scale spatial trend (n-dimensional polynomial model) from the data
 
@@ -204,7 +202,7 @@ def fit_2d_poly(
     degree: int = 1,
     norm: int = 1,
     weights: np.ndarray | None = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[scipy.optimize.OptimizeResult, np.ndarray, np.ndarray]:
 
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
@@ -238,7 +236,7 @@ def fit_2d_poly(
     coeffs = estimate_global_surface(x_, data_, weight_sel, regions=None, degree=degree, norm=norm)
     # rescale output coefficients as for input data scaling
     coeffs.x *= d_sc
-    coeffs.x[-1] += d_0 # add back the constant
+    coeffs.x[-1] += d_0  # add back the constant
 
     return (
         coeffs,

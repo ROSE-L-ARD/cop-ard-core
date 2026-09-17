@@ -1,8 +1,10 @@
+import itertools
+
 import numpy as np
 import scipy.sparse
 import xarray as xr
 from numba import njit
-import itertools
+
 from cop_ard_core.utils import compute_interf_norm, wrap
 
 
