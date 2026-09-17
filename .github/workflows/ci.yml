@@ -15,6 +15,9 @@ jobs:
     # env and steps must align directly under runs-on
     env:
       SOURCES: "cop_ard_core"
+      TESTS: "tests"
+      COVERAGE_THRESHOLD: "70"
+      COMMENT_THRESHOLD: "20"
 
     steps:
       - name: Check out repository
@@ -29,8 +32,29 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Lint with Ruff
-        run: uv run --extra linter --frozen ruff check $SOURCES
+      - name: Linting
+        run: uv run --extra linter --frozen ruff check --no-fix $SOURCES $TESTS
 
-      - name: Type check with Mypy
-        run: uv run --extra typing --frozen mypy $SOURCES
+      - name: Formatting
+        run: uv run --extra linter --frozen ruff format --check $SOURCES $TESTS
+
+      - name: Typing
+        run: uv run --extra typing --frozen mypy $SOURCES $TESTS
+
+      - name: Unit tests
+        run: uv run --extra tests --frozen pytest $TESTS
+      
+      - name: Unit test coverage
+        run: uv run --extra tests --frozen pytest --cov=cop_ard_core --cov-report= --cov-fail-under=$COVERAGE_THRESHOLD $TESTS
+
+      - name: Documentation coverage
+        run: uv run --extra tests --frozen docstr-coverage $SOURCES
+
+      - name: Comment coverage
+        run: uv run --extra tests --frozen radon raw -s $SOURCES | tail -n12 | grep 'C % S' | awk -v thres=$COMMENT_THRESHOLD -F': ' ' { sub("%", "", $2); err = $2+0 < thres+0 } END {exit err} '
+
+      - name: Code complexity
+      	run: uv run --extra complexity --frozen python -m xenon --max-average b --max-modules c --max-absolute d $SOURCES
+
+      - name: Vulnerability scanning
+        run: uv run --extra security --frozen python -m bandit -c bandit.yml -r $SOURCES
