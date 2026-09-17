@@ -1,3 +1,7 @@
+"""
+Geocoded Multi-looked Phase (GMLP) processing.
+"""
+
 import numpy as np
 import xarray as xr
 
@@ -6,7 +10,10 @@ from cop_ard_core.warp import sinc_warp
 
 
 def get_radar_spacing(azimuth_time: xr.DataArray, slant_range_time: xr.DataArray):
-
+    """
+    Estimate the dominant azimuth and slant-range pixel spacing from the
+    coordinate arrays, as a dict with 'azimuth_time' and 'slant_range_time'.
+    """
     az_diffs = np.diff(azimuth_time)
     sr_diffs = np.diff(slant_range_time)
 
@@ -29,6 +36,10 @@ def warp_cmlp(
     is_phase: bool,
     is_coherence: bool,
 ) -> None:
+    """
+    Warp a coarse source grid onto the target index positions with sinc
+    interpolation, handling phase (via complex phasors) and coherence clipping.
+    """
     # Create memory-mapped VIEWS
     spatial_size = target.shape[-2] * target.shape[-1]
     # target_view is now (N_leading, Y * X)

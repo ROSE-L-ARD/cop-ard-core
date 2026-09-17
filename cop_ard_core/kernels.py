@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Numba-accelerated kernels for radar geocoding: area projection integration,
+satellite state propagation, and slant-range geolocation (iterative
+radar-to-ground point mapping).
+"""
 
 import math
 
@@ -1033,6 +1038,10 @@ def compute_incidence_angle_ground(
     incidence_angle_ground: np.ndarray,
     num_points: int,
 ):
+    """
+    Compute the ground incidence angle at each ground point from the satellite
+    position, storing results in the provided output array.
+    """
     pos_satellite = np.zeros(3, dtype=float)
     for i in range(num_points):
         for j in range(3):
@@ -1086,6 +1095,9 @@ def polyval(t: float, coeffs: np.ndarray):
 
 @numba.njit(cache=True)
 def numba_dot(a, b):
+    """
+    Compute the dot product of two 1D arrays (Numba JIT-compiled).
+    """
     result = 0.0
     for j in range(a.size):
         result += a[j] * b[j]
@@ -1095,6 +1107,11 @@ def numba_dot(a, b):
 
 @numba.njit(cache=True)
 def main_loop(pos, vel, acc, dem, t, direction_ecef, r, conv_th):
+    """
+    Iteratively solve the slant-range geolocation equations per pixel,
+    converging on the azimuth time at which the satellite-to-ground range
+    matches, updating time, range vector, and velocity direction outputs.
+    """
     corr = 0
     tsol = t[t.shape[0] // 2, t.shape[1] // 2]
     for i in range(t.shape[0]):

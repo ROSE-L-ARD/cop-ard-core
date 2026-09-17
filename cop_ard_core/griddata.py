@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Grid data interpolation: triangulation, barycentric interpolation kernels, and
+xarray Dataset interpolation onto regular or arbitrary grids.
+"""
 
 # functions decorated with njit are not considered by pytest --cov
 from typing import Any, Union, cast
@@ -544,6 +548,10 @@ def interp_dataset(
 def interp_dataset_scaled(
     data: xr.Dataset, xi: tuple, common_dims: tuple, method: str = "cubic", target_coords: dict | None = None, **kwargs
 ) -> xr.Dataset:
+    """
+    Interpolate a Dataset after min-max scaling each variable to [0, 1] for
+    numerical stability, rescaling the results back to the original range.
+    """
     data_scaled = data.copy()
     scales = {}
 

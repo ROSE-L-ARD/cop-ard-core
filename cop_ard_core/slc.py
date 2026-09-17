@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Single Look Complex (SLC) data handling: metadata parsing, radiometric
+calibration, masking, and phase deramping of SAR SLC imagery.
+"""
+
 from __future__ import annotations
 
 from typing import cast
@@ -134,6 +139,10 @@ def noise_removal(slc: xr.DataArray, noise_polynomial_coeffs: np.ndarray | None)
 
 @njit(cache=True)
 def deramp_numba(slc, slant_range, azimuth, coeff):
+    """
+    Apply a 2D polynomial phase deramp (Doppler centroid correction) in place
+    to the complex SLC array.
+    """
     npol, ndates, n_azimuth, n_slant_range = slc.shape
     deg_slant_range, deg_azimuth = coeff.shape
     for i in range(n_slant_range):

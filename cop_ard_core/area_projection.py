@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Area projection (RTC) utilities: rasterize georeferenced grids to the radar
+footprint and compute radiometric terrain correction (gamma-naught) weights.
+"""
 
 import numpy as np
 import xarray as xr

@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Satellite orbit handling: parse Sentinel-1 orbit (EOF/XML) files into
+Datasets, fit/refit orbit state polynomials, and evaluate position/velocity.
+"""
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -45,10 +50,12 @@ def build_orbit_dataset(orbits: list[ElementTree[Element[str]]]) -> xr.Dataset:
 
     # Helper function to read a floating-point value from an XML tag.
     def read_v(osv, tag):
+        """Read a floating-point value from a state-vector XML tag."""
         return float(osv.find(tag).text)
 
     # Helper function to read a time string from an XML tag.
     def read_t(osv, tag):
+        """Read a time string from an XML tag of the form 'tag=value'."""
         return osv.find(tag).text.split("=")[1]
 
     state_vectors = OrderedDict()

@@ -1,3 +1,8 @@
+"""
+Split-spectrum phase decomposition: joint unwrapping of low- and
+high-band sub-bands and separation of dispersive and non-dispersive phase.
+"""
+
 import numpy as np
 import xarray as xr
 

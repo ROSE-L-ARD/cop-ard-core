@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Digital Elevation Model (DEM) handling: CRS and vertical datum validation,
+projection selection, resolution computation, and DEM interpolation.
+"""
+
 from typing import Any, Dict
 
 import mgrs
@@ -27,6 +32,10 @@ rioxarray.__version__
 
 
 def extract_vertical_crs(crs: CRS) -> str:
+    """
+    Extract the vertical CRS code from a compound CRS, or an empty string if
+    the CRS has no vertical component.
+    """
     if not isinstance(crs, CRS):
         raise ValueError(f"Expected type CRS, got {type(crs)}")
     vcrs = crs.sub_crs_list[1].to_string().split(":")[1] if crs.is_vertical else ""

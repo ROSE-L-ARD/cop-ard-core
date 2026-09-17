@@ -1,3 +1,8 @@
+"""
+Polynomial surface detrending: least-squares and robust (L1/L2) fitting of
+low-order 2D polynomial surfaces to gridded data.
+"""
+
 from itertools import combinations_with_replacement
 from typing import Tuple
 
@@ -203,7 +208,10 @@ def fit_2d_poly(
     norm: int = 1,
     weights: np.ndarray | None = None,
 ) -> Tuple[scipy.optimize.OptimizeResult, np.ndarray, np.ndarray]:
-
+    """
+    Fit a 2D polynomial surface of the given degree to the data, with axis and
+    value normalization, returning the fitted coefficients and axis offsets/scales.
+    """
     # estimate only in correspondence of finite values
     mask = np.isfinite(data)
     # select points
@@ -246,6 +254,10 @@ def fit_2d_poly(
 
 
 def to_polygrid2d(c, deg):
+    """
+    Convert a flat array of 2D polynomial coefficients into a 2D coefficient
+    grid for the given polynomial degree.
+    """
     j = np.insert(np.cumsum(deg + 1 - np.arange(0, deg + 1)), 0, 0)
 
     return np.flip(

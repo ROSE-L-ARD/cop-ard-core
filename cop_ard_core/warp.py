@@ -11,6 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Image warping and coregistration: sinc-kernel warping of SLC images by
+azimuth/range shifts, grid extraction, LUT-based coregistration, and CSLC
+warping to a common grid.
+"""
+
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, cast  # noqa: F401
 
 import dask.array as da

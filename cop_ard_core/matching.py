@@ -1,3 +1,8 @@
+"""
+Image matching: sub-pixel correlation peak detection and disparity estimation
+between SLC bursts for atmospheric/shift correction.
+"""
+
 from typing import Sequence
 
 import numpy as np
@@ -206,6 +211,11 @@ def backward_flatten(
     nim: int,
     shp: list[int],
 ):
+    """
+    Flatten reference and search-windowed stack patches into 2D arrays for
+    correlation, with the reference flattened per offset and the stack
+    flattened per image.
+    """
     i1 = np.empty((npt, nco), dtype=stack.dtype)
     i2 = np.empty((nim, npt), dtype=stack.dtype)
 
@@ -233,7 +243,10 @@ def shift_update(
     y: xr.DataArray,
     kernel: np.ndarray,
 ) -> xr.DataArray:
-
+    """
+    Update a shifted image by sampling it at sub-pixel offsets and subtracting
+    the original, returning the residual difference.
+    """
     # Remove mean, convert to float64, and remove degenerate dimensions
     o = (i - i.mean()).astype("float64").squeeze()
 
@@ -272,6 +285,10 @@ def fix_disparity(
     kernel_shape: tuple[int, int] = (15, 15),
     **kwargs,
 ):
+    """
+    Iteratively refine the range/azimuth disparity (dx, dy) fields using
+    sub-pixel shifts, updating the disparity dataset for the given burst.
+    """
     # kernel creation for drg and daz multilooking #
     kernel = np.ones(kernel_shape) / np.prod(kernel_shape)
 
@@ -476,7 +493,10 @@ def compute_pearson_coefficient(
     x_dim: str,
     correlation_kernel_size: Sequence[int] | None,
 ):
-
+    """
+    Compute the Pearson correlation between a reference and a stack of images
+    over sliding windows, returning sub-pixel peak offsets and amplitudes.
+    """
     shp = np.array(stack.shape[:2]) - 2 * np.array(peak_window_size)
     nim, npt = stack.shape[2], np.prod(shp)
 

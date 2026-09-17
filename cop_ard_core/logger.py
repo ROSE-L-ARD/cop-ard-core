@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Logging infrastructure: structlog + standard library logging configuration
+from YAML, and a timeit decorator for execution-duration metrics.
+"""
 
 import logging
 import sys
@@ -178,6 +182,9 @@ def timeit(func):
 
     @wraps(func)
     def timeit_wrapper(*args, **kwargs):
+        """
+        Run the wrapped function and log its execution duration via structlog.
+        """
         start_time = tt.perf_counter()
         result = func(*args, **kwargs)
         total_time = tt.perf_counter() - start_time

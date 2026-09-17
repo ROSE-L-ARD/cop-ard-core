@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Ionospheric height estimation using the IRI ionospheric model and space
+weather data (F10.7, F2 peak height) for ionospheric delay corrections.
+"""
 
 import os
 from typing import Dict
