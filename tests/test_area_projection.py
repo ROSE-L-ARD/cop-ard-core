@@ -806,7 +806,7 @@ class TestComputeRtcAp:
             bbox=area_proj_bbox_int,
         )
         assert isinstance(result, tuple)
-        assert len(result) == 3
+        assert len(result) == 4
         mock_compute_gamma.assert_called_once()
 
     @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
@@ -815,7 +815,7 @@ class TestComputeRtcAp:
     ):
         """anf should be an xr.DataArray."""
         mock_compute_gamma.return_value = 5
-        anf, _, _ = compute_rtc_ap(
+        anf, _, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -832,7 +832,7 @@ class TestComputeRtcAp:
         dim_y = area_proj_simulation.y.size - 1
         dim_x = area_proj_simulation.x.size - 1
         mock_compute_gamma.return_value = 5
-        anf, _, _ = compute_rtc_ap(
+        anf, _, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -847,7 +847,7 @@ class TestComputeRtcAp:
     ):
         """anf should have dims ['y', 'x']."""
         mock_compute_gamma.return_value = 5
-        anf, _, _ = compute_rtc_ap(
+        anf, _, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -862,7 +862,7 @@ class TestComputeRtcAp:
     ):
         """lia should be an xr.DataArray."""
         mock_compute_gamma.return_value = 5
-        _, lia, _ = compute_rtc_ap(
+        _, lia, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -879,7 +879,7 @@ class TestComputeRtcAp:
         dim_y = area_proj_simulation.y.size - 1
         dim_x = area_proj_simulation.x.size - 1
         mock_compute_gamma.return_value = 5
-        _, lia, _ = compute_rtc_ap(
+        _, lia, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -894,7 +894,7 @@ class TestComputeRtcAp:
     ):
         """lia (local incidence angle) should be in [0, pi/2] range (in radians)."""
         mock_compute_gamma.return_value = 5
-        _, lia, _ = compute_rtc_ap(
+        _, lia, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -910,7 +910,7 @@ class TestComputeRtcAp:
     ):
         """ANF values should be non-negative."""
         mock_compute_gamma.return_value = 5
-        anf, _, _ = compute_rtc_ap(
+        anf, _, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -925,7 +925,7 @@ class TestComputeRtcAp:
     ):
         """a_block should be xr.Dataset or None."""
         mock_compute_gamma.return_value = 5
-        _, _, a_block = compute_rtc_ap(
+        _, _, a_block, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -940,7 +940,7 @@ class TestComputeRtcAp:
     ):
         """normal_order=False should still produce valid output (different normal direction)."""
         mock_compute_gamma.return_value = 5
-        anf, lia, a_block = compute_rtc_ap(
+        anf, lia, a_block, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -959,7 +959,7 @@ class TestComputeRtcAp:
         dim_x = area_proj_simulation.x.size - 1
         for pixel_area in [0.5, 2.0, 4.0]:
             mock_compute_gamma.return_value = 5
-            anf, lia, a_block = compute_rtc_ap(
+            anf, lia, a_block, _ = compute_rtc_ap(
                 csr_matrix=area_proj_csr_matrix,
                 simulation=area_proj_simulation,
                 radar_grid_pixel_area=float(pixel_area),
@@ -974,7 +974,7 @@ class TestComputeRtcAp:
     ):
         """anf and lia should be float32."""
         mock_compute_gamma.return_value = 5
-        anf, lia, _ = compute_rtc_ap(
+        anf, lia, _, _ = compute_rtc_ap(
             csr_matrix=area_proj_csr_matrix,
             simulation=area_proj_simulation,
             radar_grid_pixel_area=1.0,
@@ -983,6 +983,66 @@ class TestComputeRtcAp:
         )
         assert anf.dtype == np.float32
         assert lia.dtype == np.float32
+
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_bbox_radar_type(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
+        """anf and lia should be float32."""
+        mock_compute_gamma.return_value = 5
+        _, _, _, bbox_radar = compute_rtc_ap(
+            csr_matrix=area_proj_csr_matrix,
+            simulation=area_proj_simulation,
+            radar_grid_pixel_area=1.0,
+            normal_order=True,
+            bbox=area_proj_bbox_int,
+        )
+        assert isinstance(bbox_radar, np.ndarray)
+
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_bbox_radar_dtype(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
+        """anf and lia should be float32."""
+        mock_compute_gamma.return_value = 5
+        _, _, _, bbox_radar = compute_rtc_ap(
+            csr_matrix=area_proj_csr_matrix,
+            simulation=area_proj_simulation,
+            radar_grid_pixel_area=1.0,
+            normal_order=True,
+            bbox=area_proj_bbox_int,
+        )
+        assert bbox_radar.dtype == int
+
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_bbox_radar_shape(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
+        """anf and lia should be float32."""
+        mock_compute_gamma.return_value = 5
+        _, _, _, bbox_radar = compute_rtc_ap(
+            csr_matrix=area_proj_csr_matrix,
+            simulation=area_proj_simulation,
+            radar_grid_pixel_area=1.0,
+            normal_order=True,
+            bbox=area_proj_bbox_int,
+        )
+        assert bbox_radar.shape == (4,)
+
+    @patch("cop_ard_core.area_projection.computeGammaNaughtArea")
+    def test_compute_rtc_ap_bbox_radar_coordinate_values(
+        self, mock_compute_gamma, area_proj_csr_matrix, area_proj_simulation, area_proj_bbox_int
+    ):
+        """anf and lia should be float32."""
+        mock_compute_gamma.return_value = 5
+        _, _, _, bbox_radar = compute_rtc_ap(
+            csr_matrix=area_proj_csr_matrix,
+            simulation=area_proj_simulation,
+            radar_grid_pixel_area=1.0,
+            normal_order=True,
+            bbox=area_proj_bbox_int,
+        )
+        assert np.all(bbox_radar >= 0)
 
 
 # ===========================================================================

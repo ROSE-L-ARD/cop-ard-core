@@ -1,8 +1,14 @@
+"""
+Enhanced Spectral Diversity (ESD) processing.
+"""
+
+import itertools
+
 import numpy as np
 import scipy.sparse
 import xarray as xr
 from numba import njit
-import itertools
+
 from cop_ard_core.utils import compute_interf_norm, wrap
 
 
@@ -15,7 +21,10 @@ def compute_shift(
     multilook: dict,
     coherence_threshold: float,
 ) -> tuple[xr.DataArray, xr.DataArray]:
-
+    """
+    Compute the mean interferometric phase and coherence between two
+    burst/reference pairs over their common area.
+    """
     # output initialization #
     coords = acquisition_id.coords
     data = np.full(acquisition_id.size, np.nan)
@@ -61,7 +70,10 @@ def compute_azimuth_shifts(
     multilook: dict = {"azimuth_pixel": 4, "slant_range_time": 16},
     coherence_threshold: float = 0.7,
 ):
-
+    """
+    Compute ESD azimuth shifts for two overlapping bursts:
+    mean phase, coherence, wrap cycle, and mean shift.
+    """
     # Computation of doppler frequency at the burst overlap #
     annot0 = burst0.attrs[list(burst0.attrs)[0]]
     coeffs0 = annot0["Grid"]["Col"]["DeltaKCOAPoly"]["Coefs"]
@@ -115,6 +127,10 @@ def compute_azimuth_shifts(
 
 
 def optimize_curvature(esd, poly_degree: int):
+    """
+    Fit and remove a polynomial trend from the ESD mean phase, unwrap it, and
+    update the mean shift in pixel units.
+    """
     # extract valid indices
     ind = np.where(np.isfinite(esd["mean_phase"].values))[0]
 
@@ -153,15 +169,27 @@ def optimize_curvature(esd, poly_degree: int):
 
 @njit(cache=True)
 def compute_phase(param, y, A):
+    """
+    Compute the negative magnitude of the summed complex phase residuals, to be
+    maximized (minimized as a negative cost) by the optimizer.
+    """
     return -np.abs(np.sum(np.exp(1j * (y - param @ A))))
 
 
 @njit(cache=True)
 def angle_phase(param, y, A):
+    """
+    Compute the angle of the summed complex phase residuals, used as the
+    constant phase offset in the model.
+    """
     return np.angle(np.sum(np.exp(1j * (y - param @ A))))
 
 
 def optimize_phase(params, y, A, maxcorr: float = 3 * np.pi):
+    """
+    Exhaustively search candidate phase parameters (bounded by maxcorr) and
+    return the parameter set maximizing the summed complex coherence.
+    """
     opt_param = np.array([p[0] for p in params], dtype=float)
     opt_res = compute_phase(opt_param, y, A)
     for param_tuple in itertools.product(*params):

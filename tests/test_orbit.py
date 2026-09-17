@@ -115,7 +115,7 @@ class TestBuildOrbitDataset:
         root2.append(list_osvs2)
 
         with pytest.raises(RuntimeError, match="same orbit type"):
-            build_orbit_dataset([tree1, tree2])  # type: ignore not worth the time to investigate etree typing
+            build_orbit_dataset([tree1, tree2])  # type: ignore
 
     def test_build_orbit_dataset_missing_osv_raises(self):
         """Orbit file without List_of_OSVs should raise ValueError."""
@@ -127,7 +127,7 @@ class TestBuildOrbitDataset:
         root.append(file_type)
 
         with pytest.raises(ValueError, match="error reading orbit file"):
-            build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
+            build_orbit_dataset([tree])  # type: ignore
 
     def test_build_orbit_dataset_with_many_observations(self):
         """Should handle many orbit observations."""
@@ -154,7 +154,7 @@ class TestBuildOrbitDataset:
         root.append(list_osvs)
         tree = ElementTree(root)
 
-        result = build_orbit_dataset([tree])  # type: ignore not worth the time to investigate etree typing
+        result = build_orbit_dataset([tree])  # type: ignore
         assert result.position.shape == (100, 3)
 
 
@@ -165,7 +165,7 @@ class TestRefitOrbitCoefficients:
         """None orbit should return None."""
         result = refit_orbit_coefficients(
             burst_id="test_burst",
-            acquisition_date="2020-01-01",
+            acquisition_id="2020-01-01",
             orbit=None,
             t0=np.datetime64("2020-01-01", "ns"),
             reference_time=np.array(["2020-01-01"], dtype="datetime64[ns]"),
@@ -213,7 +213,7 @@ class TestRefitOrbitCoefficients:
 
         result = refit_orbit_coefficients(
             burst_id="test_burst",
-            acquisition_date="2020-01-01",
+            acquisition_id="2020-01-01",
             orbit=orbit,
             t0=t0,
             reference_time=reference_time,
@@ -224,7 +224,7 @@ class TestRefitOrbitCoefficients:
         assert "coeffs" in result.data_vars
 
     def test_refit_orbit_coefficients_returns_correct_dims(self):
-        """Output should have dims: acquisition_date, degree, axis."""
+        """Output should have dims: acquisition_id, degree, axis."""
         utc = np.array(
             [
                 "2020-01-01T00:00:00",
@@ -258,7 +258,7 @@ class TestRefitOrbitCoefficients:
 
         result = refit_orbit_coefficients(
             burst_id="test",
-            acquisition_date="2020-01-01",
+            acquisition_id="2020-01-01",
             orbit=orbit,
             t0=t0,
             reference_time=reference_time,
@@ -267,5 +267,5 @@ class TestRefitOrbitCoefficients:
 
         assert result is not None
         assert "coeffs" in result
-        assert result.coeffs.dims == ("acquisition_date", "degree", "axis")
+        assert result.coeffs.dims == ("acquisition_id", "degree", "axis")
         assert result.coeffs.shape[1] == 3  # degree 0, 1, 2

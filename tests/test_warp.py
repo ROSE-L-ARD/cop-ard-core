@@ -24,7 +24,6 @@ from cop_ard_core.warp import (
     sinc,
     sinc_warp,
     warp_dazdrg,
-    warp_gslc,
 )
 
 
@@ -593,7 +592,7 @@ class TestDotNumba:
         b = np.array([3.0, 4.0], dtype=np.float32)
         c = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         result = _dot_numba(a, b, c)
-        assert result == result.dtype.type(result)
+        assert result == a.dtype.type(result)
 
     def test_dot_numba_zero_vector(self):
         """Zero vector should give zero result."""
@@ -1906,13 +1905,13 @@ class TestGridDataBlock:
         sr = np.arange(n_sr) * 0.5
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         return daz, drg, acq, az, sr
 
@@ -1922,8 +1921,8 @@ class TestGridDataBlock:
         # Create simulation with matching structure
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -1945,8 +1944,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -1964,12 +1963,12 @@ class TestGridDataBlock:
         assert isinstance(result_drg, xr.DataArray)
 
     def test_grid_data_block_single_acquisition_dims_preserved(self):
-        """Single acquisition should preserve input dimensions (acquisition_date, azimuth_time, slant_range_time)."""
+        """Single acquisition should preserve input dimensions (acquisition_id, azimuth_time, slant_range_time)."""
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=4, n_sr=5)
         sim_data = xr.DataArray(
             np.zeros((1, 4, 5)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -1983,16 +1982,16 @@ class TestGridDataBlock:
             np.datetime64("2020-01-01T00:00:00"),
             0.0,
         )
-        assert result_daz.dims == ("acquisition_date", "azimuth_time", "slant_range_time")
-        assert result_drg.dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+        assert result_daz.dims == ("acquisition_id", "azimuth_time", "slant_range_time")
+        assert result_drg.dims == ("acquisition_id", "azimuth_time", "slant_range_time")
 
     def test_grid_data_block_single_acquisition_shape(self):
         """Single acquisition should preserve input shape."""
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=6, n_sr=8)
         sim_data = xr.DataArray(
             np.zeros((1, 6, 8)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2014,8 +2013,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2036,8 +2035,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2058,8 +2057,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2091,13 +2090,13 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Create simulation with varying azimuth/range times across acquisitions
         sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
@@ -2109,13 +2108,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i + k) * 0.25
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2144,13 +2143,13 @@ class TestGridDataBlock:
         sr = np.arange(n_sr) * 0.5
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Build properly typed simulation data for multi-acquisition case
         sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
@@ -2162,13 +2161,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i * 5 + k) * 0.25
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # bbox must match (n_az, n_sr) since that's the shape of the simulation data
         result_daz, result_drg = grid_data_block(
@@ -2196,13 +2195,13 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Build properly typed simulation data
         sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
@@ -2214,13 +2213,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2245,13 +2244,13 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((n_acq, 3, 3), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, 3, 3), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Build properly typed simulation data
         sim_az_data = np.zeros((n_acq, 3, 3), dtype="datetime64[ns]")
@@ -2263,13 +2262,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i * 3 + k) * 0.25
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2294,18 +2293,18 @@ class TestGridDataBlock:
         sr = np.arange(n_sr) * 0.5
         daz = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_data = xr.DataArray(
             np.zeros((1, n_az, n_sr)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2329,8 +2328,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2361,8 +2360,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2384,8 +2383,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2409,8 +2408,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2432,8 +2431,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2460,13 +2459,13 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Simulation data with distinct values per acquisition
         sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
@@ -2478,13 +2477,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i * 10 + k) * 0.1
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Use "2020-01-05" as reference date
         result_daz, result_drg = grid_data_block(
@@ -2510,8 +2509,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2532,8 +2531,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Pass datetime with different resolution
         result_daz, result_drg = grid_data_block(
@@ -2556,8 +2555,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.array([[[np.nan, 0.0, 1.0], [0.0, np.nan, 0.0], [1.0, 0.0, np.nan]]]),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2581,8 +2580,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.array([[[np.inf, 0.0, -np.inf], [0.0, 1.0, 0.0], [0.0, 0.0, np.inf]]]),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2610,18 +2609,18 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_data = xr.DataArray(
             np.zeros((1, n_az, n_sr)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2643,8 +2642,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=3, n_sr=5)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 5)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2666,8 +2665,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=5, n_sr=7)
         sim_data = xr.DataArray(
             np.zeros((1, 5, 7)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2693,18 +2692,18 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
             daz_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             drg_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_data = xr.DataArray(
             np.zeros((n_acq, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2732,13 +2731,13 @@ class TestGridDataBlock:
         sr = np.array([0.0, 0.5, 1.0], dtype=np.float64)
         daz = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((n_acq, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Simulation: each acquisition has increasing time offsets
         sim_az_data = np.zeros((n_acq, n_az, n_sr), dtype="datetime64[ns]")
@@ -2750,13 +2749,13 @@ class TestGridDataBlock:
                     sim_sr_data[i, j, k] = float(i * 10 + k) * 0.5
         sim_az = xr.DataArray(
             sim_az_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_sr = xr.DataArray(
             sim_sr_data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         # Use "2020-01-10" as reference (index 2)
         result_daz, result_drg = grid_data_block(
@@ -2773,8 +2772,8 @@ class TestGridDataBlock:
         )
         assert result_daz.shape == (n_acq, n_az, n_sr)
         assert result_drg.shape == (n_acq, n_az, n_sr)
-        np.testing.assert_array_equal(result_daz.sel(acquisition_date="2020-01-10"), 0)
-        np.testing.assert_array_equal(result_drg.sel(acquisition_date="2020-01-10"), 0)
+        np.testing.assert_array_equal(result_daz.sel(acquisition_id="2020-01-10"), 0)
+        np.testing.assert_array_equal(result_drg.sel(acquisition_id="2020-01-10"), 0)
         assert np.all(np.abs(result_daz.values[[0, 1, 3], ...]) > 0)
         assert np.all(np.abs(result_drg.values[[0, 1, 3], ...]) > 0)
 
@@ -2783,8 +2782,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=5, n_sr=5)
         sim_data = xr.DataArray(
             np.zeros((1, 5, 5)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2808,8 +2807,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1, n_az=n_az, n_sr=n_sr)
         sim_data = xr.DataArray(
             np.zeros((1, n_az, n_sr)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2835,18 +2834,18 @@ class TestGridDataBlock:
         sr = np.arange(n_sr) * 0.5
         daz = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype="timedelta64[ns]"),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         drg = xr.DataArray(
             np.zeros((1, n_az, n_sr), dtype=np.float64),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         sim_data = xr.DataArray(
             np.zeros((1, n_az, n_sr)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2868,8 +2867,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result = grid_data_block(
             daz,
@@ -2891,8 +2890,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2914,8 +2913,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2937,8 +2936,8 @@ class TestGridDataBlock:
         daz, drg, acq, az, sr = self._make_mock_daz_drg(n_acq=1)
         sim_data = xr.DataArray(
             np.zeros((1, 3, 3)),
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
-            coords={"acquisition_date": acq, "azimuth_time": az, "slant_range_time": sr},
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={"acquisition_id": acq, "azimuth_time": az, "slant_range_time": sr},
         )
         result_daz, result_drg = grid_data_block(
             daz,
@@ -2954,314 +2953,6 @@ class TestGridDataBlock:
         )
         assert result_daz.shape == (1, 3, 3)
         assert result_drg.shape == (1, 3, 3)
-
-
-class TestWarpGslc:
-    """Tests for the warp_gslc function.
-
-    Uses warp_gslc_all_inputs fixture from conftest.py which provides properly
-    aligned test data (15x15 grid, datetime64 coords, RMA metadata, full kernel).
-    """
-
-    def test_warp_gslc_returns_dataset(self, warp_gslc_all_inputs):
-        """warp_gslc should return an xr.Dataset."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert isinstance(result, xr.Dataset)
-
-    def test_warp_gslc_has_gstack_variable(self, warp_gslc_all_inputs):
-        """Output dataset should contain 'gstack' data variable."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert "gstack" in result.data_vars
-
-    def test_warp_gslc_has_phase_model_variable(self, warp_gslc_all_inputs):
-        """Output dataset should contain 'phase_model' data variable."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert "phase_model" in result.data_vars
-
-    def test_warp_gslc_gstack_shape(self, warp_gslc_all_inputs):
-        """gstack output shape should match input gstack dims."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert result["gstack"].dims == warp_gslc_all_inputs["gstack"].dims
-
-    def test_warp_gslc_phase_model_shape(self, warp_gslc_all_inputs):
-        """phase_model output shape should match input gphase_model dims."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert result["phase_model"].dims == warp_gslc_all_inputs["gphase_model"].dims
-
-    def test_warp_gslc_gstack_dtype(self, warp_gslc_all_inputs):
-        """gstack output dtype should match input gstack dtype (complex128)."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert result["gstack"].dtype == np.complex128
-
-    def test_warp_gslc_phase_model_dtype(self, warp_gslc_all_inputs):
-        """phase_model output dtype should be float64."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        assert result["phase_model"].dtype == np.float64
-
-    def test_warp_gslc_gstack_coords_preserved(self, warp_gslc_all_inputs):
-        """Output gstack should preserve input coordinates."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        for dim in warp_gslc_all_inputs["gstack"].dims:
-            assert dim in result["gstack"].coords or dim in result["gstack"].dims
-
-    def test_warp_gslc_phase_model_coords_preserved(self, warp_gslc_all_inputs):
-        """Output phase_model should preserve input coordinates."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(**inputs, dtaz=1e9, dtrg=1.0, scp_idx=(7, 7))
-        for dim in warp_gslc_all_inputs["gphase_model"].dims:
-            assert dim in result["phase_model"].coords or dim in result["phase_model"].dims
-
-    def test_warp_gslc_reramp_on(self, warp_gslc_all_inputs):
-        """warp_gslc with do_reramp=True should complete without error."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["phase_demod"] = inputs["phase_demod"].assign_attrs(
-            {
-                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-                "deg": {"slant_range_time": 1, "azimuth_time": 1},
-            }
-        )
-        inputs["do_reramp"] = True
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-        assert "gstack" in result.data_vars
-
-    def test_warp_gslc_reramp_off(self, warp_gslc_all_inputs):
-        """warp_gslc with do_reramp=False should complete without error."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["phase_demod"] = inputs["phase_demod"].assign_attrs(
-            {
-                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-                "deg": {"slant_range_time": 1, "azimuth_time": 1},
-            }
-        )
-        inputs["do_reramp"] = False
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-
-    def test_warp_gslc_gamma_flattening_on(self, warp_gslc_all_inputs):
-        """warp_gslc with gamma_flattening=True should complete without error."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["phase_demod"] = inputs["phase_demod"].assign_attrs(
-            {
-                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-                "deg": {"slant_range_time": 1, "azimuth_time": 1},
-            }
-        )
-        inputs["gamma_flattening"] = True
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-
-    def test_warp_gslc_gamma_flattening_off(self, warp_gslc_all_inputs):
-        """warp_gslc with gamma_flattening=False should complete without error."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["phase_demod"] = inputs["phase_demod"].assign_attrs(
-            {
-                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-                "deg": {"slant_range_time": 1, "azimuth_time": 1},
-            }
-        )
-        inputs["gamma_flattening"] = False
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-
-    def test_warp_gslc_both_reramp_and_gamma(self, warp_gslc_all_inputs):
-        """warp_gslc with both reramp and gamma flattening enabled should work."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["phase_demod"] = inputs["phase_demod"].assign_attrs(
-            {
-                "reference": {"slant_range_time": 0.0, "azimuth_time": "2020-01-01T00:00:00"},
-                "scale": {"slant_range_time": 1.0, "azimuth_time": 1.0},
-                "deg": {"slant_range_time": 1, "azimuth_time": 1},
-            }
-        )
-        inputs["do_reramp"] = True
-        inputs["gamma_flattening"] = True
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-        assert "gstack" in result.data_vars
-        assert "phase_model" in result.data_vars
-
-    def test_warp_gslc_output_dataset_vars(self, warp_gslc_all_inputs):
-        """Output dataset should have exactly 2 data variables."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert set(result.data_vars) == {"gstack", "phase_model"}
-
-    def test_warp_gslc_type_gstack_is_dataarray_in_dataset(self, warp_gslc_all_inputs):
-        """gstack variable in output should be accessible as DataArray."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        gstack_var = result["gstack"]
-        assert isinstance(gstack_var, xr.DataArray)
-
-    def test_warp_gslc_output_no_nan_in_gstack(self, warp_gslc_all_inputs):
-        """warp_gslc output gstack should not contain NaN values."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert not np.any(np.isnan(result["gstack"].values))
-
-    def test_warp_gslc_output_no_nan_in_phase_model(self, warp_gslc_all_inputs):
-        """warp_gslc output phase_model should not contain NaN values."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert not np.any(np.isnan(result["phase_model"].values))
-
-    def test_warp_gslc_output_no_inf_in_gstack(self, warp_gslc_all_inputs):
-        """warp_gslc output gstack should not contain Inf values."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert not np.any(np.isinf(result["gstack"].values))
-
-    def test_warp_gslc_output_no_inf_in_phase_model(self, warp_gslc_all_inputs):
-        """warp_gslc output phase_model should not contain Inf values."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert not np.any(np.isinf(result["phase_model"].values))
-
-    def test_warp_gslc_kwargs_passed_through(self, warp_gslc_all_inputs):
-        """warp_gslc should accept and use kwargs like method."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-            method="linear",
-        )
-        assert isinstance(result, xr.Dataset)
-
-    def test_warp_gslc_output_isfinite_values(self, warp_gslc_all_inputs):
-        """All values in output should be finite."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert np.all(np.isfinite(result["gstack"].values))
-        assert np.all(np.isfinite(result["phase_model"].values))
-
-    def test_warp_gslc_consistent_with_multiple_acquisitions(self, warp_gslc_all_inputs):
-        """warp_gslc with multiple acquisitions should process each date."""
-        inputs = dict(warp_gslc_all_inputs)
-        inputs["do_reramp"] = False
-        inputs["gamma_flattening"] = False
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert result["gstack"].shape[1] == 3  # 3 acquisition dates
-        assert result["phase_model"].shape[0] == 3
-
-    @pytest.mark.parametrize(
-        "kernel_shape",
-        [(3, 3), (5, 5), (7, 7)],
-    )
-    def test_warp_gslc_various_kernel_sizes(self, warp_gslc_all_inputs, kernel_shape):
-        """warp_gslc should handle various kernel sizes."""
-        from cop_ard_core.warp import sinc
-
-        inputs = dict(warp_gslc_all_inputs)
-        ov_fact = 100
-        inputs["kernel"] = {
-            "kernel_shape": kernel_shape,
-            "ov_fact": ov_fact,
-            "sinc_x": sinc(size=kernel_shape[1], ov_fact=ov_fact),
-            "sinc_y": sinc(size=kernel_shape[0], ov_fact=ov_fact),
-        }
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=(7, 7),
-        )
-        assert isinstance(result, xr.Dataset)
-        assert result["gstack"].shape == warp_gslc_all_inputs["gstack"].shape
-
-    @pytest.mark.parametrize(
-        "scp_idx",
-        [(3, 3), (7, 7), (10, 10)],
-    )
-    def test_warp_gslc_various_scp_indices(self, warp_gslc_all_inputs, scp_idx):
-        """warp_gslc should handle various SCP index values."""
-        inputs = dict(warp_gslc_all_inputs)
-        result = warp_gslc(
-            **inputs,
-            dtaz=1e9,
-            dtrg=1.0,
-            scp_idx=scp_idx,
-        )
-        assert isinstance(result, xr.Dataset)
 
 
 class TestWarpDazdrg:
@@ -3295,13 +2986,13 @@ class TestWarpDazdrg:
         assert result["drg"].dtype == np.float64
 
     def test_warp_dazdrg_dims_preserved(self, warp_dazdrg_inputs):
-        """Output dims should match the cstack dimensions (acquisition_date, azimuth_time, slant_range_time)."""
+        """Output dims should match the cstack dimensions (acquisition_id, azimuth_time, slant_range_time)."""
         result = warp_dazdrg(**warp_dazdrg_inputs)
-        assert result["daz"].dims == ("acquisition_date", "azimuth_time", "slant_range_time")
-        assert result["drg"].dims == ("acquisition_date", "azimuth_time", "slant_range_time")
+        assert result["daz"].dims == ("acquisition_id", "azimuth_time", "slant_range_time")
+        assert result["drg"].dims == ("acquisition_id", "azimuth_time", "slant_range_time")
 
     def test_warp_dazdrg_shape_matches_cstack(self, warp_dazdrg_inputs):
-        """Output shape should match the cstack shape (daz/drg are 3D with acquisition_date)."""
+        """Output shape should match the cstack shape (daz/drg are 3D with acquisition_id)."""
         cstack = warp_dazdrg_inputs["cstack"]
         result = warp_dazdrg(**warp_dazdrg_inputs)
         assert result["daz"].shape == cstack.shape
@@ -3311,16 +3002,16 @@ class TestWarpDazdrg:
         """Output coordinates should match cstack coordinates."""
         cstack = warp_dazdrg_inputs["cstack"]
         result = warp_dazdrg(**warp_dazdrg_inputs)
-        for dim in ["acquisition_date", "azimuth_time", "slant_range_time"]:
+        for dim in ["acquisition_id", "azimuth_time", "slant_range_time"]:
             xr.testing.assert_identical(result["daz"].coords[dim], cstack.coords[dim])
             xr.testing.assert_identical(result["drg"].coords[dim], cstack.coords[dim])
 
     def test_warp_dazdrg_single_acquisition(self, warp_dazdrg_inputs):
         """Single acquisition cstack should not error."""
         inputs = dict(warp_dazdrg_inputs)
-        cstack = inputs["cstack"].isel(acquisition_date=slice(0, 1))
+        cstack = inputs["cstack"].isel(acquisition_id=slice(0, 1))
         inputs["cstack"] = cstack
-        inputs["coregistration_reference_date"] = str(cstack.acquisition_date.values[0])
+        inputs["coregistration_reference_id"] = str(cstack.acquisition_id.values[0])
         # Update daz/drg to match new cstack shape
         inputs["daz"] = xr.DataArray(
             np.zeros(cstack.shape, dtype="timedelta64[ns]"),
@@ -3371,15 +3062,15 @@ class TestWarpDazdrg:
         assert np.all(np.isfinite(daz_as_int))
 
     def test_warp_dazdrg_reference_date_selection(self, warp_dazdrg_inputs):
-        """Should use coregistration_reference_date to select simulation data."""
+        """Should use coregistration_reference_id to select simulation data."""
         inputs = dict(warp_dazdrg_inputs)
         cstack = inputs["cstack"]
         result = warp_dazdrg(**inputs)
         # Reference date should have near-zero shifts relative to itself
-        ref_date = inputs["coregistration_reference_date"]
-        ref_idx = list(cstack.acquisition_date.values).index(np.datetime64(ref_date))
+        ref_date = inputs["coregistration_reference_id"]
+        ref_idx = list(cstack.acquisition_id.values).index(np.datetime64(ref_date))
         # The reference date shift should be near zero
-        assert result["drg"].isel(acquisition_date=ref_idx).values is not None
+        assert result["drg"].isel(acquisition_id=ref_idx).values is not None
 
     @pytest.mark.parametrize("az_spacing", [0.1, 0.5, 1.0, 2.0])
     @pytest.mark.parametrize("rg_spacing", [0.01, 0.1, 0.5, 1.0])
@@ -3424,9 +3115,9 @@ class TestWarpDazdrg:
     def test_warp_dazdrg_all_zeros_single_acquisition(self, warp_dazdrg_inputs):
         """Single acquisition with identical simulation should produce zero shifts."""
         inputs = dict(warp_dazdrg_inputs)
-        cstack = inputs["cstack"].isel(acquisition_date=slice(0, 1))
+        cstack = inputs["cstack"].isel(acquisition_id=slice(0, 1))
         inputs["cstack"] = cstack
-        inputs["coregistration_reference_date"] = str(cstack.acquisition_date.values[0])
+        inputs["coregistration_reference_id"] = str(cstack.acquisition_id.values[0])
 
         # Use the same simulation for reference and secondary (no shifts expected)
         inputs["simulation_secondary"] = None
@@ -3437,9 +3128,9 @@ class TestWarpDazdrg:
         np.testing.assert_array_equal(result["drg"].values, 0.0)
 
     def test_warp_dazdrg_acquisition_coord_type(self, warp_dazdrg_inputs):
-        """acquisition_date coordinate should be datetime64."""
+        """acquisition_id coordinate should be datetime64."""
         result = warp_dazdrg(**warp_dazdrg_inputs)
-        assert np.issubdtype(result["daz"].coords["acquisition_date"].dtype, np.datetime64)
+        assert np.issubdtype(result["daz"].coords["acquisition_id"].dtype, np.datetime64)
 
     def test_warp_dazdrg_azimuth_time_coord_type(self, warp_dazdrg_inputs):
         """azimuth_time coordinate should be datetime64."""
@@ -3491,9 +3182,9 @@ class TestWarpDazdrg:
             data[i] = (1.0 + 0.1j) * (i + 1)
         cstack = xr.DataArray(
             data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
             coords={
-                "acquisition_date": cstack.acquisition_date,
+                "acquisition_id": cstack.acquisition_id,
                 "azimuth_time": np.array(
                     [
                         np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
@@ -3528,9 +3219,9 @@ class TestWarpDazdrg:
             data[i] = (1.0 + 0.1j) * (i + 1)
         cstack = xr.DataArray(
             data,
-            dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+            dims=["acquisition_id", "azimuth_time", "slant_range_time"],
             coords={
-                "acquisition_date": cstack.acquisition_date,
+                "acquisition_id": cstack.acquisition_id,
                 "azimuth_time": np.array(
                     [
                         np.datetime64("2020-01-01T00:00:00", "ns") + np.timedelta64(i * 1000000000, "ns")
@@ -3755,14 +3446,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -3770,6 +3455,7 @@ class TestComputeSecondaryImageCoordinates:
         # Poly with zero coefficients
         y_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -3779,6 +3465,7 @@ class TestComputeSecondaryImageCoordinates:
         # Poly with non-zero constant coefficient (should shift all values)
         y_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -3830,20 +3517,15 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         x_poly_zero = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -3851,6 +3533,7 @@ class TestComputeSecondaryImageCoordinates:
         )
         x_poly_nonzero = xr.DataArray(np.ones((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -3911,20 +3594,15 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -3932,6 +3610,7 @@ class TestComputeSecondaryImageCoordinates:
         )
         x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(0.0), np.float64(0.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -4086,98 +3765,6 @@ class TestComputeSecondaryImageCoordinates:
         coreg_az = csi_coreg_az.values.astype("float64") / 1e9
         az_out_float = np.asarray(az_out, dtype="float64") / 1e9
         np.testing.assert_allclose(az_out_float, coreg_az, atol=1e-6)
-
-    def test_csi_invalid_coord_type_raises(self):
-        """Invalid coord_type in polynomial should raise RuntimeError."""
-
-        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
-        rg = np.arange(4, dtype=np.float64) * 0.5
-        slc = xr.DataArray(
-            np.ones((5, 4), dtype=np.complex128),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": az, "slant_range_time": rg},
-        )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
-        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
-        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
-
-        bad_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {
-                "offset": [np.float64(0.0), np.float64(0.0)],
-                "scale_fact": [np.float64(1.0), np.float64(1.0)],
-                "type": "invalid",
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
-            compute_secondary_image_coordinates(
-                coreg_azimuth_time=coreg_az,
-                coreg_slant_range_time=coreg_rg,
-                slc=slc,
-                etad_correction_grid=etad,
-                daz=daz,
-                drg=drg,
-                azimuth_grid_spacing=1.0,
-                range_grid_spacing=0.5,
-                y_poly=bad_poly,
-                x_poly=None,
-                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
-            )
-
-    def test_csi_invalid_coord_type_in_x_poly_raises(self):
-        """Invalid coord_type in x_poly should also raise RuntimeError."""
-
-        base_epoch = np.datetime64("2020-01-01T00:00:00", "ns")
-        az = np.array([base_epoch + np.timedelta64(i * 1_000_000_000, "ns") for i in range(5)], dtype="datetime64[ns]")
-        rg = np.arange(4, dtype=np.float64) * 0.5
-        slc = xr.DataArray(
-            np.ones((5, 4), dtype=np.complex128),
-            dims=["azimuth_time", "slant_range_time"],
-            coords={"azimuth_time": az, "slant_range_time": rg},
-        )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
-        drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
-        etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
-
-        bad_x = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
-            {
-                "offset": [np.float64(0.0), np.float64(0.0)],
-                "scale_fact": [np.float64(1.0), np.float64(1.0)],
-                "type": "bogus",
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="Invalid coordinate type"):
-            compute_secondary_image_coordinates(
-                coreg_azimuth_time=coreg_az,
-                coreg_slant_range_time=coreg_rg,
-                slc=slc,
-                etad_correction_grid=etad,
-                daz=daz,
-                drg=drg,
-                azimuth_grid_spacing=1.0,
-                range_grid_spacing=0.5,
-                y_poly=None,
-                x_poly=bad_x,
-                offset={"azimuth_time": 0.0, "slant_range_time": 0.0},
-            )
 
     def test_csi_single_pixel_grid(self):
         """Single-pixel grid (1x1) should work without error."""
@@ -4349,20 +3936,15 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
 
         y_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(2.0), np.float64(1.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -4370,6 +3952,7 @@ class TestComputeSecondaryImageCoordinates:
         )
         x_poly = xr.DataArray(np.zeros((2, 2)), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(2.0), np.float64(1.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -4597,14 +4180,8 @@ class TestComputeSecondaryImageCoordinates:
             dims=["azimuth_time", "slant_range_time"],
             coords={"azimuth_time": az, "slant_range_time": rg},
         )
-        coreg_az = xr.DataArray(
-            np.array([[az[i] for _ in range(4)] for i in range(5)], dtype="datetime64[ns]"),
-            dims=["azimuth_time", "slant_range_time"],
-        )
-        coreg_rg = xr.DataArray(
-            np.array([[rg[j] for j in range(4)] for i in range(5)], dtype=np.float64),
-            dims=["azimuth_time", "slant_range_time"],
-        )
+        coreg_az = xr.DataArray(az, dims=["azimuth_time"])
+        coreg_rg = xr.DataArray(rg, dims=["slant_range_time"])
         daz = xr.DataArray(np.zeros((5, 4), dtype="timedelta64[ns]"), dims=["azimuth_time", "slant_range_time"])
         drg = xr.DataArray(np.zeros((5, 4), dtype=np.float64), dims=["azimuth_time", "slant_range_time"])
         etad = xr.Dataset(coords={"azimuth_time": az, "slant_range_time": rg})
@@ -4612,6 +4189,7 @@ class TestComputeSecondaryImageCoordinates:
         # Use pixel mode with non-zero offsets and non-zero poly
         y_poly = xr.DataArray(np.array([[1.0, 0.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(2.0), np.float64(1.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",
@@ -4619,6 +4197,7 @@ class TestComputeSecondaryImageCoordinates:
         )
         x_poly = xr.DataArray(np.array([[0.0, 1.0], [0.0, 0.0]]), dims=["i", "j"]).assign_attrs(
             {
+                "off_y": 0,
                 "offset": [np.float64(1.0), np.float64(2.0)],
                 "scale_fact": [np.float64(1.0), np.float64(1.0)],
                 "type": "pixels",

@@ -1,3 +1,7 @@
+"""
+Coregistered Multi-Looked Phase (CMLP) processing
+"""
+
 from typing import Union
 
 import numpy as np
@@ -130,6 +134,10 @@ def get_current_reference(
     last_reference: xr.DataArray | None,
     stable_reference: xr.DataArray | None,
 ):
+    """
+    Select the most recent valid reference (last or stable) preceding the
+    current stack, returning it with its acquisition date.
+    """
     # 1. Parse cstack dates safely to datetime64[ns]
     dates_dt = cstack.acquisition_date.values.astype("datetime64[ns]")
     date = np.min(dates_dt)
@@ -200,6 +208,10 @@ def update_drift(
     posting: dict[str, int],
     coherence_threshold: float,
 ):
+    """
+    Fill empty (NaN) values in the drift interferogram with coherent normalized
+    interference values, returning the coherence array.
+    """
     # Calculate interference between history and current
     normalized_vals = get_normalized_interf(reference, stable_reference, posting).values
     coherence = np.abs(normalized_vals)

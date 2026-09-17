@@ -1,11 +1,20 @@
+"""
+Shared utilities for SLC processing: rolling multilook, interferogram
+computation and normalization, phase wrapping, and coregistration helpers.
+"""
+
 import copy
 
 import numpy as np
 import xarray as xr
 from scipy.constants import speed_of_light
 
-def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict) -> xr.DataArray:
 
+def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict) -> xr.DataArray:
+    """
+    Multilook (rolling mean) the input at the given target coordinates using
+    the given window sizes.
+    """
     win_dims = {k: f"win_{k}" for k in multilook}
 
     # 1. Apply a rolling mean (moving window)
@@ -21,8 +30,14 @@ def rolling_ml(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dic
 
     return res
 
-def rolling_kernel(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray) -> xr.DataArray:
 
+def rolling_kernel(
+    a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook: dict, kernel: np.ndarray
+) -> xr.DataArray:
+    """
+    Apply a 2D kernel (convolution) via rolling windows sampled at the target
+    coordinates, summing the kernel-weighted window.
+    """
     win_dims = {k: f"win_{k}" for k in multilook}
 
     # 1. Apply a rolling mean (moving window)
@@ -43,7 +58,10 @@ def rolling_kernel(a: xr.DataArray, x: xr.DataArray, y: xr.DataArray, multilook:
 
 
 def get_interf(a: xr.DataArray, b: xr.DataArray, posting: dict[str, int]):
-
+    """
+    Compute the complex interferogram between two SLCs and multilook it with
+    the given posting factors.
+    """
     multilook = {k: v * 2 for k, v in posting.items()}
     win_dims = {k: f"win_{k}" for k in multilook}
     slices = {k: slice(v - 1, None, posting[k]) for k, v in multilook.items()}
@@ -67,7 +85,13 @@ def get_normalized_interf(
     b: xr.DataArray,
     posting: dict[str, int],
 ) -> xr.DataArray:
-    return (get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting).real * get_interf(b, b, posting).real)).fillna(0j)
+    """
+    Compute the normalized interferogram (unit-magnitude coherence form)
+    between two SLCs, with invalid values filled with 0.
+    """
+    return (
+        get_interf(a, b, posting) / np.sqrt(get_interf(a, a, posting).real * get_interf(b, b, posting).real)
+    ).fillna(0j)
 
 
 def compute_interf(
@@ -75,14 +99,21 @@ def compute_interf(
     secondary: xr.DataArray,
     multilook: dict,
 ) -> xr.DataArray:
+    """
+    Compute the complex interferogram (reference conjugate times secondary)
+    and coarsen it with the given multilook factors.
+    """
     # complex multiplication and average #
     # consider only secondary image coordianates, as the reference image is assumed to be the same for all secondary images
-    return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()  # type: ignore  mean is injected dynamically
+    return (reference.conj() * secondary).coarsen(multilook, boundary="trim").mean()  # type: ignore
 
 
 def get_power(slc: xr.DataArray, multilook: dict):
+    """
+    Compute the multilooked power (intensity) of an SLC.
+    """
     # compute the image power and average
-    return (slc * slc.conj()).real.coarsen(multilook, boundary="trim").mean()  # type: ignore mean is injected dynamically
+    return (slc * slc.conj()).real.coarsen(multilook, boundary="trim").mean()  # type: ignore
 
 
 def compute_interf_norm(
@@ -90,6 +121,10 @@ def compute_interf_norm(
     secondary: xr.DataArray,
     multilook: dict,
 ) -> xr.DataArray:
+    """
+    Compute the normalized interferogram between a reference and a secondary
+    SLC, filling invalid values with 0.
+    """
     # compute interferogram #
     num = compute_interf(reference, secondary, multilook)
 
@@ -105,6 +140,9 @@ def compute_interf_norm(
 
 
 def wrap(v: np.ndarray, w: float = 2 * np.pi):
+    """
+    Wrap values into the interval (-w/2, w/2].
+    """
     w_ = w / 2.0
     return ((v + w_) % w) - w_
 
@@ -119,13 +157,22 @@ def get_coordinates(y, x, alpha, beta):
     # yy = (y - np.datetime64(int(alpha[0]), "ns")).astype(float) / beta[0]
     return (yy, xx)
 
+
 def get_daz_corr(coreg_azimuth_time, coreg_slant_range_time, y_poly):
+    """
+    Evaluate the azimuth coregistration polynomial on the given coordinates,
+    returning the per-pixel azimuth time correction.
+    """
     az_time_ = (coreg_azimuth_time - np.datetime64(y_poly.attrs["off_y"], "ns")).astype(float)
     c1, c2 = get_coordinates(az_time_, coreg_slant_range_time, y_poly.offset, y_poly.scale_fact)
     return np.polynomial.polynomial.polygrid2d(c1.values, c2.values, y_poly.values)
 
 
 def get_coeff_demod(dkcoa_polynomial_coeffs: np.ndarray):
+    """
+    Integrate the Doppler centroid offset polynomial and scale by 2*pi to get
+    the demodulation phase ramp coefficients.
+    """
     return (2 * np.pi) * np.polynomial.polynomial.polyint(dkcoa_polynomial_coeffs, axis=1)
 
 
@@ -142,9 +189,17 @@ def get_phramp_diff(
     scp_pixel_slant_range_time: np.float64,
     y_poly: xr.DataArray,
 ):
+    """
+    Compute the phase ramp difference between the corrected and uncorrected
+    azimuth positions, as a 2D polynomial phase ramp DataArray.
+    """
 
     # @timeit
     def poly_combine(rg, az_off, az_ori, coeff_demod):
+        """
+        Difference of the demodulation ramp evaluated at the corrected and
+        original azimuth offsets.
+        """
         return np.polynomial.polynomial.polyval2d(rg, az_off, coeff_demod) - np.polynomial.polynomial.polyval2d(
             rg, az_ori, coeff_demod
         )
@@ -298,7 +353,10 @@ def get_azimuth_time_raw(
     collection_start_time: np.datetime64,
     multilook: dict | None = None,
 ) -> xr.DataArray:
-
+    """
+    Compute the raw (uncorrected) azimuth time at each pixel from the
+    time-COA polynomial, as absolute datetime64 values.
+    """
     if multilook is not None:
         az_slice = slice(multilook["azimuth_time"] // 2, None, multilook["azimuth_time"])
         rg_slice = slice(multilook["slant_range_time"] // 2, None, multilook["slant_range_time"])

@@ -1,10 +1,14 @@
+"""
+Split-spectrum phase decomposition: joint unwrapping of low- and
+high-band sub-bands and separation of dispersive and non-dispersive phase.
+"""
+
 import numpy as np
 import xarray as xr
 
-from cop_ard_core.detrend import fit, fit_2d_poly, get_model_matrix, to_polygrid2d
-
-from cop_ard_core.unwrap import unwrap_phase
+from cop_ard_core.detrend import fit_2d_poly, to_polygrid2d
 from cop_ard_core.logger import timeit
+from cop_ard_core.unwrap import unwrap_phase
 
 
 def joint_unwrap(
@@ -91,9 +95,7 @@ def joint_unwrap(
     cohe_mask = xr.ufuncs.sqrt(mosaic_h_coherence * mosaic_l_coherence)
 
     # compute the average phase between the two sub-bands
-    ph_mean = xr.ufuncs.angle(
-        np.exp(1j * mosaic_h_phase) + np.exp(1j * mosaic_l_phase)
-    )
+    ph_mean = xr.ufuncs.angle(np.exp(1j * mosaic_h_phase) + np.exp(1j * mosaic_l_phase))
     ph_mean_unw = unwrap_phase(
         ph_mean,
         cohe_mask,
@@ -205,9 +207,7 @@ def joint_unwrap_delta_mean(
     cohe_mask = xr.ufuncs.sqrt(mosaic_h_coherence * mosaic_l_coherence)
 
     # compute the average phase between the two sub-bands and unwrap
-    phase_mean = xr.ufuncs.angle(
-        np.exp(1j * mosaic_h_phase) + np.exp(1j * mosaic_l_phase)
-    )
+    phase_mean = xr.ufuncs.angle(np.exp(1j * mosaic_h_phase) + np.exp(1j * mosaic_l_phase))
     phase_mean_unw = unwrap_phase(
         phase_mean,
         cohe_mask,
@@ -299,17 +299,11 @@ def split_spectrum_core(
     """
     # dispersive component
     phase_iono = (
-        (phase_unw_l * (f_h_tot / f0) - phase_unw_h * (f_l_tot / f0))
-        * (f_l_tot * f_h_tot)
-        / (f_h_tot**2 - f_l_tot**2)
+        (phase_unw_l * (f_h_tot / f0) - phase_unw_h * (f_l_tot / f0)) * (f_l_tot * f_h_tot) / (f_h_tot**2 - f_l_tot**2)
     )
 
     # non-dispersive component
-    phase_nd = (
-        (phase_unw_h * (f_h_tot / f0) - phase_unw_l * (f_l_tot / f0))
-        * f0
-        / (2 * (f_h_tot - f_l_tot))
-    )
+    phase_nd = (phase_unw_h * (f_h_tot / f0) - phase_unw_l * (f_l_tot / f0)) * f0 / (2 * (f_h_tot - f_l_tot))
 
     return phase_iono, phase_nd
 
@@ -569,19 +563,11 @@ def fit_ionosphere(
     y_ = (y_ - off_y).astype(float).ravel()
 
     # Flatten the ionospheric phase screen into a point cloud.
-    data = (
-        phase_iono.squeeze()
-        .stack(point=["azimuth_time", "slant_range_time"])
-        .values
-    )
+    data = phase_iono.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values
 
     # Flatten optional weights using the same ordering as the data.
     w_stack = (
-        weights.squeeze()
-        .stack(point=["azimuth_time", "slant_range_time"])
-        .values
-        if weights is not None
-        else None
+        weights.squeeze().stack(point=["azimuth_time", "slant_range_time"]).values if weights is not None else None
     )
 
     # Compute polynomial-fit coefficients.
@@ -701,9 +687,7 @@ def reconstruct_iono_surface(
 
     x_full = np.vstack([y_, x_]).T
 
-    x_full = (
-        x_full - poly_corr.attrs["offset"]
-    ) / poly_corr.attrs["scale_fact"]
+    x_full = (x_full - poly_corr.attrs["offset"]) / poly_corr.attrs["scale_fact"]
 
     # reconstruct the surface in correspondence of the coordinates x_full
     surf = np.polynomial.polynomial.polyval2d(

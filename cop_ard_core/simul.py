@@ -11,6 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+DEM-to-radar simulation: propagate the satellite orbit, geolocate ground
+points, and build the simulated radar acquisition grid (azimuth/slant-range
+times) for a given DEM.
+"""
+
 from typing import Container, Optional, Tuple, cast
 
 import dask.array as da
@@ -543,6 +549,11 @@ def backward_geocode(
     dim: str = "axis",
     conv_th: float = 1.0e-6,
 ) -> xr.Dataset:
+    """
+    Backward-geocode a DEM grid: for each ground point, solve for the azimuth
+    time at which the satellite range matches, returning a Dataset with
+    azimuth time, range, and velocity direction.
+    """
     if pos.attrs.get("referenceTime", None) is None:
         raise Exception("orbit reference time not defined")
     if pos.attrs.get("scaleTime", None) is None:

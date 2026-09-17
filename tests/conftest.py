@@ -99,7 +99,7 @@ def compute_shadow_h():
     y = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 3.5])
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
     h = xr.DataArray(np.full((len(y), len(x)), 100.0), dims=["y", "x"], coords={"y": y, "x": x})
-    h = h.expand_dims(acquisition_date=["2020-01-01"])
+    h = h.expand_dims(acquisition_id=["2020-01-01"])
     h.rio.write_crs("EPSG:4326", inplace=True)
     return h
 
@@ -111,7 +111,7 @@ def compute_shadow_dem_distance():
     x = np.array([-0.5, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5])
     data = np.full((len(y), len(x), 3), 5000.0, dtype=np.float64)
     dem_dist = xr.DataArray(data, dims=["y", "x", "coord"], coords={"y": y, "x": x})
-    dem_dist = dem_dist.expand_dims(acquisition_date=["2020-01-01"])
+    dem_dist = dem_dist.expand_dims(acquisition_id=["2020-01-01"])
     dem_dist.rio.write_crs("EPSG:4326", inplace=True)
     return dem_dist
 
@@ -131,7 +131,7 @@ def compute_shadow_azimuth_time():
     data = np.zeros((len(y), len(x)), dtype=np.float64)
     for j in range(len(y)):
         data[j, :] = float(j) * 0.01  # 0.01s = 1 pixel step
-    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_id=["2020-01-01"])
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def compute_shadow_slant_range_time():
     data = np.zeros((len(y), len(x)), dtype=np.float64)
     for i in range(len(x)):
         data[:, i] = float(i) * 0.5
-    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_date=["2020-01-01"])
+    return xr.DataArray(data, dims=["y", "x"]).expand_dims(acquisition_id=["2020-01-01"])
 
 
 @pytest.fixture
@@ -175,16 +175,16 @@ def compute_shadow_simulation_ml():
             "azimuth_time": xr.DataArray(az_min, dims=["y", "x"]),
             "slant_range_time": xr.DataArray(sr_min, dims=["y", "x"]),
         },
-        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]")},
     )
     max_ds = xr.Dataset(
         {
             "azimuth_time": xr.DataArray(az_max, dims=["y", "x"]),
             "slant_range_time": xr.DataArray(sr_max, dims=["y", "x"]),
         },
-        coords={"y": coarse_y, "x": coarse_x, "acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]")},
+        coords={"y": coarse_y, "x": coarse_x, "acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]")},
     )
-    return {"acquisition_date": np.array(["2020-01-01"], dtype="datetime64[ns]"), "min": min_ds, "max": max_ds}
+    return {"acquisition_id": np.array(["2020-01-01"], dtype="datetime64[ns]"), "min": min_ds, "max": max_ds}
 
 
 @pytest.fixture
@@ -379,7 +379,7 @@ def esd_acquisition_date():
     """1D acquisition_date DataArray for ESD tests."""
     return xr.DataArray(
         data=np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
-        dims=["acquisition_date"],
+        dims=["acquisition_id"],
     )
 
 
@@ -410,9 +410,9 @@ def esd_burst():
     }
     burst = xr.DataArray(
         data,
-        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        dims=["acquisition_id", "azimuth_pixel", "slant_range_time"],
         coords={
-            "acquisition_date": dates,
+            "acquisition_id": dates,
             "azimuth_pixel": np.arange(3),
             "slant_range_time": np.arange(3),
             "slant_range_m": ("slant_range_time", slant_range_m),
@@ -442,18 +442,18 @@ def esd_reference_pair(esd_burst):
     )
     ref0 = xr.DataArray(
         data0,
-        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        dims=["acquisition_id", "azimuth_pixel", "slant_range_time"],
         coords={
-            "acquisition_date": dates,
+            "acquisition_id": dates,
             "azimuth_pixel": np.arange(3),
             "slant_range_time": np.arange(3),
         },
     )
     ref1 = xr.DataArray(
         data1,
-        dims=["acquisition_date", "azimuth_pixel", "slant_range_time"],
+        dims=["acquisition_id", "azimuth_pixel", "slant_range_time"],
         coords={
-            "acquisition_date": dates,
+            "acquisition_id": dates,
             "azimuth_pixel": np.arange(3),
             "slant_range_time": np.arange(3),
         },
@@ -874,7 +874,7 @@ def warp_gslc_all_inputs(
 def warp_dazdrg_cstack():
     """Small cstack (coregistered stack) for warp_dazdrg tests.
 
-    Dims: (acquisition_date, azimuth_time, slant_range_time)
+    Dims: (acquisition_id, azimuth_time, slant_range_time)
     Uses 3 acquisition dates, 5 azimuth pixels, 5 range pixels.
     """
     acq_dates = np.array(["2020-01-01", "2020-01-05", "2020-01-10"], dtype="datetime64[ns]")
@@ -887,9 +887,9 @@ def warp_dazdrg_cstack():
 
     return xr.DataArray(
         data,
-        dims=["acquisition_date", "azimuth_time", "slant_range_time"],
+        dims=["acquisition_id", "azimuth_time", "slant_range_time"],
         coords={
-            "acquisition_date": acq_dates,
+            "acquisition_id": acq_dates,
             "azimuth_time": az_times,
             "slant_range_time": sr_times,
         },
@@ -928,16 +928,16 @@ def warp_dazdrg_reference_simulation():
 
     simulation = xr.Dataset(
         coords={
-            "acquisition_date": acq_dates,
+            "acquisition_id": acq_dates,
             "y": y,
             "x": x,
             "axis": [0, 1, 2],
         },
         # Create empty Dask arrays for each data variable.
         data_vars={
-            "azimuth_time": (["acquisition_date", "y", "x"], az_grid),
-            "slant_range_time": (["acquisition_date", "y", "x"], sr_grid),
-            "dem_distance": (["acquisition_date", "y", "x", "axis"], dem_distance),
+            "azimuth_time": (["acquisition_id", "y", "x"], az_grid),
+            "slant_range_time": (["acquisition_id", "y", "x"], sr_grid),
+            "dem_distance": (["acquisition_id", "y", "x", "axis"], dem_distance),
             "h": (["y", "x"], h),
         },
     )
@@ -965,7 +965,7 @@ def warp_dazdrg_secondary_simulation():
             "azimuth_time": (("y", "x"), az_grid),
             "slant_range_time": (("y", "x"), sr_grid),
         },
-        coords={"y": y, "x": x, "acquisition_date": acq_dates},
+        coords={"y": y, "x": x, "acquisition_id": acq_dates},
     )
     return sim
 
@@ -981,7 +981,7 @@ def warp_dazdrg_reference_ml(warp_dazdrg_reference_simulation):
     # Coarsen the simulation to create a downsampled version
     coarsen_config = {"y": 5, "x": 5}
     ref_sel = (
-        sim.sel(acquisition_date="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
+        sim.sel(acquisition_id="2020-01-01").drop_vars(["dem_distance", "h", "axis"], errors="ignore").astype(float)
     )
 
     min_ds = ref_sel.coarsen(coarsen_config, boundary="pad", coord_func="min").min()
@@ -1042,7 +1042,7 @@ def warp_dazdrg_inputs(
         "simulation_secondary": None,
         "reference_ml": warp_dazdrg_reference_ml,
         "margin": warp_dazdrg_margin,
-        "coregistration_reference_date": "2020-01-01",
+        "coregistration_reference_id": "2020-01-01",
         "azimuth_grid_spacing": 1.0,
         "range_grid_spacing": 0.5,
         "compute_daz_drg": True,
@@ -1176,6 +1176,7 @@ def csi_y_poly():
     y_poly = xr.DataArray(poly_values, dims=["i", "j"])
     y_poly = y_poly.assign_attrs(
         {
+            "off_y": 0,
             "offset": [np.float64(0.0), np.float64(0.0)],
             "scale_fact": [np.float64(1.0), np.float64(1.0)],
             "type": "pixels",
@@ -1195,6 +1196,7 @@ def csi_x_poly():
     x_poly = xr.DataArray(poly_values, dims=["i", "j"])
     x_poly = x_poly.assign_attrs(
         {
+            "off_y": 0,
             "offset": [np.float64(0.0), np.float64(0.0)],
             "scale_fact": [np.float64(1.0), np.float64(1.0)],
             "type": "pixels",
@@ -1224,10 +1226,26 @@ def csi_inputs(csi_slc, csi_coreg_az, csi_coreg_rg, csi_daz, csi_drg, csi_etad_e
     }
 
 
+def _with_1d_coreg(inputs):
+    """Return a copy of ``inputs`` with 1-D coreg coordinate vectors.
+
+    The polynomial branch of ``compute_secondary_image_coordinates`` evaluates
+    ``polygrid2d(c1, c2, poly)`` where ``c1``/``c2`` are derived from the coreg
+    coordinates. Real callers (``warp_cslc``) pass the 1-D ``.azimuth_time`` /
+    ``.slant_range_time`` coordinate vectors; passing the full 2-D grid instead
+    makes ``polygrid2d`` return a 4-D array. Selecting a single line of the 2-D
+    grid yields the equivalent 1-D vectors.
+    """
+    inputs = dict(inputs)
+    inputs["coreg_azimuth_time"] = inputs["coreg_azimuth_time"].isel(slant_range_time=0)
+    inputs["coreg_slant_range_time"] = inputs["coreg_slant_range_time"].isel(azimuth_time=0)
+    return inputs
+
+
 @pytest.fixture
 def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
     """Inputs with y_poly correction enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["y_poly"] = csi_y_poly
     return inputs
 
@@ -1235,7 +1253,7 @@ def csi_inputs_with_y_poly(csi_inputs, csi_y_poly):
 @pytest.fixture
 def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
     """Inputs with x_poly correction enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["x_poly"] = csi_x_poly
     return inputs
 
@@ -1243,7 +1261,7 @@ def csi_inputs_with_x_poly(csi_inputs, csi_x_poly):
 @pytest.fixture
 def csi_inputs_with_both_polys(csi_inputs, csi_y_poly, csi_x_poly):
     """Inputs with both y_poly and x_poly corrections enabled."""
-    inputs = dict(csi_inputs)
+    inputs = _with_1d_coreg(csi_inputs)
     inputs["y_poly"] = csi_y_poly
     inputs["x_poly"] = csi_x_poly
     return inputs
@@ -1260,7 +1278,12 @@ def cstack_3_dates():
     return xr.DataArray(
         np.ones((3, 4, 4)),
         dims=["acquisition_date", "az", "rg"],
-        coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+        coords={
+            "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+            "acquisition_id": xr.DataArray(
+                np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+            ),
+        },
     )
 
 

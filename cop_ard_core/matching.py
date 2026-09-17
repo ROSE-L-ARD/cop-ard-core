@@ -1,4 +1,9 @@
-from typing import Literal, Sequence
+"""
+Image matching: sub-pixel correlation peak detection and disparity estimation
+between SLC bursts for atmospheric/shift correction.
+"""
+
+from typing import Sequence
 
 import numpy as np
 import xarray as xr
@@ -58,7 +63,7 @@ def get_corr_sub_pix(
             M[:, 0] = x[:, i] ** 2
             M[:, 1] = x[:, i]
         else:
-            M = None
+            return None
         return M
 
     if dim is None:
@@ -206,6 +211,11 @@ def backward_flatten(
     nim: int,
     shp: list[int],
 ):
+    """
+    Flatten reference and search-windowed stack patches into 2D arrays for
+    correlation, with the reference flattened per offset and the stack
+    flattened per image.
+    """
     i1 = np.empty((npt, nco), dtype=stack.dtype)
     i2 = np.empty((nim, npt), dtype=stack.dtype)
 
@@ -228,12 +238,15 @@ def backward_flatten(
 
 def shift_update(
     i: xr.DataArray,
-    i0: xr.DataArray,
+    i0: xr.DataArray | np.ndarray,
     x: xr.DataArray,
     y: xr.DataArray,
     kernel: np.ndarray,
 ) -> xr.DataArray:
-
+    """
+    Update a shifted image by sampling it at sub-pixel offsets and subtracting
+    the original, returning the residual difference.
+    """
     # Remove mean, convert to float64, and remove degenerate dimensions
     o = (i - i.mean()).astype("float64").squeeze()
 
@@ -241,8 +254,14 @@ def shift_update(
     # mode='same' ensures the output shape matches the input 'o'
     # boundary='symm' (symmetrical) minimizes edge artifacts compared to zero-padding
     # .fillna(0) prevents any existing NaNs in the SAR grid from bleeding into the convolution
-    o_sampled = rolling_kernel(o.fillna(0), x, y, multilook={"azimuth_time": kernel.shape[0], "slant_range_time": kernel.shape[1]}, kernel=kernel)
-    
+    o_sampled = rolling_kernel(
+        o.fillna(0),
+        x,
+        y,
+        multilook={"azimuth_time": kernel.shape[0], "slant_range_time": kernel.shape[1]},
+        kernel=kernel,
+    )
+
     # Split the sampled array in half along the point dimension
     half_idx = o_sampled.point.size // 2
     o1 = o_sampled.isel(point=slice(half_idx))
@@ -266,6 +285,10 @@ def fix_disparity(
     kernel_shape: tuple[int, int] = (15, 15),
     **kwargs,
 ):
+    """
+    Iteratively refine the range/azimuth disparity (dx, dy) fields using
+    sub-pixel shifts, updating the disparity dataset for the given burst.
+    """
     # kernel creation for drg and daz multilooking #
     kernel = np.ones(kernel_shape) / np.prod(kernel_shape)
 
@@ -291,28 +314,25 @@ def fix_disparity(
 
     # coordinates to be extracted
     x = xr.concat(
-        [m0_x.drop_vars("point", errors="ignore"),
-         m1_x.drop_vars("point", errors="ignore")],
+        [m0_x.drop_vars("point", errors="ignore"), m1_x.drop_vars("point", errors="ignore")],
         dim="point",
     )
 
     y = xr.concat(
-        [m0_y.drop_vars("point", errors="ignore"),
-         m1_y.drop_vars("point", errors="ignore")],
+        [m0_y.drop_vars("point", errors="ignore"), m1_y.drop_vars("point", errors="ignore")],
         dim="point",
     )
 
-
     # shift in the x direction updating #
-    dx = shift_update(drg, dx, x, y, kernel)
-    dy = shift_update(daz, dy, x, y, kernel)
+    dx_shifted = shift_update(drg, dx, x, y, kernel)
+    dy_shifted = shift_update(daz, dy, x, y, kernel)
 
     ds = xr.Dataset(
         data_vars={
             "m1_x": ("point", m1_x.values),
             "m1_y": ("point", m1_y.values),
-            "dx": ("point", dx.values),
-            "dy": ("point", dy.values),
+            "dx": ("point", dx_shifted.values),
+            "dy": ("point", dy_shifted.values),
             "coherence": ("point", uv["coherence"].values),
         },
         coords=m1_x.coords,
@@ -414,6 +434,7 @@ def initialize_patches(
 #         attrs={"pixel_to_time": pixel_to_time.flatten()},
 #     )
 
+
 def subpixel_peak_1d(
     corr: np.ndarray,
     center: int = 0,
@@ -445,7 +466,6 @@ def subpixel_peak_1d(
     valid = (idx > 0) & (idx < n - 1)
 
     if np.any(valid):
-
         rows = np.where(valid)[0]
 
         y1 = corr[rows, idx[rows] - 1]
@@ -456,9 +476,7 @@ def subpixel_peak_1d(
 
         good = np.abs(denom) > 1e-12
 
-        peak_pos[rows[good]] += (
-            0.5 * (y1[good] - y3[good]) / denom[good]
-        )
+        peak_pos[rows[good]] += 0.5 * (y1[good] - y3[good]) / denom[good]
 
     peak_pos -= center
 
@@ -475,16 +493,15 @@ def compute_pearson_coefficient(
     x_dim: str,
     correlation_kernel_size: Sequence[int] | None,
 ):
-
+    """
+    Compute the Pearson correlation between a reference and a stack of images
+    over sliding windows, returning sub-pixel peak offsets and amplitudes.
+    """
     shp = np.array(stack.shape[:2]) - 2 * np.array(peak_window_size)
     nim, npt = stack.shape[2], np.prod(shp)
 
     if npt <= 0:
-
-        logger.warning(
-            f"Search window {peak_window_size} is too large for "
-            f"the input image of size {stack.shape[:2]}."
-        )
+        logger.warning(f"Search window {peak_window_size} is too large for the input image of size {stack.shape[:2]}.")
 
         dy, dx, coherence, sy, sx = np.zeros(
             (5, nim),
@@ -492,11 +509,7 @@ def compute_pearson_coefficient(
         )
 
     else:
-
-        nco = (
-            (2 * peak_window_size[0] + 1)
-            * (2 * peak_window_size[1] + 1)
-        )
+        nco = (2 * peak_window_size[0] + 1) * (2 * peak_window_size[1] + 1)
 
         i1, i2 = backward_flatten(
             stack.values,
@@ -529,14 +542,12 @@ def compute_pearson_coefficient(
         search_x = nx > 1
 
         if search_x and search_y:
-
             dy, dx, coherence, sy, sx = get_corr_sub_pix(
                 corr,
                 correlation_kernel_size,
             ).T
 
         elif search_x:
-
             dx, coherence = subpixel_peak_1d(
                 corr[:, 0, :],
                 center=peak_window_size[1],
@@ -547,7 +558,6 @@ def compute_pearson_coefficient(
             sx = np.zeros(nim, dtype=np.float32)
 
         elif search_y:
-
             dy, coherence = subpixel_peak_1d(
                 corr[:, :, 0],
                 center=peak_window_size[0],
@@ -558,7 +568,6 @@ def compute_pearson_coefficient(
             sx = np.zeros(nim, dtype=np.float32)
 
         else:
-
             coherence = corr[:, 0, 0]
 
             dy = np.zeros(nim, dtype=np.float32)

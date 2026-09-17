@@ -673,9 +673,9 @@ class TestComputePearsonCoefficient:
     def test_compute_pearson_coefficient_basic(self):
         """Basic computation should return DataArray."""
         # Single patch covering the entire image
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
+        patch_ds = xr.Dataset(coords={"patch": 0})
         # stack dims: (y, x, acquisition_date) - spatial dims first, time last
-        y, x, nim = 10, 10, 3
+        y, x, nim = 3, 3, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -699,7 +699,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
@@ -709,8 +708,8 @@ class TestComputePearsonCoefficient:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_output_shape(self):
         """Output shape should be (nim, n_patches, 5)."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 3
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -730,7 +729,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
@@ -740,8 +738,8 @@ class TestComputePearsonCoefficient:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_backward(self):
         """backward_flatten path should work."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 3
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -761,7 +759,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=False,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
@@ -770,9 +767,9 @@ class TestComputePearsonCoefficient:
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_output_dims(self):
-        """Output should have acquisition_date, point, variable dims."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 3
+        """Output should have acquisition_id, point, variable dims."""
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -792,20 +789,19 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
         )
-        assert "acquisition_date" in result.dims
+        assert "acquisition_id" in result.dims
         assert "point" in result.dims
         assert "variable" in result.dims
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_variable_labels(self):
-        """Output variable coordinate should be [dy, dx, cohe, s_y, s_x]."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 3
+        """Output variable coordinate should be [dy, dx, coherence, s_y, s_x]."""
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -825,17 +821,16 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
         )
-        assert list(result.coords["variable"].values) == ["dy", "dx", "cohe", "s_y", "s_x"]
+        assert list(result.coords["variable"].values) == ["dy", "dx", "coherence", "s_y", "s_x"]
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_large_window_warning(self):
         """Large peak_window_size should trigger warning."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
+        patch_ds = xr.Dataset(coords={"patch": 0})
         y, x, nim = 10, 10, 3
         stack = xr.DataArray(
             np.ones((y, x, nim)),
@@ -858,7 +853,6 @@ class TestComputePearsonCoefficient:
                 reference,
                 pixel_to_time,
                 peak_window_size,
-                forward=True,
                 y_dim="y",
                 x_dim="x",
                 correlation_kernel_size=None,
@@ -869,8 +863,8 @@ class TestComputePearsonCoefficient:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_zero_window(self):
         """Zero window size should work."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 3
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 1, 1, 3
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -890,7 +884,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
@@ -900,8 +893,8 @@ class TestComputePearsonCoefficient:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_pixel_to_time_scaling(self):
         """pixel_to_time should scale dy and dx outputs."""
-        patch_ds = initialize_patches(10, 4, 10, 10, 4, 10)
-        y, x, nim = 10, 10, 2
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -921,7 +914,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
@@ -932,8 +924,8 @@ class TestComputePearsonCoefficient:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_correlation_kernel(self):
         """correlation_kernel_size should be passed to get_corr_sub_pix."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 2
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -953,7 +945,6 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=(1, 1),
@@ -962,9 +953,9 @@ class TestComputePearsonCoefficient:
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_attrs(self):
-        """Output should have type and pixel_to_time attrs."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 2
+        """Output should have pixel_to_time attr."""
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -984,20 +975,17 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
-            data_type="times",
         )
-        assert result.attrs["type"] == "times"
         assert "pixel_to_time" in result.attrs
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_pixels_type(self):
-        """data_type='pixels' should set correct type attr."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 2
+        """pixel_to_time scaling with default pixel spacing."""
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -1017,19 +1005,17 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
-            data_type="pixels",
         )
-        assert result.attrs["type"] == "pixels"
+        assert "pixel_to_time" in result.attrs
 
     @pytest.mark.unit
     def test_compute_pearson_coefficient_constant_data(self):
         """Constant data should produce zero correlation."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 2
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.ones((y, x, nim)),
             dims=["y", "x", "acquisition_date"],
@@ -1049,14 +1035,13 @@ class TestComputePearsonCoefficient:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,
         )
         # With constant data, normalization leads to NaN/zero
         assert isinstance(result, xr.DataArray)
-        assert np.allclose(result.sel(variable="cohe").values, 0.0)
+        assert np.allclose(result.sel(variable="coherence").values, 0.0)
 
 
 # ===========================================================================
@@ -1126,8 +1111,8 @@ class TestEdgeCases:
     @pytest.mark.unit
     def test_compute_pearson_coefficient_single_patch(self):
         """Single patch should work correctly."""
-        patch_ds = initialize_patches(10, 10, 10, 10, 10, 10)
-        y, x, nim = 10, 10, 2
+        patch_ds = xr.Dataset(coords={"patch": 0})
+        y, x, nim = 3, 3, 2
         stack = xr.DataArray(
             np.random.rand(y, x, nim),
             dims=["y", "x", "acquisition_date"],
@@ -1147,7 +1132,6 @@ class TestEdgeCases:
             reference,
             pixel_to_time,
             peak_window_size,
-            forward=True,
             y_dim="y",
             x_dim="x",
             correlation_kernel_size=None,

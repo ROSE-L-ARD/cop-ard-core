@@ -1,3 +1,8 @@
+"""
+Interferometric phase unwrapping via minimum cost flow (MCF): build the dual
+graph from a Delaunay triangulation, solve the MCF, and integrate the solution.
+"""
+
 from typing import Any, Dict, Literal, Tuple, overload
 
 import numba as nb
@@ -14,12 +19,17 @@ MAXJUMP = 1_000
 MAXCOST = 1_000
 EPSYLON = 1e-6
 
+
 @overload
-def unique(e: np.ndarray, return_index: Literal[True]) -> tuple[np.ndarray, np.ndarray]: ...
+def unique(e: np.ndarray, return_index: Literal[True]) -> tuple[np.ndarray, np.ndarray]:
+    """Overload of unique returning unique edges and their indices."""
+    ...
 
 
 @overload
-def unique(e: np.ndarray, return_index: Literal[False]) -> np.ndarray: ...
+def unique(e: np.ndarray, return_index: Literal[False]) -> np.ndarray:
+    """Overload of unique returning only the unique edges."""
+    ...
 
 
 def unique(e: np.ndarray, return_index: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
@@ -43,6 +53,10 @@ def get_edges(
     xx: np.ndarray,
     yy: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Build the Delaunay triangulation of the points and return the unique
+    edges, the full (directed) edge list, and triangle neighbors.
+    """
     # Dealunay triangulation
     triangle = scipy.spatial.Delaunay(np.vstack((xx, yy)).T)
 
@@ -71,6 +85,11 @@ def get_dual_graph_(
     maxjump: int = MAXJUMP,
     cost_mask: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Build the dual (triangle-adjacency) graph of the triangulation as
+    head/tail node arrays with arc costs and capacities, adding an earth
+    node for border triangles.
+    """
     # check borders
     border = neigh == -1
     n_border = border.sum()
@@ -111,6 +130,10 @@ def integ_mcf_ortools(
     unit_costs: np.ndarray,
     capacities: np.ndarray,
 ):
+    """
+    Solve a minimum cost flow problem with the OR-Tools solver, returning the
+    exit status and the flow on each arc.
+    """
     smcf = ortools.graph.python.min_cost_flow.SimpleMinCostFlow()
 
     # Add arcs, capacities and costs in bulk using numpy.
@@ -133,13 +156,17 @@ def integ_mcf_ortools(
 
         raise Exception
 
-    solution_flows = smcf.flows(all_arcs)  # type: ignore this is how it's meant to be used
+    solution_flows = smcf.flows(all_arcs)  # type: ignore
 
     return (0, solution_flows)
 
 
 @nb.jit(nopython=True)
 def depth_first_order_sum(prec, nodes, grad):
+    """
+    Accumulate gradients along a depth-first traversal, integrating parent
+    values into node values in topological order (Numba JIT-compiled).
+    """
     # init solution
     sol = np.zeros(nodes.max() + 1)
 
@@ -178,6 +205,10 @@ def get_dual_graph(
     n_points: int,
     solver: Dict[str, Any],
 ):
+    """
+    Build the dual graph with per-arc costs derived from edge weights, for
+    the minimum cost flow solve.
+    """
     # get dual graph
 
     # check params
@@ -203,6 +234,11 @@ def solve(
     neigh: np.ndarray,
     solver: Dict[str, Any],
 ) -> Tuple[int, float, np.ndarray]:
+    """
+    Solve the phase unwrapping problem as a minimum cost flow: duplicate
+    gradients, build the dual graph with demands, run MCF, correct the
+    gradients, and integrate over the spanning tree.
+    """
     n_points = e.max() + 1
     scale_demand = solver["scale_demand"] if "scale_demand" in solver.keys() else 1.0
 
@@ -293,7 +329,7 @@ def integ_mcf(
     w = coherence[e[:, 1]] * coherence[e[:, 0]]
 
     # weight normalization according to the distance between points
-    dist = np.sqrt((xx[e[:, 1]] - xx[e[:, 0]])**2 + (yy[e[:, 1]] - yy[e[:, 0]])**2)
+    dist = np.sqrt((xx[e[:, 1]] - xx[e[:, 0]]) ** 2 + (yy[e[:, 1]] - yy[e[:, 0]]) ** 2)
     w = w / (dist + EPSYLON)
 
     # normalize weight

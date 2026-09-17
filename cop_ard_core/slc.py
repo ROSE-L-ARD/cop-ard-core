@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Single Look Complex (SLC) data handling: metadata parsing, radiometric
+calibration, masking, and phase deramping of SAR SLC imagery.
+"""
+
 from __future__ import annotations
 
 from typing import cast
@@ -20,9 +25,9 @@ import numpy as np
 import shapely
 import shapely.wkt
 import xarray as xr
+from numba import njit
 
 from cop_ard_core.logger import logger
-from numba import njit
 
 
 def merge_dict(res: list[dict]) -> dict:
@@ -134,6 +139,10 @@ def noise_removal(slc: xr.DataArray, noise_polynomial_coeffs: np.ndarray | None)
 
 @njit(cache=True)
 def deramp_numba(slc, slant_range, azimuth, coeff):
+    """
+    Apply a 2D polynomial phase deramp (Doppler centroid correction) in place
+    to the complex SLC array.
+    """
     npol, ndates, n_azimuth, n_slant_range = slc.shape
     deg_slant_range, deg_azimuth = coeff.shape
     for i in range(n_slant_range):
@@ -141,10 +150,10 @@ def deramp_numba(slc, slant_range, azimuth, coeff):
         for j in range(n_azimuth):
             aj = azimuth[j]
             phase = 0.0
-            for k in range(deg_slant_range - 1, -1, -1):
-                row = coeff[k, deg_azimuth - 1]
-                for l in range(deg_azimuth - 2, -1, -1):
-                    row = row * aj + coeff[k, l]
+            for ra_deg in range(deg_slant_range - 1, -1, -1):
+                row = coeff[ra_deg, deg_azimuth - 1]
+                for az_deg in range(deg_azimuth - 2, -1, -1):
+                    row = row * aj + coeff[ra_deg, az_deg]
                 phase = phase * ri + row
             c = np.cos(phase)
             s = np.sin(phase)
@@ -152,6 +161,7 @@ def deramp_numba(slc, slant_range, azimuth, coeff):
             for id in range(ndates):
                 for pol in range(npol):
                     slc[pol, id, j, i] = slc[pol, id, j, i] * rot
+
 
 def image_deramp(slc: xr.DataArray, polynomial_dkcoa_coeffs: np.ndarray | None) -> xr.DataArray:
     """
@@ -204,15 +214,15 @@ def intersect(polygon1: str | list[list[float]], polygon2: str | list[list[float
         True if the polygons intersect, False otherwise.
     """
     # Load the first polygon from WKT or a list of coordinates.
-    try:
+    if isinstance(polygon1, str):
         poly1 = shapely.wkt.loads(polygon1)
-    except TypeError:
+    else:
         poly1 = shapely.geometry.Polygon(polygon1)
 
     # Load the second polygon.
-    try:
+    if isinstance(polygon2, str):
         poly2 = shapely.wkt.loads(polygon2)
-    except TypeError:
+    else:
         poly2 = shapely.geometry.Polygon(polygon2)
 
     # Return the result of the intersection test.

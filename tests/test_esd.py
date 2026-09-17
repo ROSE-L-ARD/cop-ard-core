@@ -226,13 +226,13 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
-        assert list(mean_phase.dims) == ["acquisition_date"]
+        assert list(mean_phase.dims) == ["acquisition_id"]
         assert len(mean_phase) == 3
 
     def test_compute_shift_coherence_below_threshold(self, esd_burst, esd_reference_pair, esd_acquisition_date):
@@ -244,7 +244,7 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=1.0 + 1e-6,
         )
@@ -259,14 +259,14 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
         assert isinstance(mean_phase, xr.DataArray)
         assert isinstance(coherence, xr.DataArray)
-        assert list(mean_phase.dims) == ["acquisition_date"]
-        assert list(coherence.dims) == ["acquisition_date"]
+        assert list(mean_phase.dims) == ["acquisition_id"]
+        assert list(coherence.dims) == ["acquisition_id"]
         assert len(mean_phase) == 3
 
     def test_compute_shift_return_types(self, esd_burst, esd_reference_pair, esd_acquisition_date):
@@ -277,7 +277,7 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -292,7 +292,7 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -309,7 +309,7 @@ class TestComputeShift:
             burst1=esd_burst,
             reference0=ref0,
             reference1=ref1,
-            acquisition_date=esd_acquisition_date,
+            acquisition_id=esd_acquisition_date,
             multilook={"azimuth_pixel": 3, "slant_range_time": 3},
             coherence_threshold=0.0,
         )
@@ -324,7 +324,7 @@ class TestComputeShift:
                 burst1=esd_burst,
                 reference0=ref0,
                 reference1=ref1,
-                acquisition_date=esd_acquisition_date,
+                acquisition_id=esd_acquisition_date,
                 multilook=ml,
                 coherence_threshold=0.0,
             )
@@ -356,7 +356,7 @@ class TestComputeAzimuthShifts:
         assert "mean_phase" in result.data_vars
         assert "mean_shift" in result.data_vars
         assert "wrap_cycle" in result.data_vars
-        assert "acquisition_date" in result.coords
+        assert "acquisition_id" in result.coords
 
     def test_compute_azimuth_shifts_coherence_shape(self, esd_burst, esd_reference_pair):
         """Coherence should be 2D: (reference_date, acquisition_date)."""

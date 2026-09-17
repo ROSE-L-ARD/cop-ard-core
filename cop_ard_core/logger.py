@@ -11,19 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Logging infrastructure: structlog + standard library logging configuration
+from YAML, and a timeit decorator for execution-duration metrics.
+"""
 
 import logging
 import sys
 import time as tt
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 import structlog
 import yaml
 from structlog.dev import RichTracebackFormatter
 
 
-def configure_logger(config_path: str = None) -> None:
+def configure_logger(config_path: str | Path | None = None) -> None:
     """
     Configures structlog and standard Python logging pipelines using a YAML configuration file.
 
@@ -62,14 +67,14 @@ def configure_logger(config_path: str = None) -> None:
                 config.update(loaded_config)
 
     # Convert string log level (e.g., "INFO") into logging module constant (e.g., logging.INFO)
-    log_level = getattr(logging, config["log_level"].upper(), logging.INFO)
+    log_level = getattr(logging, str(config["log_level"]).upper(), logging.INFO)
 
     # Disable ANSI escape colors if output is redirected to a file or non-TTY stream (e.g., > res.log)
     is_tty = sys.stdout.isatty()
-    use_colors = config.get("console_colors", True) and is_tty
+    use_colors = bool(config.get("console_colors", True)) and is_tty
 
     # 1. Processors for foreign log records (e.g., standard library calls from EOPF/Dask)
-    foreign_pre_chain = [
+    foreign_pre_chain: Any = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
     ]
@@ -77,7 +82,7 @@ def configure_logger(config_path: str = None) -> None:
         foreign_pre_chain.append(structlog.processors.TimeStamper(fmt="iso"))
 
     # 2. Processors for native structlog calls across cop_ard_* packages
-    structlog_processors = [
+    structlog_processors: Any = [
         structlog.stdlib.filter_by_level,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -143,6 +148,7 @@ def configure_logger(config_path: str = None) -> None:
 
     # Set specific log levels for noisy third-party packages (e.g., EOPF, Dask, Tornado)
     third_party = config.get("third_party_levels", {})
+    third_party = third_party if isinstance(third_party, dict) else {}
     if "eopf" not in third_party:
         third_party["eopf"] = config["log_level"]
 
@@ -176,6 +182,9 @@ def timeit(func):
 
     @wraps(func)
     def timeit_wrapper(*args, **kwargs):
+        """
+        Run the wrapped function and log its execution duration via structlog.
+        """
         start_time = tt.perf_counter()
         result = func(*args, **kwargs)
         total_time = tt.perf_counter() - start_time

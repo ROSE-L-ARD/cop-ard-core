@@ -66,22 +66,27 @@ dependencies = [
 license = { file = "LICENSE" }
 
 [project.optional-dependencies]
-cluster-plugin = ["eopf[cluster-plugin] >= 3.0.0rc2"]
-tests = ["eopf[tests] >= 3.0.0rc2"]
-linter = ["eopf[linter] >= 3.0.0rc2"]
-typing = ["eopf[typing] >= 3.0.0rc2", "ty"]
-formatter = ["eopf[formatter] >= 3.0.0rc2"]
-security = ["eopf[security] >= 3.0.0rc2"]
-notebook = ["eopf[notebook] >= 3.0.0rc2"]
+tests = ["pytest", "pytest-cov"]
+linter = ["ruff"]
+typing = [
+	"mypy",
+	"types-PyYAML",
+	"pandas-stubs",
+	"types-retry",
+	"types-shapely",
+]
+formatter = ["ruff"]
+security = ["bandit"]
 doc = [
-    "eopf[doc]",
+    "sphinx",
+    "numpydoc",
     "sphinxcontrib-mermaid",
     "sphinxcontrib-plantuml",
     "sphinxcontrib-spelling",
     "sphinx-test-reports",
 ]
-complexity = ["eopf[complexity] >= 3.0.0rc2"]
-doc-cov = ["eopf[doc-cov] >= 3.0.0rc2"]
+complexity = ["xenon"]
+doc-cov = ["radon", "docstr-coverage"]
 dev = ["ipykernel","matplotlib","pytest-env"]
 
 [tool.ruff]
@@ -93,6 +98,3 @@ target-version = "py313"
 markers = ["integration", "unit", "need_files"]
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
-
-[tool.pytest_env]
-NUMBA_DISABLE_JIT=1

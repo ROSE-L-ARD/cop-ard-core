@@ -772,7 +772,7 @@ class TestFit2dPoly:
         y = np.array([0.0, 1.0, 2.0, 3.0])
         data = np.array([1.0, 2.0, 3.0, 4.0])
         w = np.array([1.0, 2.0, 3.0, 4.0])
-        result = fit_2d_poly(x, y, data, w=w, degree=1)
+        result = fit_2d_poly(x, y, data, weights=w, degree=1)
         assert isinstance(result, tuple)
 
     def test_fit_2d_poly_scale_nonzero(self):

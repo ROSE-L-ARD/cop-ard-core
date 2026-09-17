@@ -30,7 +30,7 @@ class TestCalculateStableDates:
             dtype="datetime64[ns]",
         )
         revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=2)
+        result = calculate_stable_dates(dates, revisit_cycle)
         assert isinstance(result, np.ndarray)
         assert len(result) >= 1
 
@@ -38,7 +38,7 @@ class TestCalculateStableDates:
         """Step of 1 should select every date after start."""
         dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")
         revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1)
+        result = calculate_stable_dates(dates, revisit_cycle)
         assert len(result) >= 1
 
     def test_calculate_stable_dates_with_starting_date(self):
@@ -54,7 +54,7 @@ class TestCalculateStableDates:
             dtype="datetime64[ns]",
         )
         revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1, starting_date="2020-01-13")
+        result = calculate_stable_dates(dates, revisit_cycle, starting_date="2020-01-13")
         assert isinstance(result, np.ndarray)
 
     def test_calculate_stable_dates_with_stable_reference(self):
@@ -74,7 +74,7 @@ class TestCalculateStableDates:
             dtype="datetime64[ns]",
         )
         revisit_cycle = np.timedelta64(13, "D")
-        result = calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1, stable_reference=stable_ref)
+        result = calculate_stable_dates(dates, revisit_cycle, stable_reference=stable_ref)
         assert isinstance(result, np.ndarray)
 
     def test_calculate_stable_dates_empty(self):
@@ -82,30 +82,30 @@ class TestCalculateStableDates:
         dates = np.array([], dtype="datetime64[ns]")
         revisit_cycle = np.timedelta64(13, "D")
         with pytest.raises(ValueError):
-            calculate_stable_dates(dates, revisit_cycle, stable_reference_step=1)
+            calculate_stable_dates(dates, revisit_cycle)
 
 
 class TestGetCurrentReference:
     """Unit tests for get_current_reference."""
 
-    def test_get_current_reference_no_last_or_stable(self):
+    def test_get_current_reference_no_last_or_stable(self, cstack_3_dates):
         """With no last_reference or stable_reference, should use cstack's earliest date."""
-        cstack = xr.DataArray(
-            np.ones((3, 4, 4)),
-            dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
-        )
-        current, dates = get_current_reference(cstack, None, None)
+        current, dates = get_current_reference(cstack_3_dates, None, None)
         assert isinstance(current, xr.DataArray)
         # Values should match cstack's earliest date slice (excluding starting_date attr)
-        np.testing.assert_allclose(current.values, cstack.sel(acquisition_date="2020-01-01").values)
+        np.testing.assert_allclose(current.values, cstack_3_dates.isel(acquisition_date=0).values)
 
     def test_get_current_reference_no_last_or_stable_returns_dates(self):
         """Dates should be the acquisition_date coordinate values of the current reference."""
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         # dates from string-coord cstack is a string array
@@ -116,7 +116,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         assert isinstance(current, xr.DataArray)
@@ -136,7 +141,7 @@ class TestGetCurrentReference:
         """starting_date attribute should be set when last_reference is None."""
         current, _ = get_current_reference(cstack_3_dates, None, None)
         assert "starting_date" in current.attrs
-        assert current.attrs["starting_date"] == "2020-01-01"
+        assert current.attrs["starting_date"] == str(np.datetime64("2020-01-01", "ns"))
 
     def test_get_current_reference_no_last_or_stable_starting_date_not_set_with_last(
         self, cstack_3_dates, last_reference
@@ -150,7 +155,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 42.0,
@@ -166,7 +176,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.full((1, 4, 4), 99.5),
@@ -181,7 +196,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -196,12 +216,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-20"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-20"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-20"])), dims=["acquisition_date"]),
+            },
         )
         current, dates = get_current_reference(cstack, None, stable_ref)
         assert isinstance(current, xr.DataArray)
@@ -213,12 +241,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.full((1, 4, 4), 77.0),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-10-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-10-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-10-01"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, None, stable_ref)
         np.testing.assert_allclose(current.values, 77.0)
@@ -228,12 +264,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-20"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-20"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-20"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, None, stable_ref)
         # .sel() drops the acquisition_date dimension
@@ -245,7 +289,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 11.0,
@@ -255,7 +304,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 22.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-01"])), dims=["acquisition_date"]),
+            },
         )
         current, dates = get_current_reference(cstack, last_ref, stable_ref)
         np.testing.assert_allclose(current.values, 22.0)
@@ -267,7 +319,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 1.0,
@@ -277,7 +334,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 2.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-06-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-06-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-06-01"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, last_ref, stable_ref)
         np.testing.assert_allclose(current.values, 2.0)
@@ -287,7 +347,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 10.0,
@@ -297,7 +362,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 20.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-20"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-20"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-20"])), dims=["acquisition_date"]),
+            },
         )
         current, dates = get_current_reference(cstack, last_ref, stable_ref)
         np.testing.assert_allclose(current.values, 10.0)
@@ -308,7 +376,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         same_date = np.datetime64("2019-12-01")
         last_ref = xr.DataArray(
@@ -319,7 +392,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 20.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-01"])), dims=["acquisition_date"]),
+            },
         )
         current, dates = get_current_reference(cstack, last_ref, stable_ref)
         np.testing.assert_allclose(current.values, 10.0)
@@ -340,7 +416,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -350,7 +431,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-01"])), dims=["acquisition_date"]),
+            },
         )
         with pytest.raises(Exception, match="Last current reference"):
             get_current_reference(cstack, last_ref, stable_ref)
@@ -360,12 +444,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2020-02-01"])},
+            coords={
+                "acquisition_date": np.array(["2020-02-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2020-02-01"])), dims=["acquisition_date"]),
+            },
         )
         with pytest.raises(Exception, match="Last stable reference"):
             get_current_reference(cstack, None, stable_ref)
@@ -375,7 +467,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -385,7 +482,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2020-02-01"])},
+            coords={
+                "acquisition_date": np.array(["2020-02-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2020-02-01"])), dims=["acquisition_date"]),
+            },
         )
         with pytest.raises(Exception, match="Last current reference"):
             get_current_reference(cstack, last_ref, stable_ref)
@@ -395,12 +495,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2020-01-01"])},
+            coords={
+                "acquisition_date": np.array(["2020-01-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2020-01-01"])), dims=["acquisition_date"]),
+            },
         )
         with pytest.raises(Exception, match="Last stable reference"):
             get_current_reference(cstack, None, stable_ref)
@@ -410,7 +518,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.arange(60, dtype=np.float64).reshape(5, 3, 4),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]),
+                    dims=["acquisition_date"],
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         np.testing.assert_array_equal(dates, np.array(["2020-01-01"]))
@@ -420,7 +534,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.arange(60, dtype=np.float64).reshape(5, 3, 4),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]),
+                    dims=["acquisition_date"],
+                ),
+            },
         )
         current, _ = get_current_reference(cstack, None, None)
         expected = cstack.sel(acquisition_date="2020-01-01")
@@ -431,7 +551,10 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01"]},
+            coords={
+                "acquisition_date": ["2020-01-01"],
+                "acquisition_id": xr.DataArray(np.atleast_1d(["2020-01-01"]), dims=["acquisition_date"]),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         assert current.shape == (4, 4)
@@ -442,7 +565,10 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((1, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01"]},
+            coords={
+                "acquisition_date": ["2020-01-01"],
+                "acquisition_id": xr.DataArray(np.atleast_1d(["2020-01-01"]), dims=["acquisition_date"]),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 5.0,
@@ -458,7 +584,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")},
+            coords={
+                "acquisition_date": np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")),
+                    dims=["acquisition_date"],
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         assert isinstance(current, xr.DataArray)
@@ -469,7 +601,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")},
+            coords={
+                "acquisition_date": np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]"),
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(np.array(["2020-01-01", "2020-01-13", "2020-01-25"], dtype="datetime64[ns]")),
+                    dims=["acquisition_date"],
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 33.0,
@@ -487,7 +625,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             data,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06", "2020-02-18"]),
+                    dims=["acquisition_date"],
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 3, 4), dtype=np.complex128) * (2.0 + 1.0j),
@@ -504,12 +648,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4), dtype=np.complex128) * (3.0 + 4.0j),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-11-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-11-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-11-01"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, None, stable_ref)
         assert np.iscomplexobj(current.values)
@@ -521,7 +673,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.full((1, 4, 4), np.nan),
@@ -536,7 +693,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -553,7 +715,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -568,7 +735,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 11.0,
@@ -578,7 +750,10 @@ class TestGetCurrentReference:
         stable_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 22.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-01"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, last_ref, stable_ref)
         np.testing.assert_allclose(current.values, 22.0)
@@ -588,7 +763,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         result = get_current_reference(cstack, None, None)
         assert len(result) == 2
@@ -651,7 +831,10 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((len(cstack_dates), 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": cstack_dates},
+            coords={
+                "acquisition_date": cstack_dates,
+                "acquisition_id": xr.DataArray(np.atleast_1d(cstack_dates), dims=["acquisition_date"]),
+            },
         )
 
         if last_date is not None:
@@ -668,7 +851,10 @@ class TestGetCurrentReference:
             stable_ref = xr.DataArray(
                 np.ones((1, 4, 4)) * 22.0 if expected_value == 22.0 else 77.0,
                 dims=["acquisition_date", "az", "rg"],
-                coords={"acquisition_date": np.array([stable_date])},
+                coords={
+                    "acquisition_date": np.array([stable_date]),
+                    "acquisition_id": xr.DataArray(np.atleast_1d(np.array([stable_date])), dims=["acquisition_date"]),
+                },
             )
         else:
             stable_ref = None
@@ -686,7 +872,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 8, 8)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)) * 55.0,
@@ -702,12 +893,20 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 8, 8)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         stable_ref = xr.DataArray(
             np.ones((1, 6, 6)) * 88.0,
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": np.array(["2019-12-01"])},
+            coords={
+                "acquisition_date": np.array(["2019-12-01"]),
+                "acquisition_id": xr.DataArray(np.atleast_1d(np.array(["2019-12-01"])), dims=["acquisition_date"]),
+            },
         )
         current, _ = get_current_reference(cstack, None, stable_ref)
         assert current.shape == (6, 6)
@@ -718,7 +917,13 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((2, 3, 4, 4)),
             dims=["band", "acquisition_date", "az", "rg"],
-            coords={"band": ["Lband", "Cband"], "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "band": ["Lband", "Cband"],
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         assert current.shape == (2, 4, 4)
@@ -729,7 +934,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 2, 4, 4)) * 15.0,
@@ -745,7 +955,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((4, 3, 3)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"]), dims=["acquisition_date"]
+                ),
+            },
         )
         current, dates = get_current_reference(cstack, None, None)
         np.testing.assert_array_equal(dates, np.array(["2020-01-01"]))
@@ -755,7 +970,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((4, 3, 3)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-06-15", "2020-08-20", "2021-03-01"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 3, 3)) * 42.0,
@@ -770,7 +990,7 @@ class TestGetCurrentReference:
         """starting_date attribute should be a string representation of the date."""
         current, _ = get_current_reference(cstack_3_dates, None, None)
         assert isinstance(current.attrs["starting_date"], str)
-        assert current.attrs["starting_date"] == "2020-01-01"
+        assert current.attrs["starting_date"] == str(np.datetime64("2020-01-01", "ns"))
 
     def test_get_current_reference_ascending_date_order(self):
         """Should handle cstack with dates in ascending order (standard)."""
@@ -778,7 +998,10 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((4, 3, 3)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": dates},
+            coords={
+                "acquisition_date": dates,
+                "acquisition_id": xr.DataArray(np.atleast_1d(dates), dims=["acquisition_date"]),
+            },
         )
         current, result_dates = get_current_reference(cstack, None, None)
         np.testing.assert_array_equal(result_dates, np.array(["2020-01-01"]))
@@ -788,7 +1011,12 @@ class TestGetCurrentReference:
         cstack = xr.DataArray(
             np.ones((3, 4, 4)),
             dims=["acquisition_date", "az", "rg"],
-            coords={"acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"]},
+            coords={
+                "acquisition_date": ["2020-01-01", "2020-01-13", "2020-01-25"],
+                "acquisition_id": xr.DataArray(
+                    np.atleast_1d(["2020-01-01", "2020-01-13", "2020-01-25"]), dims=["acquisition_date"]
+                ),
+            },
         )
         last_ref = xr.DataArray(
             np.ones((1, 4, 4)),
@@ -823,7 +1051,7 @@ class TestUpdateDrift:
             drift_interf,
             reference,
             stable_ref,
-            multilook={"azimuth_time": 3, "slant_range_time": 3},
+            posting={"azimuth_time": 3, "slant_range_time": 3},
             coherence_threshold=0.3,
         )
         assert isinstance(result, np.ndarray)
@@ -849,7 +1077,7 @@ class TestUpdateDrift:
             drift_interf,
             reference,
             stable_ref,
-            multilook={},
+            posting={"azimuth_time": 1, "slant_range_time": 1},
             coherence_threshold=0.3,
         )
         assert isinstance(result, np.ndarray)
@@ -869,7 +1097,7 @@ class TestUpdateRecursiveReference:
             np.ones((1, 2, 2), dtype=np.complex128) * 0.8,
             dims=["n_bands", "coarse_az", "coarse_rg"],
         )
-        result = update_recursive_reference(slc, current_ref, normalized_interf, memory_param=0.5)
+        result = update_recursive_reference(slc, current_ref, normalized_interf.values, memory_param=0.5)
         assert result.shape == slc.shape
 
     def test_update_recursive_reference_nan_handling(self):
@@ -883,7 +1111,7 @@ class TestUpdateRecursiveReference:
             np.array([[[np.nan, 0.5], [0.3, 0.2]]]),
             dims=["n_bands", "coarse_az", "coarse_rg"],
         )
-        result = update_recursive_reference(slc, current_ref, normalized_interf, memory_param=0.5)
+        result = update_recursive_reference(slc, current_ref, normalized_interf.values, memory_param=0.5)
         assert not np.any(np.isnan(result.values))
 
 
@@ -907,8 +1135,8 @@ class TestWarpCmlp:
 
     def test_warp_cmlp_phase(self):
         """Should warp phase data correctly."""
-        source = np.ones((4, 4), dtype=np.complex128)
-        target = np.zeros((1, 4, 4), dtype=np.complex128)
+        source = xr.DataArray(np.ones((4, 4), dtype=np.complex128))
+        target = xr.DataArray(np.zeros((1, 4, 4), dtype=np.complex128))
         target_indexes = np.arange(16)
         x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
@@ -933,8 +1161,8 @@ class TestWarpCmlp:
 
     def test_warp_cmlp_coherence_clipped(self):
         """Coherence output should be clipped to [0, 1]."""
-        source = np.ones((4, 4), dtype=np.float64)
-        target = np.zeros((1, 4, 4))
+        source = xr.DataArray(np.ones((4, 4), dtype=np.float64))
+        target = xr.DataArray(np.zeros((1, 4, 4)))
         target_indexes = np.arange(16)
         x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
@@ -960,8 +1188,8 @@ class TestWarpCmlp:
 
     def test_warp_cmlp_no_error_standard(self):
         """Standard warp should not raise."""
-        source = np.random.rand(4, 4)
-        target = np.zeros((1, 4, 4))
+        source = xr.DataArray(np.random.rand(4, 4))
+        target = xr.DataArray(np.zeros((1, 4, 4)))
         target_indexes = np.arange(16)
         x, y = np.meshgrid(np.arange(4), np.arange(4), indexing="xy")
         x = x.ravel()
