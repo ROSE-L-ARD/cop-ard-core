@@ -45,7 +45,7 @@ jobs:
         run: uv run --extra tests --frozen pytest $TESTS
 
       - name: Unit test coverage
-        run: uv run --extra tests --frozen pytest --cov=cop_ard_core --cov-report= --cov-fail-under=$COVERAGE_THRESHOLD $TESTS
+        run: NUMBA_DISABLE_JIT=1 uv run --extra tests --frozen pytest --cov=cop_ard_core --cov-report= --cov-fail-under=$COVERAGE_THRESHOLD $TESTS
 
       - name: Documentation coverage
         run: uv run --extra tests --frozen docstr-coverage $SOURCES
