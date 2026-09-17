@@ -87,39 +87,43 @@ def get_f107(df: pd.DataFrame, year: int, month: int, day: int) -> float:
 
 
 @retry.retry(tries=5, delay=1, jitter=5, logger=logger)
-def init_iono_db(url: str = "https://celestrak.org/SpaceData/SW-All.csv", dbfile: str = "SW-ALL.pkl") -> None:
+def init_iono_db(url: str = "https://celestrak.org/SpaceData/SW-All.csv", dbfile: str | None = None) -> pd.DataFrame:
     """
-    Download and initialize the space weather database.
+    Initialize the space weather database, downloading it if not available.
 
-    Fetches the latest space weather data (including F10.7 index) from Celestrak,
-    formats the date column, and saves the database locally as a pickle file
-    for faster subsequent retrieval.
+    If a path to a dbfile csv is not provided, fetch the latest space weather data (including F10.7 index)
+    from Celestrak.
+    Format the date column.
 
     Parameters
     ----------
     url : str, optional
         The URL to the Celestrak space weather CSV file.
     dbfile : str, optional
-        The local filepath where the database pickle will be saved.
+        The local filepath of the database csv.
 
     Returns
     -------
     None
     """
-    logger.info(f"Downloading space weather database from {url}...")
     try:
-        sw_all = pd.read_csv(url)
+        if dbfile is None or not os.path.exists(dbfile):
+            logger.warning(f"Database file '{dbfile}' not found. Attempting to download it now.")
+            logger.info(f"Downloading space weather database from {url}...")
+            sw_all = pd.read_csv(url)
+        else:
+            sw_all = pd.read_csv(dbfile)
         sw_all["DATE"] = pd.to_datetime(sw_all["DATE"])
         sw_all = sw_all.set_index("DATE")
-        sw_all.to_pickle(dbfile)
         logger.info(f"Space weather database successfully saved to {dbfile}.")
+        return sw_all
     except Exception as e:
         logger.critical(f"Type of error during DB initialization: {e.__class__.__name__}")
         logger.error(f"Failed to fetch or parse space weather data from {url}")
         raise RuntimeError(f"Could not initialize ionospheric database: {e}") from e
 
 
-def read_iono_db(year: int, month: int, day: int, dbfile_tmp: str, dbfile: str | None = None) -> float:
+def read_iono_db(year: int, month: int, day: int, dbfile: str | None = None) -> float:
     """
     Read the local space weather database and retrieve the F10.7 flux value.
     If the database file does not exist, it triggers a download automatically.
@@ -133,18 +137,14 @@ def read_iono_db(year: int, month: int, day: int, dbfile_tmp: str, dbfile: str |
     day : int
         The day of the target date.
     dbfile : str, optional
-        The local filepath of the space weather pickle database.
+        The local filepath of the space weather CSV database.
 
     Returns
     -------
     float
         The observed F10.7 index value for the specified date.
     """
-    if dbfile is None or not os.path.exists(dbfile):
-        logger.warning(f"Database file '{dbfile}' not found. Attempting to download it now.")
-        init_iono_db(dbfile=dbfile_tmp)
-        dbfile = dbfile_tmp
-    sw_all = pd.read_pickle(dbfile)
+    sw_all = init_iono_db(dbfile=dbfile)
     return get_f107(sw_all, year, month, day)
 
 
@@ -196,7 +196,7 @@ def get_iono_height(
 
     # --- Solar Flux Data ---
     # Retrieve the daily F10.7 value from the local database
-    f107_val = read_iono_db(year, mth, day, f"{wdir_path_tmp}/SW-ALL.pkl", dbfile=dbfile)
+    f107_val = read_iono_db(year, mth, day, dbfile=dbfile)
 
     # --- PyIRI Model Execution ---
     logger.info(f"Evaluating PyIRI model for acquisition date {dt.strftime('%Y-%m-%d %H:%M:%S')}")
