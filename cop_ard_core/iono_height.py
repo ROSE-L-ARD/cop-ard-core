@@ -74,7 +74,7 @@ def get_f107(df: pd.DataFrame, year: int, month: int, day: int) -> float:
     """
     date = pd.Timestamp(year=year, month=month, day=day)
     try:
-        f107_val = float(df.loc[date, "F10.7_OBS"])
+        f107_val = float(df.loc[date, "F10.7_OBS"])  # type: ignore
         return f107_val
     except KeyError as e:
         error_msg = f"F10.7 solar flux data missing for the requested date: {date.strftime('%Y-%m-%d')}."

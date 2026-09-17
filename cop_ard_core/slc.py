@@ -205,15 +205,15 @@ def intersect(polygon1: str | list[list[float]], polygon2: str | list[list[float
         True if the polygons intersect, False otherwise.
     """
     # Load the first polygon from WKT or a list of coordinates.
-    try:
+    if isinstance(polygon1, str):
         poly1 = shapely.wkt.loads(polygon1)
-    except TypeError:
+    else:
         poly1 = shapely.geometry.Polygon(polygon1)
 
     # Load the second polygon.
-    try:
+    if isinstance(polygon2, str):
         poly2 = shapely.wkt.loads(polygon2)
-    except TypeError:
+    else:
         poly2 = shapely.geometry.Polygon(polygon2)
 
     # Return the result of the intersection test.
