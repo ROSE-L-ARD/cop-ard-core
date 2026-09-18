@@ -202,7 +202,7 @@ def get_current_reference(
 
 
 def update_drift(
-    drift_interf: xr.DataArray,
+    drift_interf: xr.DataArray | np.ndarray,
     reference: xr.DataArray,
     stable_reference: xr.DataArray,
     posting: dict[str, int],
