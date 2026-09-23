@@ -25,7 +25,7 @@ from typing import Any
 
 import structlog
 import yaml
-from structlog.dev import RichTracebackFormatter
+from structlog.dev import RichTracebackFormatter, plain_traceback
 
 
 def configure_logger(config_path: str | Path | None = None) -> None:
@@ -34,8 +34,9 @@ def configure_logger(config_path: str | Path | None = None) -> None:
 
     This function sets up a unified logging infrastructure that intercepts both native
     structlog events and standard library logs (e.g., from third-party packages like EOPF or Dask).
-    It supports dynamic log levels, TTY-aware ANSI color rendering, third-party logger
-    level overrides, and caller callsite tracing.
+    It automatically detects whether stdout is a terminal (TTY) or redirected to a file,
+    adjusting ANSI color escape sequences and traceback formatting accordingly to ensure
+    clean, readable output in log files.
 
     Parameters
     ----------
@@ -49,7 +50,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
 
     path = Path(config_path)
 
-    # Baseline fallback configuration parameters
+    # Baseline fallback configuration parameters in case YAML is missing key-values
     config = {
         "log_level": "INFO",
         "json_format": False,
@@ -69,7 +70,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
     # Convert string log level (e.g., "INFO") into logging module constant (e.g., logging.INFO)
     log_level = getattr(logging, str(config["log_level"]).upper(), logging.INFO)
 
-    # Disable ANSI escape colors if output is redirected to a file or non-TTY stream (e.g., > res.log)
+    # Detect interactive TTY output stream (True when printing to terminal, False when redirected to .log file)
     is_tty = sys.stdout.isatty()
     use_colors = bool(config.get("console_colors", True)) and is_tty
 
@@ -95,7 +96,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
     if config.get("show_timestamps"):
         structlog_processors.append(structlog.processors.TimeStamper(fmt="iso"))
 
-    # Inject caller metadata (filename and line number) while ignoring this logging wrapper file
+    # Inject caller metadata (filename and line number) while ignoring this logger utility file
     if config.get("show_caller_info"):
         structlog_processors.append(
             structlog.processors.CallsiteParameterAdder(
@@ -110,7 +111,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
     # Hand off processed structlog events to standard library ProcessorFormatter
     structlog_processors.append(structlog.stdlib.ProcessorFormatter.wrap_for_formatter)
 
-    # Configure global structlog behavior
+    # Configure global structlog behavior and integration with standard library logging
     structlog.configure(
         processors=structlog_processors,
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -118,35 +119,46 @@ def configure_logger(config_path: str | Path | None = None) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Choose output renderer (JSON for production pipelines, Console for interactive dev)
+    # Dynamically select exception traceback formatter:
+    # Use RichTracebackFormatter (with rich box graphics) for interactive terminal sessions,
+    # and plain_traceback (clean standard text) when output is saved to file redirection.
+    if is_tty:
+        exc_formatter = RichTracebackFormatter(
+            show_locals=False,
+            max_frames=10,
+        )
+    else:
+        exc_formatter = plain_traceback
+
+    # Select output renderer (JSON for production environments, ConsoleRenderer for human-readable output)
     renderer = (
         structlog.processors.JSONRenderer()
         if config.get("json_format")
         else structlog.dev.ConsoleRenderer(
             colors=use_colors,
-            exception_formatter=RichTracebackFormatter(
-                show_locals=False,
-                max_frames=10,
-            ),
+            exception_formatter=exc_formatter,
+            pad_event=is_tty,  # Disable padding whitespace when writing to log files to avoid trailing spaces
         )
     )
+
     # Create a unified ProcessorFormatter combining native structlog and foreign log chains
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
         foreign_pre_chain=foreign_pre_chain,
     )
 
-    # Reset existing root logger handlers and attach our configured StreamHandler
+    # Reset existing root logger handlers to prevent duplicate log outputs
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
 
-    console_handler = logging.StreamHandler()
+    # Attach configured StreamHandler outputting to standard output
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
     root_logger.setLevel(log_level)
 
-    # Set specific log levels for noisy third-party packages (e.g., EOPF, Dask, Tornado)
+    # Configure specific log levels for third-party libraries (e.g., EOPF, Dask, urllib3)
     third_party = config.get("third_party_levels", {})
     third_party = third_party if isinstance(third_party, dict) else {}
     if "eopf" not in third_party:
@@ -157,7 +169,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
         logging.getLogger(lib_name).setLevel(lib_level)
 
 
-# Default initial setup upon importing the module
+# Perform default initial setup upon importing the logger module
 configure_logger()
 logger = structlog.get_logger(__name__)
 
@@ -189,10 +201,10 @@ def timeit(func):
         result = func(*args, **kwargs)
         total_time = tt.perf_counter() - start_time
 
-        # Format duration string dynamically for better human readability
+        # Format duration string dynamically for optimal human readability (milliseconds vs seconds)
         duration_str = f"{total_time * 1000:.2f}ms" if total_time < 1.0 else f"{total_time:.2f}s"
 
-        # Log execution event (callsite metadata is accurately resolved via additional_ignores)
+        # Log execution event (callsite metadata is accurately resolved via additional_ignores filter)
         logger.info(
             f"Executed '{func.__qualname__}'",
             elapsed=duration_str,

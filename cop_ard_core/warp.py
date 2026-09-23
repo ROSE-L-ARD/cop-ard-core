@@ -1135,6 +1135,10 @@ def coreg_qlt(
     xr.Dataset
         An xarray.Dataset containing the estimated coregistration accuracy.
     """
+
+    crg = coreg.sel(azimuth_time=daz_drg.azimuth_time.values, slant_range_time=daz_drg.slant_range_time.values)
+    # Extract the reference coordinate grids and the displacement values.
+    az_ref, rg_ref = crg.azimuth_time, crg.slant_range_time
     # --- Initialization ---
     grid = kwargs.get("GRID", GRID)
     sigma_orb_2 = kwargs.get("SIGMA_ORB_2", SIGMA_ORB_2)
@@ -1194,5 +1198,12 @@ def coreg_qlt(
 
     # Convert the final DataArray to a Dataset.
     crg_qlt_ds = crg_qlt.to_dataset(name="crg_accuracy")
+    crg_qlt_ds = crg_qlt.assign_coords(
+        {
+            "azimuth_time": az_ref.values,
+            "slant_range_time": rg_ref.values,
+            "acquisition_id": coreg.acquisition_id.values,
+        }
+    )
 
     return crg_qlt_ds
