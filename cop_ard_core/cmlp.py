@@ -152,14 +152,11 @@ def get_current_reference(
 
     # 4. Extract the date and corresponding acquisition_id for stable_reference if provided
     date_s = None
-    max_s_acq_id = None
+    max_s_idx = None
     if stable_reference is not None:
         stable_dates_dt = stable_reference.acquisition_date.values.astype("datetime64[ns]")
         date_s = np.max(stable_dates_dt)
-
-        # Get the ID of the most recent stable reference to avoid KeyError in .sel()
         max_s_idx = np.argmax(stable_dates_dt)
-        max_s_acq_id = stable_reference.acquisition_id.values[max_s_idx]
 
     # 5. Initialize current_reference using the primary dimension (acquisition_id)
     current_reference = cstack.sel(acquisition_id=min_acq_id)
@@ -173,8 +170,8 @@ def get_current_reference(
                 raise Exception(f"Last current reference {date_l} is more recent than cstack {date}")
         else:
             if date_s < date and isinstance(stable_reference, xr.DataArray):
-                # Use acquisition_id instead of string date for safe slicing
-                current_reference = stable_reference.sel(acquisition_id=max_s_acq_id)
+                # Use positional indexing .isel() to prevent datetime KeyError
+                current_reference = stable_reference.isel(acquisition_date=max_s_idx)
             else:
                 raise Exception(f"Last stable reference {date_s} is more recent than cstack {date}")
     else:
@@ -186,8 +183,8 @@ def get_current_reference(
 
         if date_s is not None and isinstance(stable_reference, xr.DataArray):
             if date_s < date:
-                # Use acquisition_id instead of string date for safe slicing
-                current_reference = stable_reference.sel(acquisition_id=max_s_acq_id)
+                # Use positional indexing .isel() to prevent datetime KeyError
+                current_reference = stable_reference.isel(acquisition_date=max_s_idx)
             else:
                 raise Exception(f"Last stable reference {date_s} is more recent than cstack {date}")
 
