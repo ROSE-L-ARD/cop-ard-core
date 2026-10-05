@@ -128,7 +128,7 @@ def configure_logger(config_path: str | Path | None = None) -> None:
             max_frames=10,
         )
     else:
-        exc_formatter = plain_traceback
+        exc_formatter = plain_traceback  # type: ignore
 
     # Select output renderer (JSON for production environments, ConsoleRenderer for human-readable output)
     renderer = (

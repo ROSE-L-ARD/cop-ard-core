@@ -1197,8 +1197,7 @@ def coreg_qlt(
             )
 
     # Convert the final DataArray to a Dataset.
-    crg_qlt_ds = crg_qlt.to_dataset(name="crg_accuracy")
-    crg_qlt_ds = crg_qlt.assign_coords(
+    crg_qlt = crg_qlt.assign_coords(
         {
             "azimuth_time": az_ref.values,
             "slant_range_time": rg_ref.values,
@@ -1206,4 +1205,4 @@ def coreg_qlt(
         }
     )
 
-    return crg_qlt_ds
+    return crg_qlt
