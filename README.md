@@ -16,52 +16,88 @@
 
 # COP ARD CORE
 
-This repository contains the COP ARD CORE project.
+Core scientific algorithm library of the COP ARD processing chain.
 
-COP ARD CORE
+`cop-ard-core` implements the low-level SAR processing kernels as
+NumPy/SciPy/Numba code exposed through Xarray and Dask: SLC I/O, orbit and
+geometry computation, image matching, Enhanced Spectral Diversity (ESD),
+split-spectrum processing, DEM handling, ionospheric estimation, detrending,
+phase unwrapping, warping/resampling, and the CMLP/GMLP building blocks.
+
+It is the bottom layer of the stack:
+`cop-ard-processor` → `cop-ard-app` → `cop-ard-core`.
 
 ## Project Structure
 
 This project is organized as follows:
 
-* `cop_ard_core` contains the source code of the
-  project's main Python package.
-* `tests` contains the unit and integration tests of the `COP ARD CORE`
-  project.
+* `cop_ard_core/`: source code of the project's main Python package
+  (SLC/orbit/matching/ESD/split-spectrum/DEM/ionosphere/detrend/unwrap/warp
+  kernels, CMLP/GMLP building blocks, logging, utilities; typed, `py.typed`).
+* `tests/`: unit and integration tests (`test_*.py`) with shared fixtures
+  (`conftest.py`).
+* `comment_coverage.awk`: comment-coverage gate script used by CI.
+* `makefile`: `format`, `fix`, and `test` targets.
+* `Dockerfile`: container image build.
+* `pyproject.toml` / `uv.lock`: package metadata and pinned dependency
+  lockfile.
 
-## Tools
+## Installation
 
-The following tools are used by this project:
+The project requires Python 3.13 (`>=3.13, <3.14`) and is managed with
+[`uv`](https://docs.astral.sh/uv/):
 
-* `pyproject.toml`: Build system requirements for Python.
-* `uv.lock`: `uv` lock file containing specific versions for all dependencies.
+```bash
+uv sync --frozen
+```
 
-## Documentation
+This creates the local `.venv` from `pyproject.toml` and the pinned
+`uv.lock`; `uv` provisions Python 3.13 automatically.
 
+## Development
 
+`make format` runs the full quality-gate chain — `ruff format` and import
+sorting over the package, `tests/`, and `notebooks/`, then `ruff check`,
+`bandit`, `xenon`, and `mypy`; `make fix` applies `ruff check --fix`;
+`make test` runs the test suite.
+
+The GitHub Actions pipeline (`.github/workflows/ci.yml`) runs on every push
+to `main` and on every pull request against `main`, enforcing:
+
+* Linting (`ruff check --no-fix`) and formatting check (`ruff format --check`)
+* Typing (`mypy`)
+* Unit tests (`pytest`) with coverage gate (`pytest --cov`, fail below 70%,
+  measured with `NUMBA_DISABLE_JIT=1` so Numba kernels are instrumented)
+* Complexity (`xenon --max-average b --max-modules c --max-absolute d`)
+* Vulnerability scanning (`bandit` with `bandit.yml`)
+* Docstring coverage (`docstr-coverage`) and comment coverage
+  (`radon raw` + `comment_coverage.awk`, threshold 20%)
 
 ## Run tests
 
-To execute the tests locally using `pytests`, run:
+To execute the tests locally using `pytest`, run:
 
-``` python
+```bash
 uv run --extra tests pytest tests/
 ```
 
-The GitLab CI pipeline will also automatically run the unit and
-integration tests of the project.
+## Updating dependencies
 
+`cop-ard-core` has no in-stack git dependencies; it pins only third-party
+libraries. To refresh a pinned dependency in `uv.lock`, run:
 
-
-## Updating core dependencies
-To update core dependencies in the `uv.lock` file, run:
-
-``` python
-uv lock -P s1-ard-core
+```bash
+uv lock -P <package>
 ```
 
-To add updated dependencies to the local `uv` virtual environment, run:
+To upgrade all dependencies:
 
-``` python
+```bash
+uv lock --upgrade
+```
+
+To apply the updated lockfile to the local virtual environment, run:
+
+```bash
 uv sync --frozen
 ```
