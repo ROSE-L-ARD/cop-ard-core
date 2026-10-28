@@ -30,3 +30,6 @@ check-secrets:
 protect-secrets:
 	@echo "==> Scanning uncommitted changes for secrets..."
 	gitleaks protect --staged --verbose --redact
+
+test:
+	uv run --extra tests --frozen pytest ${TESTS}
