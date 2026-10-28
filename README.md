@@ -37,7 +37,7 @@ This project is organized as follows:
 * `tests/`: unit and integration tests (`test_*.py`) with shared fixtures
   (`conftest.py`).
 * `comment_coverage.awk`: comment-coverage gate script used by CI.
-* `makefile`: `format`, `fix`, and `test` targets.
+* `makefile`: `format`, `lint`, `security`, `complexity`, `typecheck`, `check`, `test`, `check-secrets`, and `protect-secrets` targets.
 * `Dockerfile`: container image build.
 * `pyproject.toml` / `uv.lock`: package metadata and pinned dependency
   lockfile.
@@ -56,10 +56,10 @@ This creates the local `.venv` from `pyproject.toml` and the pinned
 
 ## Development
 
-`make format` runs the full quality-gate chain — `ruff format` and import
-sorting over the package, `tests/`, and `notebooks/`, then `ruff check`,
-`bandit`, `xenon`, and `mypy`; `make fix` applies `ruff check --fix`;
-`make test` runs the test suite.
+Quality gates are driven by the `makefile`: `make all` runs `format`
+(`ruff format` and import sorting over the package and `tests/`) followed
+by `check` (`ruff check`, `bandit`, `xenon`, and `mypy`); `make test` runs
+the test suite.
 
 The GitHub Actions pipeline (`.github/workflows/ci.yml`) runs on every push
 to `main` and on every pull request against `main`, enforcing:
