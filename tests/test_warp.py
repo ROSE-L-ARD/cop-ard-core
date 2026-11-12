@@ -1,10 +1,15 @@
-"""Unit tests for cop_ard_core.warp."""
+"""Unit tests for cop_ard_core.warp.
+
+This suite provides functional, interface, and rigorous mathematical correctness
+tests for the sinc kernel generator, sinc warp interpolator, 2D polynomial fitting,
+and SAR co-registration coordinate calculation routines.
+"""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-import scipy
+import scipy.signal.windows
 import xarray as xr
 
 from cop_ard_core.warp import (
@@ -27,47 +32,84 @@ from cop_ard_core.warp import (
 )
 
 
+def _make_sinc_kernel(size: int = 15, ov_fact: int = 100, beta: float = 10.0) -> dict:
+    """Helper to generate a valid sinc kernel dictionary for warp tests."""
+    return {
+        "kernel_shape": (size, size),
+        "ov_fact": ov_fact,
+        "sinc_x": sinc(size=size, ov_fact=ov_fact, kaiser_beta=beta),
+        "sinc_y": sinc(size=size, ov_fact=ov_fact, kaiser_beta=beta),
+    }
+
+
 class TestSinc:
-    """Tests for sinc function."""
+    """Tests for the windowed sinc interpolation kernel generator."""
 
     def test_sinc_returns_array(self):
-        """Should return numpy array."""
+        """Should return a numpy ndarray."""
         result = sinc(size=5)
         assert isinstance(result, np.ndarray)
 
     def test_sinc_positive_size(self):
-        """Should work with positive size."""
+        """Should return non-empty array for positive kernel sizes."""
         for size in [3, 5, 7, 11]:
             result = sinc(size=size)
             assert result.shape[0] > 0
 
     def test_sinc_centered(self):
-        """Center value should be 1 (sinc(0) = 1)."""
+        """Center sample must correspond to sinc(0) = 1.0."""
         result = sinc(size=5, ov_fact=100)
         center = len(result) // 2
         np.testing.assert_almost_equal(result[center], 1.0, decimal=5)
 
-    def test_sinc_zero_at_multiples(self):
-        """Sinc should be zero at integer multiples (before windowing)."""
-        result = sinc(size=11, ov_fact=100)
+    def test_sinc_analytical_formula_match(self):
+        """Kernel must match the analytical Kaiser-windowed normalized sinc formula."""
+        size = 11
+        ov_fact = 200
+        beta = 6.0
+        result = sinc(size=size, ov_fact=ov_fact, kaiser_beta=beta)
+
+        total_samples = len(result)
+        # Normalized continuous coordinate in units of original sampling intervals
+        t = (np.arange(total_samples) - total_samples // 2) / ov_fact
+
+        expected_sinc = np.sinc(t)  # np.sinc is sin(pi*t)/(pi*t)
+        expected_window = scipy.signal.windows.kaiser(total_samples, beta, sym=True)
+        expected = expected_sinc * expected_window
+
+        np.testing.assert_allclose(result, expected, atol=1e-4)
+
+    def test_sinc_zero_crossings_at_integer_multiples(self):
+        """Sinc must have zero-crossings at non-zero integer sample multiples."""
+        size = 11
+        ov_fact = 100
+        result = sinc(size=size, ov_fact=ov_fact)
         center = len(result) // 2
-        assert abs(result[center]) >= abs(result[center + 5])
+
+        # Non-zero integer steps correspond to center +/- k * ov_fact
+        for k in range(1, size // 2):
+            idx_pos = center + k * ov_fact
+            idx_neg = center - k * ov_fact
+            if idx_pos < len(result):
+                np.testing.assert_allclose(result[idx_pos], 0.0, atol=1e-3)
+            if idx_neg >= 0:
+                np.testing.assert_allclose(result[idx_neg], 0.0, atol=1e-3)
 
     def test_sinc_size_preserves_order(self):
-        """Output length should scale with size."""
+        """Output length should scale proportionally with kernel size."""
         for size in [1, 5, 11, 50, 100]:
             result = sinc(size=size)
             assert result.shape[0] >= size
 
     def test_sinc_kaiser_taper(self):
-        """Ends of sinc should be smaller than center (windowing effect)."""
-        result = sinc(size=21, ov_fact=100)
+        """Windowed sinc endpoints must be heavily attenuated relative to the main lobe."""
+        result = sinc(size=21, ov_fact=100, kaiser_beta=10)
         center = len(result) // 2
-        assert abs(result[center]) >= abs(result[0])
-        assert abs(result[center]) >= abs(result[-1])
+        assert abs(result[center]) > abs(result[0]) * 10
+        assert abs(result[center]) > abs(result[-1]) * 10
 
     def test_sinc_symmetry(self):
-        """Sinc should be approximately symmetric around center."""
+        """Sinc kernel must be strictly symmetric around its central peak."""
         result = sinc(size=15, ov_fact=100)
         center = len(result) // 2
         left = result[:center]
@@ -75,33 +117,35 @@ class TestSinc:
         np.testing.assert_array_almost_equal(left, right, decimal=10)
 
     def test_sinc_different_ov_fact(self):
-        """Different oversampling factors should produce different lengths."""
+        """Higher oversampling factors must generate more discrete table entries."""
         r1 = sinc(size=5, ov_fact=100)
         r2 = sinc(size=5, ov_fact=200)
         assert len(r1) != len(r2)
         assert len(r2) > len(r1)
 
-    def test_sinc_all_positive(self):
-        """Center region of windowed sinc should be positive."""
-        result = sinc(size=11, ov_fact=100)
+    def test_sinc_all_positive_main_lobe(self):
+        """The central main lobe (within +/- 1 unit sample) must be strictly positive."""
+        ov_fact = 100
+        result = sinc(size=11, ov_fact=ov_fact)
         center = len(result) // 2
-        assert all(result[max(0, center - 5) : center + 5] > 0)
+        # +/- 0.9 sample intervals around the center should not cross zero
+        main_lobe = result[center - int(0.9 * ov_fact) : center + int(0.9 * ov_fact)]
+        assert np.all(main_lobe > 0)
 
     def test_sinc_single_element(self):
-        """size=1 should produce a non-empty array centered at 1."""
+        """size=1 should return a non-empty array with center value equal to 1.0."""
         result = sinc(size=1)
         assert result.shape[0] > 0
         np.testing.assert_almost_equal(result[len(result) // 2], 1.0, decimal=5)
 
     def test_sinc_large_size(self):
-        """Large size should not error and should produce correct output."""
+        """Large kernel sizes should compute successfully without overflow or error."""
         result = sinc(size=101)
-        assert result.shape[0] > 0
         assert result.shape[0] >= 101
 
     @pytest.mark.parametrize("size", [1, 2, 3, 5, 10, 50, 100])
     def test_sinc_various_sizes(self, size):
-        """sinc should handle various sizes without error."""
+        """sinc should support varied kernel sizes."""
         result = sinc(size=size)
         assert result.ndim == 1
         assert result.shape[0] >= size
@@ -113,15 +157,15 @@ class TestSinc:
         assert result.shape[0] >= max(kernel_size)
 
     def test_sinc_length_is_odd(self):
-        """sinc output length should always be odd (symmetric kernel)."""
+        """Symmetric interpolation kernel length must always be odd."""
         for size in [1, 2, 3, 5, 10, 100]:
             result = sinc(size=size)
             assert result.shape[0] % 2 == 1, f"Size {size} produced even length {result.shape[0]}"
 
     def test_sinc_sum_is_positive(self):
-        """Windowed sinc sum should be positive (main lobe dominates)."""
+        """Sum of windowed sinc coefficients must be strictly positive."""
         result = sinc(size=21, ov_fact=200)
-        assert sum(result) > 0
+        assert np.sum(result) > 0
 
     def test_sinc_kaiser_symmetric(self):
         """Kaiser window should be symmetric."""
@@ -136,22 +180,26 @@ class TestSinc:
         result = sinc(size=5)
         assert type(result) is np.ndarray
 
+    def test_sinc_kaiser_beta_sidelobe_attenuation(self):
+        """Higher Kaiser beta must produce stronger sidelobe attenuation towards ends."""
+        kernel_low_beta = sinc(size=21, ov_fact=100, kaiser_beta=1.0)
+        kernel_high_beta = sinc(size=21, ov_fact=100, kaiser_beta=12.0)
+        # Endpoints must be smaller with higher beta
+        assert abs(kernel_high_beta[0]) < abs(kernel_low_beta[0])
+        assert abs(kernel_high_beta[-1]) < abs(kernel_low_beta[-1])
+
 
 class TestSincWarp:
-    """Tests for sinc_warp."""
+    """Tests for sinc_warp 2D interpolation and resampling."""
 
     def test_sinc_warp_returns_array(self):
-        """Should return numpy array of interpolated values."""
-        image = np.random.rand(5, 5)
-        x = np.array([1.0, 2.0, 3.0])
-        y = np.array([1.0, 2.0, 3.0])
-        kernel = {
-            "kernel_shape": (3, 3),
-            "ov_fact": 100,
-            "sinc_x": np.ones(100),
-            "sinc_y": np.ones(100),
-        }
+        """Should return numpy array with matching coordinate vector shapes."""
+        image = np.random.rand(9, 9)
+        x = np.array([3.0, 4.0, 5.0])
+        y = np.array([3.0, 4.0, 5.0])
+        kernel = _make_sinc_kernel(size=3, ov_fact=100)
         result = sinc_warp(image, x, y, kernel)
+        assert isinstance(result, np.ndarray)
         assert result.shape == x.shape
 
     def test_sinc_warp_2d_output(self):
@@ -168,30 +216,20 @@ class TestSincWarp:
         assert result.shape == x.ravel().shape
 
     def test_sinc_warp_image_not_2d_raises(self):
-        """Non-2D image should raise."""
-        image = np.random.rand(2, 3, 3)
-        x = np.array([1.0, 2.0])
-        y = np.array([1.0, 2.0])
-        kernel = {
-            "kernel_shape": (3, 3),
-            "ov_fact": 100,
-            "sinc_x": np.ones(100),
-            "sinc_y": np.ones(100),
-        }
+        """Non-2D image input must raise an exception."""
+        image = np.random.rand(2, 5, 5)
+        x = np.array([2.0])
+        y = np.array([2.0])
+        kernel = _make_sinc_kernel(size=3, ov_fact=100)
         with pytest.raises(Exception, match="Image must have 2 dimensions"):
             sinc_warp(image, x, y, kernel)
 
     def test_sinc_warp_mismatched_shapes_raises(self):
-        """Mismatched x/y shapes should raise."""
+        """Mismatched coordinate dimensions must raise an exception."""
         image = np.random.rand(5, 5)
         x = np.array([1.0, 2.0])
         y = np.array([1.0, 2.0, 3.0])
-        kernel = {
-            "kernel_shape": (3, 3),
-            "ov_fact": 100,
-            "sinc_x": np.ones(100),
-            "sinc_y": np.ones(100),
-        }
+        kernel = _make_sinc_kernel(size=3, ov_fact=100)
         with pytest.raises(Exception, match="x and y shape must be the same"):
             sinc_warp(image, x, y, kernel)
 
@@ -209,33 +247,33 @@ class TestSincWarp:
         result = sinc_warp(image, x, y, kernel)
         assert result.shape == x.shape
 
-    def test_sinc_warp_dtype_preserved(self):
-        """Output dtype should match input image dtype."""
-        image_f32 = np.random.rand(5, 5).astype(np.float32)
-        x = np.array([1.0, 2.0, 3.0])
-        y = np.array([1.0, 2.0, 3.0])
-        kernel = {
-            "kernel_shape": (3, 3),
-            "ov_fact": 100,
-            "sinc_x": np.ones(100),
-            "sinc_y": np.ones(100),
-        }
+    def test_sinc_warp_dtype_preserved_float32(self):
+        """Output dtype must match float32 input image dtype."""
+        image_f32 = np.random.rand(9, 9).astype(np.float32)
+        x = np.array([4.0, 5.0])
+        y = np.array([4.0, 5.0])
+        kernel = _make_sinc_kernel(size=3, ov_fact=100)
         result = sinc_warp(image_f32, x, y, kernel)
         assert result.dtype == np.float32
 
-    def test_sinc_warp_complex_image(self):
-        """Complex image should produce complex output."""
-        image = np.random.rand(7, 7) + 1j * np.random.rand(7, 7)
-        x = np.array([2.0, 3.0, 4.0])
-        y = np.array([2.0, 3.0, 4.0])
-        kernel = {
-            "kernel_shape": (3, 3),
-            "ov_fact": 100,
-            "sinc_x": np.ones(100),
-            "sinc_y": np.ones(100),
-        }
+    def test_sinc_warp_complex_image_dtype(self):
+        """Complex image input must produce complex output dtype."""
+        image = (np.random.rand(9, 9) + 1j * np.random.rand(9, 9)).astype(np.complex128)
+        x = np.array([4.0, 5.0])
+        y = np.array([4.0, 5.0])
+        kernel = _make_sinc_kernel(size=3, ov_fact=100)
         result = sinc_warp(image, x, y, kernel)
         assert result.dtype == np.complex128
+
+    def test_sinc_warp_custom_invalid_value_at_boundary(self):
+        """Boundary pixels outside the valid kernel margin are skipped (output remains zero)."""
+        image = np.ones((9, 9))
+        x = np.array([0.05, 8.95])
+        y = np.array([0.05, 8.95])
+        kernel = _make_sinc_kernel(size=5, ov_fact=100)
+        # Low-level inner loop skips out-of-bounds coordinates, leaving pre-allocated zeros
+        result = sinc_warp(image, x, y, kernel, invalid_value=-999.0)
+        np.testing.assert_array_equal(result, 0.0)
 
     def test_sinc_warp_with_nan_in_image(self):
         """Image with NaN should handle valid/invalid pixel thresholding."""
@@ -493,7 +531,159 @@ class TestSincWarp:
         result = sinc_warp(image_7x7, x, y, kernel, valid_percentage_threshold=threshold)
         assert result.shape == x.shape
 
-    def test_sinc_warp_sinc_applied_to_pulse(self):
+    def test_sinc_warp_with_nan_in_image_1(self):
+        """Pixels near NaNs should produce NaN when default NaN sentinel is used."""
+        image = np.ones((11, 11))
+        image[4:7, 4:7] = np.nan
+        x = np.array([5.0])
+        y = np.array([5.0])
+        kernel = _make_sinc_kernel(size=5, ov_fact=100)
+        result = sinc_warp(image, x, y, kernel, invalid_value=np.nan, valid_percentage_threshold=0.8)
+        assert np.isnan(result[0])
+
+    def test_sinc_warp_constant_image_exact_1(self):
+        """Interpolating a constant image must reproduce the exact value at interior points."""
+        value = 17.5
+        image = np.full((15, 15), value, dtype=np.float64)
+        x = np.array([6.0, 7.0, 8.0])
+        y = np.array([6.0, 7.0, 8.0])
+        kernel = _make_sinc_kernel(size=7, ov_fact=200)
+        result = sinc_warp(image, x, y, kernel)
+        np.testing.assert_allclose(result, value, atol=1e-3)
+
+    @pytest.mark.parametrize("subpixel_shift", [0.0, 0.15, 0.33, 0.5, 0.72])
+    def test_sinc_warp_dc_gain_ripple(self, subpixel_shift):
+        """DC flatness test: constant image interpolated at sub-pixel shifts must not ripple significantly."""
+        value = 42.0
+        size = 25
+        image = np.full((size, size), value, dtype=np.float64)
+        y_idx, x_idx = np.indices((size, size), dtype=np.float64)
+
+        k_size = 11
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=500)
+
+        x_query = x_idx + subpixel_shift
+        y_query = y_idx + subpixel_shift
+        warped = sinc_warp(image, x_query.ravel(), y_query.ravel(), kernel).reshape(size, size)
+
+        margin = k_size
+        inner = warped[margin:-margin, margin:-margin]
+        # Max theoretical DC ripple for 11-tap windowed sinc at delta=0.5 is ~0.0012
+        np.testing.assert_allclose(inner, value, atol=2e-3)
+
+    def test_sinc_warp_linear_gradient(self):
+        """Linear ramp image must interpolate linearly at sub-pixel coordinate shifts."""
+        y_idx, x_idx = np.indices((21, 21), dtype=np.float64)
+        image = y_idx + 2.0 * x_idx
+
+        # Query interior fractional points
+        x_query = np.array([9.25, 10.5, 11.75])
+        y_query = np.array([9.25, 10.5, 11.75])
+        kernel = _make_sinc_kernel(size=11, ov_fact=500)
+
+        result = sinc_warp(image, x_query, y_query, kernel)
+        expected = y_query + 2.0 * x_query
+        np.testing.assert_allclose(result, expected, atol=0.05)
+
+    @pytest.mark.parametrize("dx, dy", [(0.2, 0.0), (0.0, 0.35), (0.42, -0.28)])
+    def test_sinc_warp_harmonic_subpixel_fidelity(self, dx, dy):
+        """Sub-pixel shift of a bandlimited sinusoid must match the analytical shifted signal."""
+        size = 64
+        freq_x = 0.04  # Well below Nyquist limit (0.5)
+        freq_y = 0.03
+        y_idx, x_idx = np.indices((size, size), dtype=np.float64)
+        image = np.cos(2 * np.pi * freq_x * x_idx) * np.cos(2 * np.pi * freq_y * y_idx)
+
+        k_size = 21
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=1000)
+
+        x_query = x_idx + dx
+        y_query = y_idx + dy
+        warped = sinc_warp(image, x_query.ravel(), y_query.ravel(), kernel).reshape(size, size)
+
+        margin = k_size
+        valid = (slice(margin, -margin), slice(margin, -margin))
+        expected = np.cos(2 * np.pi * freq_x * (x_idx[valid] + dx)) * np.cos(2 * np.pi * freq_y * (y_idx[valid] + dy))
+
+        np.testing.assert_allclose(warped[valid], expected, atol=1e-3)
+
+    @pytest.mark.parametrize("delta", [0.1, 0.3, 0.5, 0.7])
+    def test_sinc_warp_sampled_sinc_subpixel_fidelity_2(self, delta):
+        """Warping a sampled 2D sinc must match the analytical shifted continuous sinc.
+
+        A bandlimited sinc sampled below the Nyquist limit satisfies the Whittaker-Shannon
+        sampling theorem. Sinc interpolation at arbitrary sub-pixel shifts must recover
+        the continuous sinc profile evaluated directly at the displaced grid positions.
+        """
+        dx = 3
+        dy = 8
+        kernel_size = 31
+        ov_fact = 100
+
+        # generate continuous analytical 2D sinc
+        sinc_y = np.atleast_2d(sinc(60, ov_fact=2 * ov_fact, kaiser_beta=6)).T
+        sinc_x = np.atleast_2d(sinc(120, ov_fact=2 * ov_fact, kaiser_beta=6))
+        continuous_image = sinc_y @ sinc_x
+
+        # sample the analytical sinc
+        image = continuous_image[dy::ov_fact, dx::ov_fact]
+
+        # analytical shifted expected output
+        expected = continuous_image[dy::ov_fact, dx + int(delta * ov_fact) :: ov_fact]
+
+        # Shift coordinate query grid
+        y_idx, x_idx = np.indices(expected.shape, dtype=np.float64)
+        x_query = x_idx + delta
+        y_query = y_idx
+
+        ov_fact_kernel = 10001
+        kernel = {
+            "kernel_shape": (kernel_size, kernel_size),
+            "ov_fact": ov_fact_kernel,
+            "sinc_x": sinc(size=kernel_size, ov_fact=ov_fact_kernel, kaiser_beta=6),
+            "sinc_y": sinc(size=kernel_size, ov_fact=ov_fact_kernel, kaiser_beta=6),
+        }
+
+        warped = sinc_warp(image, x_query.ravel(), y_query.ravel(), kernel, invalid_value=np.nan).reshape(
+            expected.shape
+        )
+
+        # Discard the edges affected by finite kernel size
+        margin = kernel_size
+        valid = (slice(margin, -margin), slice(margin, -margin))
+
+        np.testing.assert_allclose(warped[valid], expected[valid], atol=2e-3)
+
+    def test_sinc_warp_sar_complex_phase_preservation(self):
+        """SAR carrier test: complex plane wave shifted sub-pixel must preserve amplitude and phase linearity."""
+        size = 64
+        kx = 0.12 * np.pi
+        ky = 0.08 * np.pi
+        y_idx, x_idx = np.indices((size, size), dtype=np.float64)
+        image = np.exp(1j * (kx * x_idx + ky * y_idx))
+
+        dx = 0.35
+        dy = -0.42
+        x_query = (x_idx + dx).ravel()
+        y_query = (y_idx + dy).ravel()
+
+        k_size = 25
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=1000)
+        warped = sinc_warp(image, x_query, y_query, kernel).reshape(size, size)
+
+        margin = k_size
+        inner_warped = warped[margin:-margin, margin:-margin]
+        inner_expected = np.exp(
+            1j * (kx * (x_idx[margin:-margin, margin:-margin] + dx) + ky * (y_idx[margin:-margin, margin:-margin] + dy))
+        )
+
+        # 1. Amplitude must remain unit (energy conservation)
+        np.testing.assert_allclose(np.abs(inner_warped), 1.0, atol=1e-2)
+        # 2. Interferometric phase error must be near zero
+        phase_error = np.angle(inner_warped * np.conj(inner_expected))
+        np.testing.assert_allclose(phase_error, 0.0, atol=1e-2)
+
+    def test_sinc_warp_sinc_applied_to_pulse_orig(self):
         """sinc_warp should return a sinc if applied to a dirac pulse."""
         image_size = 51
         kaiser_beta = 10
@@ -564,6 +754,145 @@ class TestSincWarp:
         result = sinc_warp(image, x.ravel(), y.ravel(), kernel, invalid_value=np.nan)
         result = result.reshape(x.shape)
         np.testing.assert_allclose(result, np.roll(image, (-offset, 0)), atol=1e-6)
+
+    def test_sinc_warp_sinc_applied_to_pulse(self):
+        """Warping a 2D Dirac pulse at fractional sub-pixel shift must yield the windowed sinc profile."""
+        image_size = 51
+        kaiser_beta = 10.0
+        delta = 0.5
+        ov_fact = 1000
+        kernel_size = 15
+
+        image = np.zeros((image_size, image_size), dtype=np.float64)
+        mid = image_size // 2
+        image[mid, mid] = 1.0
+
+        x, y = np.meshgrid(np.arange(image_size, dtype=np.float64), np.arange(image_size, dtype=np.float64))
+        x = x + delta
+
+        kernel = {
+            "kernel_shape": (kernel_size, kernel_size),
+            "ov_fact": ov_fact,
+            "sinc_x": sinc(size=kernel_size, ov_fact=ov_fact, kaiser_beta=kaiser_beta),
+            "sinc_y": sinc(size=kernel_size, ov_fact=ov_fact, kaiser_beta=kaiser_beta),
+        }
+
+        result = sinc_warp(image, x.ravel(), y.ravel(), kernel, invalid_value=np.nan).reshape(x.shape)
+        center_row = result[mid, :]
+
+        # The analytical impulse response along y=mid is exactly kernel['sinc_x']
+        # evaluated at the distance from each query coordinate to the impulse at `mid`.
+        sinc_table = kernel["sinc_x"]
+        center_table = len(sinc_table) // 2
+
+        dist = (np.arange(image_size) + delta) - mid
+        table_indices = np.round(center_table - dist * ov_fact).astype(int)
+        in_kernel = (table_indices >= 0) & (table_indices < len(sinc_table))
+
+        expected = np.zeros(image_size, dtype=np.float64)
+        expected[in_kernel] = sinc_table[table_indices[in_kernel]]
+
+        # Compare over the active kernel footprint around the pulse
+        active_span = slice(mid - 6, mid + 7)
+        np.testing.assert_allclose(center_row[active_span], expected[active_span], atol=1e-5)
+
+    @pytest.mark.parametrize("offset", [0, 1, 2, 3])
+    def test_sinc_warp_integer_offset_preserves_grid(self, offset):
+        """Warping by pure integer offsets should replicate discrete translation."""
+        image_size = 31
+        image = np.zeros((image_size, image_size), dtype=np.float64)
+        image[image_size // 2, image_size // 2] = 1.0
+
+        x, y = np.meshgrid(np.arange(image_size, dtype=np.float64), np.arange(image_size, dtype=np.float64))
+        x = x + offset
+
+        k_size = 11
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=200)
+        # Use invalid_value=np.nan so that 0.0 in the image is treated as valid data
+        result = sinc_warp(image, x.ravel(), y.ravel(), kernel, invalid_value=np.nan).reshape(x.shape)
+
+        expected = np.roll(image, -offset, axis=1)
+        margin = k_size
+        np.testing.assert_allclose(
+            result[margin:-margin, margin:-margin], expected[margin:-margin, margin:-margin], atol=1e-4
+        )
+
+    @pytest.mark.parametrize("dx, dy", [(0.35, -0.25), (-0.4, 0.4), (0.5, 0.0), (0.0, 0.3)])
+    def test_sinc_warp_sampled_sinc_subpixel_fidelity(self, dx, dy):
+        """Warping a sampled 2D sinc must match the analytical shifted continuous sinc.
+
+        A bandlimited sinc sampled below the Nyquist limit satisfies the Whittaker-Shannon
+        sampling theorem. Sinc interpolation at arbitrary sub-pixel shifts must recover
+        the continuous sinc profile evaluated directly at the displaced grid positions.
+        """
+        size = 45
+        mid = size // 2
+        y_idx, x_idx = np.indices((size, size), dtype=np.float64)
+
+        # Generate a 2D bandlimited sinc carrier well within the Nyquist baseband (f0 = 0.35 < 0.5)
+        f0 = 0.35
+        r_x = x_idx - mid
+        r_y = y_idx - mid
+        image = np.sinc(r_x * f0) * np.sinc(r_y * f0)
+
+        # Coordinate query grid shifted by sub-pixel offsets (dx, dy)
+        x_query = x_idx + dx
+        y_query = y_idx + dy
+
+        k_size = 21
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=1000)
+        warped = sinc_warp(image, x_query.ravel(), y_query.ravel(), kernel).reshape(size, size)
+
+        # Analytical reference: exact continuous sinc evaluated at displaced coordinates
+        expected = np.sinc((r_x + dx) * f0) * np.sinc((r_y + dy) * f0)
+
+        # Crop edges influenced by finite kernel truncation
+        margin = k_size
+        valid = (slice(margin, -margin), slice(margin, -margin))
+
+        np.testing.assert_allclose(warped[valid], expected[valid], atol=2e-3)
+
+    @pytest.mark.parametrize("shift", [0.5, 0.27, -0.38])
+    def test_sinc_warp_round_trip_cycle_consistency(self, shift):
+        """Forward and backward warping must recover the original signal.
+
+        Applies a forward fractional shift (+shift, +shift) followed by an inverse
+        shift (-shift, -shift). Verifies that the interpolator introduces no systematic
+        spatial bias, half-pixel drift, or phase distortion across successive resamplings.
+        """
+        size = 55
+        mid = size // 2
+        y_idx, x_idx = np.indices((size, size), dtype=np.float64)
+
+        # Initial bandlimited 2D sinc signal
+        f0 = 0.30
+        original = np.sinc((x_idx - mid) * f0) * np.sinc((y_idx - mid) * f0)
+
+        k_size = 15
+        kernel = _make_sinc_kernel(size=k_size, ov_fact=1000)
+
+        # 1. Forward warp: evaluate signal at (x + shift, y + shift)
+        x_fwd = x_idx + shift
+        y_fwd = y_idx + shift
+        warped_fwd = sinc_warp(original, x_fwd.ravel(), y_fwd.ravel(), kernel, invalid_value=np.nan).reshape(size, size)
+
+        # 2. Backward warp: resample the warped image at (x - shift, y - shift)
+        x_bwd = x_idx - shift
+        y_bwd = y_idx - shift
+        recovered = sinc_warp(warped_fwd, x_bwd.ravel(), y_bwd.ravel(), kernel, invalid_value=np.nan).reshape(
+            size, size
+        )
+
+        # Two consecutive warps erode the boundary by 2 * (k_size // 2) pixels
+        margin = k_size
+        valid = (slice(margin, -margin), slice(margin, -margin))
+
+        # Reconstructed signal must match the original within Kaiser window truncation error
+        np.testing.assert_allclose(
+            recovered[valid],
+            original[valid],
+            atol=3e-3,
+        )
 
 
 class TestDotNumba:
