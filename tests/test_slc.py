@@ -3,11 +3,13 @@
 from xml.etree.ElementTree import Element
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from cop_ard_core.slc import (
     amplitude_calibration,
     apply_invalid_mask,
+    deramp_numba,
     get_relative_orbit_number,
     image_deramp,
     intersect,
@@ -198,6 +200,131 @@ class TestImageDeramp:
         result = image_deramp(slc_with_coords, coeffs)
         assert isinstance(result, xr.DataArray)
 
+    @staticmethod
+    def _build_4d_slc(
+        data: np.ndarray,
+        slant_range_m: np.ndarray,
+        azimuth_m: np.ndarray,
+    ) -> xr.DataArray:
+        """Create a 4D SLC DataArray with required dimensions and meter coordinates."""
+        npol, ndates, n_az, n_rg = data.shape
+        return xr.DataArray(
+            data,
+            dims=["polarization", "acquisition_id", "azimuth_time", "slant_range_time"],
+            coords={
+                "polarization": [f"pol_{i}" for i in range(npol)],
+                "acquisition_id": [f"2020-01-{i + 1:02d}" for i in range(ndates)],
+                "azimuth_time": np.arange(n_az),
+                "slant_range_time": np.arange(n_rg),
+                "azimuth_m": ("azimuth_time", azimuth_m),
+                "slant_range_m": ("slant_range_time", slant_range_m),
+            },
+        )
+
+    @pytest.mark.unit
+    def test_image_deramp_zero_coeffs_is_identity(self):
+        """Zero Doppler centroid polynomial must leave amplitude and phase unchanged."""
+        rng = np.random.default_rng(10)
+        raw = (rng.standard_normal((2, 2, 8, 6)) + 1j * rng.standard_normal((2, 2, 8, 6))).astype(np.complex128)
+        slc = self._build_4d_slc(raw.copy(), np.arange(6, dtype=np.float64), np.arange(8, dtype=np.float64))
+
+        result = image_deramp(slc, np.zeros((3, 3), dtype=np.float64))
+        np.testing.assert_allclose(result.values, raw, atol=1e-14)
+
+    @pytest.mark.unit
+    def test_image_deramp_removes_constant_doppler_linear_ramp(self):
+        """Constant Doppler centroid f_dc = f0 produces linear azimuth phase 2*pi*f0*a that deramping removes."""
+        f0 = 15.5  # cycles per unit azimuth coordinate
+        dkcoa = np.array([[f0]], dtype=np.float64)
+
+        n_az, n_rg = 20, 12
+        azimuth_m = np.linspace(0.0, 2.0, n_az)
+        slant_range_m = np.linspace(100.0, 200.0, n_rg)
+
+        # True underlying scene has constant phase phi_0 = 0.45 rad and varying amplitude
+        phi_0 = 0.45
+        amplitude = 1.0 + 0.5 * np.sin(np.linspace(0, np.pi, n_az))[:, None] * np.ones((1, n_rg))
+        ramp_phase = 2.0 * np.pi * f0 * azimuth_m[:, None]
+        ramped_signal = (amplitude * np.exp(1j * (phi_0 + ramp_phase)))[None, None, :, :].astype(np.complex128)
+
+        slc = self._build_4d_slc(ramped_signal, slant_range_m, azimuth_m)
+        result = image_deramp(slc, dkcoa)
+
+        # Phase ramp must be completely removed, leaving flat phi_0 across the scene
+        residual_phase = np.angle(result.values[0, 0])
+        np.testing.assert_allclose(residual_phase, phi_0, atol=1e-12)
+        # Radiometric amplitude must be strictly conserved
+        np.testing.assert_allclose(np.abs(result.values[0, 0]), amplitude, atol=1e-12)
+
+    @pytest.mark.unit
+    def test_image_deramp_removes_quadratic_topsar_azimuth_chirp(self):
+        """Linear Doppler rate f_dc(a) = f0 + k_a * a integrates to quadratic phase 2*pi*(f0*a + 0.5*k_a*a^2)."""
+        f0 = -8.0
+        k_a = 12.0
+        dkcoa = np.array([[f0, k_a]], dtype=np.float64)
+
+        n_az, n_rg = 24, 10
+        azimuth_m = np.linspace(-1.0, 1.0, n_az)
+        slant_range_m = np.linspace(0.0, 50.0, n_rg)
+
+        quad_phase = 2.0 * np.pi * (f0 * azimuth_m[:, None] + 0.5 * k_a * (azimuth_m[:, None] ** 2))
+        signal = np.broadcast_to(np.exp(1j * quad_phase), (n_az, n_rg))[None, None, :, :].astype(np.complex128).copy()
+
+        slc = self._build_4d_slc(signal, slant_range_m, azimuth_m)
+        result = image_deramp(slc, dkcoa)
+
+        np.testing.assert_allclose(result.values[0, 0], 1.0 + 0j, atol=1e-12)
+
+    @pytest.mark.unit
+    def test_image_deramp_2d_coupled_range_azimuth_polynomial(self):
+        """2D range-azimuth coupled Doppler centroid polynomial must integrate along azimuth and deramp accurately."""
+        # f_dc(r, a) = c00 + c01*a + c02*a^2 + c10*r + c11*r*a + c20*r^2
+        dkcoa = np.array(
+            [
+                [2.5, -1.2, 0.3],
+                [0.04, 0.02, -0.005],
+                [-0.001, 0.0005, 0.0],
+            ],
+            dtype=np.float64,
+        )
+
+        npol, ndates, n_az, n_rg = 2, 3, 16, 12
+        azimuth_m = np.linspace(-2.0, 2.0, n_az)
+        slant_range_m = np.linspace(0.0, 30.0, n_rg)
+
+        # Analytical integral along azimuth (axis=1) multiplied by 2*pi
+        integrated_coeff = (2.0 * np.pi) * np.polynomial.polynomial.polyint(dkcoa, axis=1)
+        expected_phase = np.polynomial.polynomial.polygrid2d(slant_range_m, azimuth_m, integrated_coeff).T
+
+        rng = np.random.default_rng(99)
+        base_scene = rng.uniform(0.5, 3.0, size=(npol, ndates, n_az, n_rg)) * np.exp(
+            1j * rng.uniform(-np.pi, np.pi, size=(npol, ndates, n_az, n_rg))
+        )
+        ramped_data = (base_scene * np.exp(1j * expected_phase)[None, None, :, :]).astype(np.complex128)
+
+        slc = self._build_4d_slc(ramped_data, slant_range_m, azimuth_m)
+        result = image_deramp(slc, dkcoa)
+
+        # Deramped 4D stack must recover the un-ramped complex scene across all pols and dates
+        np.testing.assert_allclose(result.values, base_scene, rtol=1e-11, atol=1e-11)
+
+    @pytest.mark.unit
+    def test_image_deramp_preserves_complex64_dtype(self):
+        """Native Sentinel-1 complex64 SLC arrays must retain complex64 dtype after deramping."""
+        dkcoa = np.array([[5.0, -2.0]], dtype=np.float64)
+        n_az, n_rg = 10, 8
+        azimuth_m = np.linspace(0.0, 1.0, n_az)
+        slant_range_m = np.linspace(0.0, 10.0, n_rg)
+
+        phase = 2.0 * np.pi * (5.0 * azimuth_m[:, None] - azimuth_m[:, None] ** 2)
+        data_c64 = np.broadcast_to(np.exp(1j * phase), (n_az, n_rg))[None, None, :, :].astype(np.complex64).copy()
+
+        slc = self._build_4d_slc(data_c64, slant_range_m, azimuth_m)
+        result = image_deramp(slc, dkcoa)
+
+        assert result.dtype == np.complex64
+        np.testing.assert_allclose(result.values[0, 0], 1.0 + 0j, atol=1e-5)
+
 
 class TestIntersect:
     """Tests for intersect function."""
@@ -261,3 +388,37 @@ class TestGetRelativeOrbitNumber:
         manifest.append(orbit_num)
         result = get_relative_orbit_number(manifest, ns)
         assert result == 0
+
+
+class TestDerampNumba:
+    """Direct unit tests for the low-level deramp_numba kernel."""
+
+    @pytest.mark.unit
+    def test_deramp_numba_matches_polygrid2d_horner_evaluation(self):
+        """2D Horner evaluation in deramp_numba must match polygrid2d phase rotation."""
+        npol, ndates, n_az, n_rg = 2, 3, 14, 10
+        slant_range = np.linspace(800_000.0, 805_000.0, n_rg, dtype=np.float64)
+        azimuth = np.linspace(-1.5, 1.5, n_az, dtype=np.float64)
+
+        coeff = np.array(
+            [
+                [0.2, 12.5, -3.1],
+                [1e-4, -2e-4, 5e-5],
+                [-1e-8, 3e-9, -1e-9],
+            ],
+            dtype=np.float64,
+        )
+
+        expected_phase = np.polynomial.polynomial.polygrid2d(slant_range, azimuth, coeff).T
+        expected_rot = np.exp(-1j * expected_phase)
+
+        rng = np.random.default_rng(7)
+        raw = (
+            rng.standard_normal((npol, ndates, n_az, n_rg)) + 1j * rng.standard_normal((npol, ndates, n_az, n_rg))
+        ).astype(np.complex128)
+        slc = raw.copy()
+
+        deramp_numba(slc, slant_range, azimuth, coeff)
+
+        expected = raw * expected_rot[None, None, :, :]
+        np.testing.assert_allclose(slc, expected, rtol=1e-10, atol=1e-10)
