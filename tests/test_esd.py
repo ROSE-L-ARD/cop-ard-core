@@ -9,6 +9,7 @@ Covers the epoch-stacking differential InSAR module:
 """
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from cop_ard_core.esd import (
@@ -524,3 +525,84 @@ class TestEdgeCases:
         A = np.array([[1.0, 0.5, 0.3, 0.2], [0.0, 1.0, 2.0, 3.0]])
         result = angle_phase(param, y, A)
         assert -np.pi <= result <= np.pi
+
+
+class TestEsdAccuracyAppFunc050:
+    """APP-FUNC-050: Residual azimuth shift estimation via ESD must achieve accuracy
+    better than 1e-4 px under ideal noiseless conditions."""
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "true_shifts,poly_degree",
+        [
+            (np.array([0.00035, 0.00035, 0.00035, 0.00035]), 0),
+            (np.array([-0.00025, -0.00025, -0.00025, -0.00025]), 0),
+            (np.array([0.00020, 0.00032, 0.00044, 0.00056]), 1),
+        ],
+    )
+    def test_esd_subpixel_azimuth_shift_accuracy_app_func_050(self, true_shifts, poly_degree):
+        """compute_azimuth_shifts + optimize_curvature recover sub-pixel shifts within < 1e-4 px."""
+        rng = np.random.default_rng(42)
+        ny_ov, nx_ov = 32, 64
+        f0_list = [-0.22, -0.20, -0.18, -0.16]
+        f1_list = [0.22, 0.24, 0.26, 0.28]
+        t0 = np.datetime64("2020-01-01T00:00:00", "ns")
+
+        per_overlap = []
+        for idx, delta in enumerate(true_shifts):
+            f0, f1 = f0_list[idx], f1_list[idx]
+            raw = rng.standard_normal((ny_ov, nx_ov)) + 1j * rng.standard_normal((ny_ov, nx_ov))
+            scatterers = raw / np.abs(raw)
+            t = np.arange(ny_ov, dtype=np.float64)[:, None]
+
+            coords = {
+                "azimuth_pixel": np.arange(ny_ov, dtype=np.int32),
+                "slant_range_time": np.arange(nx_ov, dtype=np.float64),
+                "azimuth_m": ("azimuth_pixel", np.arange(ny_ov, dtype=np.float64)),
+                "slant_range_m": ("slant_range_time", np.arange(nx_ov, dtype=np.float64)),
+            }
+
+            ref0 = xr.DataArray(
+                (scatterers * np.exp(2j * np.pi * f0 * t)).astype(np.complex64),
+                dims=["azimuth_pixel", "slant_range_time"],
+                coords=coords,
+            )
+            ref1 = xr.DataArray(
+                (scatterers * np.exp(2j * np.pi * f1 * t)).astype(np.complex64),
+                dims=["azimuth_pixel", "slant_range_time"],
+                coords=coords,
+            )
+            # compute_interf evaluates reference.conj() * secondary -> phase +2*pi*f*delta recovers +delta
+            sec0 = xr.DataArray(
+                (scatterers * np.exp(2j * np.pi * f0 * (t + delta)))[None].astype(np.complex64),
+                dims=["acquisition_id", "azimuth_pixel", "slant_range_time"],
+                coords={"acquisition_id": ["2020-01-12"], **coords},
+                attrs={"VV": {"Grid": {"Col": {"SS": 1.0, "DeltaKCOAPoly": {"Coefs": [[f0]]}}}}},
+            )
+            sec1 = xr.DataArray(
+                (scatterers * np.exp(2j * np.pi * f1 * (t + delta)))[None].astype(np.complex64),
+                dims=["acquisition_id", "azimuth_pixel", "slant_range_time"],
+                coords={"acquisition_id": ["2020-01-12"], **coords},
+                attrs={"VV": {"Grid": {"Col": {"SS": 1.0, "DeltaKCOAPoly": {"Coefs": [[f1]]}}}}},
+            )
+
+            esd_ov = compute_azimuth_shifts(
+                burst0=sec0,
+                burst1=sec1,
+                reference0=ref0,
+                reference1=ref1,
+                multilook={"azimuth_pixel": 4, "slant_range_time": 16},
+                coherence_threshold=0.7,
+            )
+            esd_ov = (
+                esd_ov.isel(acquisition_id=0)
+                .expand_dims({"overlap": [idx]})
+                .assign_coords({"azimuth_time": (["overlap"], [t0 + np.timedelta64(idx * 3, "s")])})
+            )
+            per_overlap.append(esd_ov)
+
+        esd_stack = xr.concat(per_overlap, dim="overlap")
+        esd_opt = optimize_curvature(esd_stack, poly_degree=poly_degree)
+
+        estimated_shifts = esd_opt["mean_shift"].values
+        assert np.max(np.abs(estimated_shifts - true_shifts)) < 1e-4

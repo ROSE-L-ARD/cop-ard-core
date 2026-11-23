@@ -2865,3 +2865,87 @@ class TestJointUnwrap:
         assert ph_l_unw.dtype == np.float64
         assert ph_h_unw.dtype == np.float64
         assert cohe_mask.dtype == np.float64
+
+
+class TestSplitSpectrumAccuracyAppFunc051:
+    """APP-FUNC-051: Ionospheric phase signal reconstruction via split-spectrum must achieve
+    1-sigma accuracy better than 1e-2 rad under ideal conditions."""
+
+    @pytest.mark.unit
+    def test_ionospheric_phase_reconstruction_1sigma_app_func_051(self):
+        """End-to-end core pipeline (joint_unwrap -> split_spectrum_core -> fit_ionosphere ->
+        reconstruct_iono_surface) reconstructs a 2-D dispersive phase screen within < 1e-2 rad (1-sigma)."""
+        from cop_ard_core.split_spectrum import joint_unwrap_delta_mean, split_spectrum_core_delta_mean
+
+        rng = np.random.default_rng(42)
+        f0 = 5.405e9
+        df = 25.0e6
+        f_l = f0 - df
+        f_h = f0 + df
+
+        az_size, sr_size = 40, 50
+        base_dt = np.datetime64("2020-01-01T00:00:00", "ns")
+        az_coords = np.array(
+            [base_dt + np.timedelta64(int(1e8) * i, "ns") for i in range(az_size)], dtype="datetime64[ns]"
+        )
+        sr_coords = np.linspace(0.005, 0.006, sr_size, dtype=np.float64)
+
+        yy, xx = np.meshgrid(np.linspace(-1.0, 1.0, az_size), np.linspace(-1.0, 1.0, sr_size), indexing="ij")
+
+        # True 2-D dispersive (ionospheric) phase screen at carrier frequency f0 [rad]
+        phi_iono_true = 1.85 + 0.65 * yy - 0.45 * xx + 0.30 * (yy**2) - 0.22 * yy * xx + 0.18 * (xx**2)
+        # Strong non-dispersive phase screen (topography + deformation, exceeding 2*pi wrapping)
+        phi_nd_true = 4.50 * yy + 3.20 * xx - 1.10 * (yy**2) + 0.80 * (xx**2)
+
+        # Ideal high-coherence sub-band interferometric phases with small thermal noise (1e-4 rad)
+        phi_l_true = phi_nd_true * (f_l / f0) + phi_iono_true * (f0 / f_l)
+        phi_h_true = phi_nd_true * (f_h / f0) + phi_iono_true * (f0 / f_h)
+
+        phi_l_wrapped = np.angle(np.exp(1j * (phi_l_true + rng.normal(0.0, 1e-4, size=(az_size, sr_size)))))
+        phi_h_wrapped = np.angle(np.exp(1j * (phi_h_true + rng.normal(0.0, 1e-4, size=(az_size, sr_size)))))
+
+        coords = {"azimuth_time": az_coords, "slant_range_time": sr_coords}
+        dims = ["azimuth_time", "slant_range_time"]
+
+        coh_l = xr.DataArray(np.full((az_size, sr_size), 0.999), dims=dims, coords=coords)
+        coh_h = xr.DataArray(np.full((az_size, sr_size), 0.999), dims=dims, coords=coords)
+        ph_l_da = xr.DataArray(phi_l_wrapped, dims=dims, coords=coords)
+        ph_h_da = xr.DataArray(phi_h_wrapped, dims=dims, coords=coords)
+        az_raw = xr.DataArray(np.broadcast_to(az_coords[:, None], (az_size, sr_size)), dims=dims, coords=coords)
+
+        # 1. Standard formulation: joint_unwrap -> split_spectrum_core -> fit_ionosphere -> reconstruct_iono_surface
+        ph_l_unw, ph_h_unw, coh_mask = joint_unwrap(coh_l, coh_h, ph_l_da, ph_h_da, cohe_th=0.5)
+        phase_iono_est, _ = split_spectrum_core(ph_l_unw, ph_h_unw, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+
+        h_iono, h_orb = 350_000.0, 700_000.0
+        poly_corr = fit_ionosphere(phase_iono_est, az_raw, H_iono=h_iono, H_orb=h_orb, degree=2, weights=coh_mask)
+        phase_iono_rec = reconstruct_iono_surface(
+            phase_iono_est.azimuth_time,
+            phase_iono_est.slant_range_time,
+            az_raw,
+            poly_corr,
+            H_iono=h_iono,
+            H_orb=h_orb,
+        )
+
+        # Align constant unwrapping ambiguity offset and evaluate 1-sigma residual error
+        err = phase_iono_rec.values - phi_iono_true
+        err -= np.mean(err)
+        assert float(np.std(err)) < 1e-2
+
+        # 2. Delta/mean formulation used by the application workflow
+        delta_ph, mean_ph, _ = joint_unwrap_delta_mean(coh_l, coh_h, ph_l_da, ph_h_da, cohe_th=0.5)
+        phase_iono_dm, _ = split_spectrum_core_delta_mean(delta_ph, mean_ph, f0=f0, f_l_tot=f_l, f_h_tot=f_h)
+        poly_dm = fit_ionosphere(phase_iono_dm, az_raw, H_iono=h_iono, H_orb=h_orb, degree=2, weights=coh_mask)
+        rec_dm = reconstruct_iono_surface(
+            phase_iono_dm.azimuth_time,
+            phase_iono_dm.slant_range_time,
+            az_raw,
+            poly_dm,
+            H_iono=h_iono,
+            H_orb=h_orb,
+        )
+
+        err_dm = rec_dm.values - phi_iono_true
+        err_dm -= np.mean(err_dm)
+        assert float(np.std(err_dm)) < 1e-2

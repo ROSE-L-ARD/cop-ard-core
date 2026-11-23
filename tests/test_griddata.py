@@ -600,3 +600,45 @@ class TestInterpolate:
 
         result = interpolate(points, values, bbox)
         assert result.shape == (1, 5, 5)
+
+    @pytest.mark.unit
+    def test_interpolate_sparse_to_regular_matches_scipy_app_func_048(self):
+        """APP-FUNC-048: Sparse-to-regular triangulation interpolation must match
+        scipy.interpolate.griddata(method='linear') within < 1e-5."""
+        import scipy.interpolate
+
+        # 1. Build a smooth, non-uniformly warped 2-D sparse grid covering [0, 16) x [0, 16)
+        u = np.linspace(-5.0, 21.0, 30)
+        v = np.linspace(-5.0, 21.0, 30)
+        uu, vv = np.meshgrid(u, v, indexing="ij")
+
+        # Mild shear + smooth nonlinear distortion (preserves consistent quad diagonal orientation)
+        y_sparse = uu + 0.15 * vv + 0.25 * np.sin(uu / 5.0)
+        x_sparse = vv + 0.15 * uu + 0.30 * np.cos(vv / 4.5)
+        points = np.stack([y_sparse, x_sparse], axis=-1)
+
+        # 2. Multi-layer values (D=2, mirroring simultaneous drg and daz interpolation)
+        layer_0 = (
+            1.25 * y_sparse - 0.85 * x_sparse + 0.02 * (y_sparse**2) - 0.015 * (x_sparse**2) + np.sin(0.2 * y_sparse)
+        )
+        layer_1 = -0.60 * y_sparse + 1.40 * x_sparse + 0.01 * y_sparse * x_sparse + 2.5
+        values = np.stack([layer_0, layer_1], axis=0)
+
+        bbox = np.array([0, 0, 16, 16])
+        result = interpolate(points, values, bbox)
+
+        # 3. Reference triangular linear interpolation via SciPy on the regular integer target grid
+        gy, gx = np.meshgrid(
+            np.arange(bbox[1], bbox[3], dtype=np.float64), np.arange(bbox[0], bbox[2], dtype=np.float64), indexing="ij"
+        )
+        src_xy = (x_sparse.ravel(), y_sparse.ravel())
+
+        for layer_idx in range(values.shape[0]):
+            scipy_expected = scipy.interpolate.griddata(
+                src_xy,
+                values[layer_idx].ravel(),
+                (gx, gy),
+                method="linear",
+            )
+            assert not np.isnan(scipy_expected).any()
+            assert np.max(np.abs(result[layer_idx] - scipy_expected)) < 1e-5
