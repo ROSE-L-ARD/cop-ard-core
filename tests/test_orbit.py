@@ -157,6 +157,32 @@ class TestBuildOrbitDataset:
         result = build_orbit_dataset([tree])  # type: ignore
         assert result.position.shape == (100, 3)
 
+    @pytest.mark.parametrize(
+        "orbit_type",
+        [
+            "POEORB",
+            "MOEORB",
+            "RESORB",
+            "PREORB",
+            "AUX_POEORB",
+            "AUX_MOEORB",
+            "AUX_RESORB",
+            "AUX_PREORB",
+        ],
+    )
+    def test_build_orbit_dataset_all_esa_pod_types_app_intf_027(self, orbit_xml_element, orbit_type):
+        """APP-INTF-027: build_orbit_dataset must ingest all ESA POD product types (POE, MOE, RES, PRE)."""
+        # Override the XML File_Type tag with the target ESA POD orbit product type
+        file_type = orbit_xml_element.find(".//File_Type")
+        assert file_type is not None
+        file_type.text = orbit_type
+
+        # Parse the orbit XML and verify state vectors and preserved orbit type metadata
+        result = build_orbit_dataset([orbit_xml_element])
+        assert result.attrs.get("type") == orbit_type
+        assert "position" in result.data_vars
+        assert "velocity" in result.data_vars
+
 
 class TestRefitOrbitCoefficients:
     """Tests for refit_orbit_coefficients."""

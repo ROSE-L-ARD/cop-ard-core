@@ -1137,3 +1137,66 @@ class TestEdgeCases:
             correlation_kernel_size=None,
         )
         assert result.shape == (nim, patch_ds.patch.size, 5)
+
+
+class TestIccSubpixelAccuracyAppFunc049:
+    """APP-FUNC-049: ICC peak identification accuracy must be better than 1e-2 px
+    in both azimuth (dy) and slant-range (dx) under ideal noiseless conditions."""
+
+    @staticmethod
+    def _fft_shift_2d(image: np.ndarray, shift_y: float, shift_x: float) -> np.ndarray:
+        """Apply an exact periodic sub-pixel translation via Fourier phase ramp."""
+        ny, nx = image.shape
+        fy = np.fft.fftfreq(ny)[:, None]
+        fx = np.fft.fftfreq(nx)[None, :]
+        return np.real(np.fft.ifft2(np.fft.fft2(image) * np.exp(-2j * np.pi * (fy * shift_y + fx * shift_x))))
+
+    @staticmethod
+    def _estimate_shift_px(ref_patch: np.ndarray, sec_patch: np.ndarray, wsearch: int = 6) -> tuple[float, float]:
+        """Run compute_pearson_coefficient with unit pixel_to_time and return (dy, dx) in pixels."""
+        coords = {"y": np.arange(ref_patch.shape[0]), "x": np.arange(ref_patch.shape[1])}
+        stack = xr.DataArray(
+            np.stack([ref_patch, sec_patch], axis=-1),
+            dims=["y", "x", "z"],
+            coords={**coords, "z": ["ref", "sec"]},
+        )
+        ref_da = xr.DataArray(ref_patch, dims=["y", "x"], coords=coords)
+        res = compute_pearson_coefficient(
+            patch=xr.Dataset(coords={"patch": 0}),
+            stack=stack,
+            reference=ref_da,
+            pixel_to_time=np.array([[1.0], [1.0]], dtype="float64"),
+            peak_window_size=[wsearch, wsearch],
+            y_dim="y",
+            x_dim="x",
+            correlation_kernel_size=[1, 1],
+        )
+        dy = float(res.sel(acquisition_id="sec", variable="dy").values[0])
+        dx = float(res.sel(acquisition_id="sec", variable="dx").values[0])
+        return dy, dx
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "shift_y,shift_x",
+        [
+            (-0.25, 0.15),
+            (-0.42, 0.35),
+            (-2.17, 1.28),
+            (0.08, -0.48),
+            (1.75, -1.65),
+        ],
+    )
+    def test_icc_ideal_targets_subpixel_accuracy_app_func_049(self, shift_y, shift_x):
+        """Ideal noiseless Gaussian point targets achieve sub-pixel ICC accuracy < 1e-2 px."""
+        n = 128
+        yy, xx = np.mgrid[0:n, 0:n]
+        ref = np.zeros((n, n), dtype=np.float64)
+        for cy, cx in [(40.0, 40.0), (45.0, 82.0), (80.0, 48.0), (85.0, 88.0), (64.0, 64.0)]:
+            ref += np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * 2.5**2))
+
+        sec = self._fft_shift_2d(ref, shift_y, shift_x)
+        crop = slice(16, 112)
+        dy, dx = self._estimate_shift_px(ref[crop, crop], sec[crop, crop], wsearch=6)
+
+        assert abs(dy - (-shift_y)) < 1e-2
+        assert abs(dx - (-shift_x)) < 1e-2

@@ -874,6 +874,65 @@ class TestSincWarp:
             atol=1e-4,
         )
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "kernel_shape,kaiser_beta",
+        [
+            ((11, 11), 6.0),  # Default Co-registration Unit configuration
+            ((15, 15), 10.0),  # High-selectivity configuration
+        ],
+    )
+    def test_sinc_warp_sparse_grid_discrete_impulse_app_func_047(self, kernel_shape, kaiser_beta):
+        """APP-FUNC-047: Regular-to-sparse 2-D interpolation on a discrete impulse must match
+        the analytical 2-D Kaiser-weighted sinc kernel within < 1e-5."""
+        ov_fact = 100_000
+        kh, kw = kernel_shape
+        h, w = 35, 35
+        y0, x0 = h // 2, w // 2
+
+        # 1. Complex 2-D discrete impulse on a regular grid
+        image = np.zeros((h, w), dtype=np.complex128)
+        image[y0, x0] = 1.0 + 0.0j
+
+        kernel = {
+            "kernel_shape": kernel_shape,
+            "ov_fact": ov_fact,
+            "sinc_x": sinc(size=kw, ov_fact=ov_fact, kaiser_beta=kaiser_beta),
+            "sinc_y": sinc(size=kh, ov_fact=ov_fact, kaiser_beta=kaiser_beta),
+        }
+
+        # 2. Non-uniform 2-D sparse query coordinates around the impulse
+        rng = np.random.default_rng(42)
+        half_w = kw // 2 + 1.5
+        half_h = kh // 2 + 1.5
+        x_sparse = x0 + rng.uniform(-half_w, half_w, size=2000)
+        y_sparse = y0 + rng.uniform(-half_h, half_h, size=2000)
+
+        # Pass invalid_value=np.nan so zero background pixels are not treated as nodata
+        result = sinc_warp(image, x_sparse, y_sparse, kernel, invalid_value=np.nan)
+
+        # 3. Analytical continuous 2-D Kaiser-weighted sinc kernel
+        nx = int(kw * ov_fact) + (1 - (int(kw * ov_fact) % 2))
+        ny = int(kh * ov_fact) + (1 - (int(kh * ov_fact) % 2))
+        span_x = (nx - 1) / (2.0 * ov_fact)
+        span_y = (ny - 1) / (2.0 * ov_fact)
+
+        dx = x_sparse - x0
+        dy = y_sparse - y0
+        wx = np.where(
+            np.abs(dx) <= span_x,
+            np.sinc(dx) * np.i0(kaiser_beta * np.sqrt(np.maximum(0.0, 1.0 - (dx / span_x) ** 2))) / np.i0(kaiser_beta),
+            0.0,
+        )
+        wy = np.where(
+            np.abs(dy) <= span_y,
+            np.sinc(dy) * np.i0(kaiser_beta * np.sqrt(np.maximum(0.0, 1.0 - (dy / span_y) ** 2))) / np.i0(kaiser_beta),
+            0.0,
+        )
+        expected = wx * wy
+
+        assert np.max(np.abs(result - expected)) < 1e-5
+
 
 class TestDotNumba:
     """Tests for _dot_numba internal function."""

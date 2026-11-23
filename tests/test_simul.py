@@ -917,6 +917,57 @@ class TestBackwardGeocode:
         cos_angles = dot_products / range_mags
         np.testing.assert_allclose(cos_angles, 0.0, atol=1e-10)
 
+    @pytest.mark.unit
+    def test_backward_geocode_zero_doppler_orthogonality_app_func_046(self):
+        """APP-FUNC-046: |R(az_0) . V(az_0)| < 1e-6 for unit LOS and velocity vectors
+        on a curved LEO trajectory with varying topography."""
+        # 1. Curved LEO orbit polynomial (degree 5, ~700 km altitude, ~7500 m/s)
+        r_orb = 7_071_000.0
+        v_orb = 7_500.0
+        omega = v_orb / r_orb
+        coeffs_x = np.array([0.0, r_orb * omega, 0.0, -r_orb * (omega**3) / 6.0, 0.0, r_orb * (omega**5) / 120.0])
+        coeffs_y = np.array([0.0, 120.0, -0.05, 1e-5, 0.0, 0.0])
+        coeffs_z = np.array([r_orb, 0.0, -r_orb * (omega**2) / 2.0, 0.0, r_orb * (omega**4) / 24.0, 0.0])
+
+        ref_time = np.datetime64("2024-06-01T06:00:00", "ns")
+        pos = xr.DataArray(np.stack([coeffs_x, coeffs_y, coeffs_z], axis=-1), dims=["degree", "axis"])
+        pos.attrs = {"referenceTime": ref_time, "scaleTime": 1e-9}
+
+        # 2. 2D ECEF DEM grid (~50 km x 50 km off-nadir swath with 500..3500 m terrain relief)
+        r_earth = 6_371_000.0
+        xg = np.linspace(-25_000.0, 25_000.0, 20)
+        yg = np.linspace(400_000.0, 500_000.0, 20)
+        xx, yy = np.meshgrid(xg, yg)
+        hh = 1500.0 * (1.0 + np.sin(xx / 8000.0) * np.cos(yy / 10000.0)) + 500.0
+        zz = np.sqrt((r_earth + hh) ** 2 - xx**2 - yy**2)
+        dem_ecef = xr.DataArray(
+            np.stack([xx, yy, zz], axis=-1),
+            dims=["y", "x", "axis"],
+            coords={"axis": [0, 1, 2]},
+        )
+
+        # 3. Solve Zero-Doppler azimuth time az_0
+        result = backward_geocode(dem_ecef, pos)
+        az0_flat = xr.DataArray(result.azimuth_time.values.ravel(), dims=["azimuth_time"])
+
+        # 4. Re-evaluate satellite position P(az_0) and velocity V(az_0) at determined az_0
+        arp_coeffs = {"X": coeffs_x, "Y": coeffs_y, "Z": coeffs_z}
+        p_sat = get_position(az0_flat, ref_time, arp_coeffs).values.T.reshape(dem_ecef.shape)
+        v_sat = get_velocity(az0_flat, ref_time, arp_coeffs).values.T.reshape(dem_ecef.shape)
+
+        r_vec = dem_ecef.values - p_sat
+        r_unit = r_vec / np.linalg.norm(r_vec, axis=-1, keepdims=True)
+        v_unit = v_sat / np.linalg.norm(v_sat, axis=-1, keepdims=True)
+
+        doppler_cosine = np.abs(np.einsum("ijk,ijk->ij", r_unit, v_unit))
+        assert np.max(doppler_cosine) < 1e-6
+
+        # 5. Also verify internal consistency of dataset outputs (dem_distance, satellite_direction)
+        r_out = result.dem_distance.values
+        r_out_unit = r_out / np.linalg.norm(r_out, axis=-1, keepdims=True)
+        v_out_unit = result.satellite_direction.values
+        assert np.max(np.abs(np.einsum("ijk,ijk->ij", r_out_unit, v_out_unit))) < 1e-6
+
 
 class TestSimulateAcquisition:
     """Tests for simulate_acquisition."""
