@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from numpy.polynomial.polynomial import polyder, polyval
 from pyproj import CRS
 from scipy.constants import speed_of_light
 
@@ -825,6 +826,96 @@ class TestBackwardGeocode:
         assert result.azimuth_time.shape == (10, 10)
         range_mag = np.sqrt((result.dem_distance.values**2).sum(axis=-1))
         np.testing.assert_allclose(range_mag, 1000.0, atol=1e-6)
+
+    @pytest.mark.unit
+    def test_backward_geocode_curved_orbit_negative_azimuth_and_distant_guess(self):
+        """Solver must converge on a curved 3rd-order LEO orbit to a negative azimuth offset from a distant t0."""
+        c0 = np.array([6700000.0, 2000000.0, 4000000.0])
+        c1 = np.array([7200.0, 1500.0, -1200.0])
+        c2 = np.array([-2.75, -0.8, -1.65])
+        c3 = np.array([0.001, -0.0005, 0.0008])
+        pos_vals = np.vstack([c0, c1, c2, c3])
+        vel_vals = polyder(pos_vals, 1)
+
+        ref_time = np.datetime64("2024-01-01T00:00:00", "ns")
+        pos = xr.DataArray(pos_vals, dims=["degree", "axis"])
+        pos.attrs = {"referenceTime": ref_time, "scaleTime": 1e-9}
+
+        # Construct a target whose exact zero-Doppler time is t_true = -1.75 s
+        t_true = -1.75
+        p_sat = np.array([polyval(t_true, pos_vals[:, k]) for k in range(3)])
+        v_sat = np.array([polyval(t_true, vel_vals[:, k]) for k in range(3)])
+        v_hat = v_sat / np.linalg.norm(v_sat)
+
+        perp = np.cross(v_sat, np.array([0.0, 0.0, 1.0]))
+        perp /= np.linalg.norm(perp)
+        slant_range = 850_000.0
+        p_dem = p_sat + slant_range * perp
+
+        dem_ecef = xr.DataArray(p_dem[None, None, :], dims=["y", "x", "axis"], coords={"axis": [0, 1, 2]})
+
+        # Initialize Newton-Raphson 6.0 seconds away from t_true (at +4.25 s)
+        t0 = ref_time + np.timedelta64(4_250_000_000, "ns")
+        result = backward_geocode(dem_ecef, pos, t0=t0, conv_th=1e-10)
+
+        expected_az = ref_time + np.timedelta64(int(round(t_true * 1e9)), "ns")
+        az_err_ns = abs((result.azimuth_time.values[0, 0] - expected_az).astype("timedelta64[ns]").astype(np.int64))
+        assert az_err_ns <= 10  # within 10 nanoseconds (< 0.1 mm along-track)
+
+        np.testing.assert_allclose(result.dem_distance.values[0, 0], p_dem - p_sat, rtol=1e-9, atol=1e-4)
+        np.testing.assert_allclose(result.satellite_direction.values[0, 0], v_hat, rtol=1e-9, atol=1e-9)
+
+        # Zero-Doppler orthogonality: range vector must be strictly perpendicular to velocity vector
+        cos_angle = np.dot(result.dem_distance.values[0, 0], result.satellite_direction.values[0, 0]) / slant_range
+        assert abs(cos_angle) < 1e-10
+
+    @pytest.mark.unit
+    def test_backward_geocode_2d_swath_along_and_cross_track_geometry(self):
+        """2D DEM grid spanning along-track and cross-track directions on a curved orbit satisfies zero-Doppler."""
+        c0 = np.array([6700000.0, 2000000.0, 4000000.0])
+        c1 = np.array([7200.0, 1500.0, -1200.0])
+        c2 = np.array([-2.75, -0.8, -1.65])
+        pos_vals = np.vstack([c0, c1, c2])
+        vel_vals = polyder(pos_vals, 1)
+
+        ref_time = np.datetime64("2024-01-01T00:00:00", "ns")
+        pos = xr.DataArray(pos_vals, dims=["degree", "axis"])
+        pos.attrs = {"referenceTime": ref_time, "scaleTime": 1e-9}
+
+        t_grid = np.linspace(-2.0, 2.0, 5)
+        ranges = np.linspace(800_000.0, 900_000.0, 6)
+        dem_grid = np.zeros((5, 6, 3), dtype=np.float64)
+        for i, ti in enumerate(t_grid):
+            p_s = np.array([polyval(ti, pos_vals[:, k]) for k in range(3)])
+            v_s = np.array([polyval(ti, vel_vals[:, k]) for k in range(3)])
+            u_perp = np.cross(v_s, np.array([0.0, 0.0, 1.0]))
+            u_perp /= np.linalg.norm(u_perp)
+            for j, r_val in enumerate(ranges):
+                dem_grid[i, j, :] = p_s + r_val * u_perp
+
+        dem_ecef = xr.DataArray(dem_grid, dims=["y", "x", "axis"], coords={"axis": [0, 1, 2]})
+
+        # Spatially varying per-pixel initial guess DataArray
+        t0_grid = np.full((5, 6), ref_time + np.timedelta64(2_500_000_000, "ns"))
+        t0_da = xr.DataArray(t0_grid, dims=["y", "x"])
+
+        result = backward_geocode(dem_ecef, pos, t0=t0_da, conv_th=1e-10)
+
+        # 1. Along-track azimuth times must match t_grid across all range columns
+        for i, ti in enumerate(t_grid):
+            expected_az = ref_time + np.timedelta64(int(round(ti * 1e9)), "ns")
+            dt_ns = np.abs((result.azimuth_time.values[i, :] - expected_az).astype("timedelta64[ns]").astype(np.int64))
+            assert np.all(dt_ns <= 10)
+
+        # 2. Cross-track slant-range magnitudes must match `ranges` across all azimuth rows
+        range_mags = np.linalg.norm(result.dem_distance.values, axis=-1)
+        expected_ranges = np.broadcast_to(ranges[None, :], (5, 6))
+        np.testing.assert_allclose(range_mags, expected_ranges, rtol=1e-9, atol=1e-4)
+
+        # 3. Zero-Doppler orthogonality must hold across every pixel in the 2D swath
+        dot_products = np.sum(result.dem_distance.values * result.satellite_direction.values, axis=-1)
+        cos_angles = dot_products / range_mags
+        np.testing.assert_allclose(cos_angles, 0.0, atol=1e-10)
 
 
 class TestSimulateAcquisition:
